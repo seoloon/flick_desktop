@@ -15,6 +15,7 @@ import { Servers } from "@/features/servers/Servers";
 import { Settings } from "@/features/settings/Settings";
 import { toggleFrame } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
+import { goBack } from "@/lib/history";
 import { onAction, setBackFallback } from "@/nav/input";
 import { Shell } from "@/shell/Shell";
 
@@ -35,7 +36,7 @@ function PlayerRoute() {
 function GlobalActions() {
   const navigate = useNavigate();
   useEffect(() => {
-    setBackFallback(() => navigate(-1));
+    setBackFallback(() => goBack(navigate));
     return onAction((a) => {
       if (a.type !== "menu") return false;
       void toggleFrame();

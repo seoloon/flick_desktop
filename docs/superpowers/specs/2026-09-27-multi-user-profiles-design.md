@@ -358,7 +358,7 @@ Panneau en verre (vocabulaire `TvDialog`) :
 ## 7. Bouton retour
 
 - Composant `ui/src/components/tv/BackButton.tsx` : bouton rond en verre
-  (`Button`, `size="icon-lg"`, icône `ArrowLeft`), fixé en haut à gauche du
+  (`Button`, `size="icon" (44 px)`, icône `ArrowLeft`), fixé en haut à gauche du
   contenu (après la sidebar, dans la gouttière), au-dessus du héros.
 - Sur `features/detail/Detail.tsx` et `features/library/LibraryGrid.tsx`.
 - Action : `navigate(-1)` s'il existe un historique dans l'app

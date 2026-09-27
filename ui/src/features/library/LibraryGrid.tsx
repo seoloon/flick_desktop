@@ -9,6 +9,7 @@ import { CardPlaceholder, MediaCard } from "@/components/tv/Card";
 import { CenteredSpinner, Notice } from "@/components/tv/Feedback";
 import { PageHeader } from "@/components/tv/Page";
 import { Segmented } from "@/components/tv/Segmented";
+import { BackButton } from "@/components/tv/BackButton";
 import { api, asError } from "@/ipc/api";
 import type { ItemKind } from "@/ipc/bindings/ItemKind";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
@@ -122,6 +123,9 @@ export function LibraryGrid() {
 
   return (
     <Screen ready={total !== null}>
+      <div className="px-[var(--gutter)] pt-[var(--page-top)] -mb-[var(--page-top)]">
+        <BackButton />
+      </div>
       <div className="flex flex-col gap-8 px-[var(--gutter)] pt-[var(--page-top)] pb-24">
         <PageHeader
           title={search.get("name") ?? "Library"}

@@ -10,6 +10,7 @@ import { Button } from "@/components/tv/Button";
 import { MediaCard } from "@/components/tv/Card";
 import { CenteredSpinner, EmptyState } from "@/components/tv/Feedback";
 import { HeroBackdrop, MetaLine, TitleArt } from "@/components/tv/Hero";
+import { BackButton } from "@/components/tv/BackButton";
 import { Facts, Panel, Pill } from "@/components/tv/Page";
 import { Segmented } from "@/components/tv/Segmented";
 import { Shelf } from "@/components/tv/Shelf";
@@ -73,6 +74,7 @@ export function Detail() {
     <Screen ready>
       <section className="relative flex min-h-[max(36rem,80vh)] flex-col justify-end">
         <HeroBackdrop image={item.images.backdrop ?? item.images.thumb} />
+        <BackButton className="absolute top-[var(--page-top)] left-[var(--gutter)] z-10" />
         {/* The block slides; only its text fades. The glass buttons must not
             sit under a fading ancestor, or their blur switches on late. */}
         <motion.div initial={{ y: 20 }} animate={{ y: 0 }} transition={enter} className="relative flex max-w-3xl flex-col gap-5 px-[var(--gutter)] pb-14">
