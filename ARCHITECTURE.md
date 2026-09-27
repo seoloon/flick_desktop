@@ -345,6 +345,7 @@ MediaItem ─► provider.playback_info(profil client) ─► CapabilityManager.
 | `oneshot-storage` | Réglages, profils (`profiles.json`, regroupement, PIN), cache métadonnées (SQLite), cache images, secrets (keyring) | Persistance et secrets hors de la logique |
 | `oneshot-catalog` | Registre des serveurs, agrégation multi-serveurs, dédoublonnage | Seul endroit qui connaît « plusieurs serveurs » |
 | `providers/jellyfin`, `providers/plex` | Clients API → modèle commun | Un provider = un crate, extensible |
+| `providers/tmdb` | Client TMDB : biographies, photos, filmographies des personnes | Source externe pure (sans cache ni clé) ; `app` garde la clé au trousseau et le cache |
 | `app` | Shell Tauri : commandes, protocole images, fenêtres, diagnostics | Colle ; aucune logique métier |
 
 ### 7.2 Frontend

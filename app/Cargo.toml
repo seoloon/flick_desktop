@@ -34,5 +34,8 @@ tracing-subscriber.workspace = true
 url.workspace = true
 chrono.workspace = true
 
+[dev-dependencies]
+wiremock.workspace = true
+
 [lints]
 workspace = true

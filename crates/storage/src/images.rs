@@ -130,6 +130,10 @@ fn collect(dir: &Path, out: &mut Vec<(PathBuf, u64, SystemTime)>) -> std::io::Re
 
 #[cfg(test)]
 mod tests {
+    use oneshot_core::media::ImageKind;
+    use oneshot_core::{ItemRef, ServerId};
+
+    use super::*;
 
     #[test]
     fn tmdb_and_avatar_keys_never_collide() {
@@ -139,10 +143,6 @@ mod tests {
         assert_ne!(tmdb, avatar_cache_key(&url));
         assert_eq!(tmdb, tmdb_cache_key(&url), "stable");
     }
-    use oneshot_core::media::ImageKind;
-    use oneshot_core::{ItemRef, ServerId};
-
-    use super::*;
 
     #[test]
     fn keys_depend_on_size_and_do_not_leak_tags() {

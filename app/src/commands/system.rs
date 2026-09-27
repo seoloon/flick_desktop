@@ -158,6 +158,14 @@ pub async fn palette(state: St<'_>, item: ItemRef, kind: ImageKind, tag: String)
     tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(e.to_string()))?
 }
 
+/// Palette of a TMDB photo (`/abc.jpg`): a person page lights the
+/// background with it, like artwork does.
+#[tauri::command]
+pub async fn tmdb_palette(state: St<'_>, path: String) -> Result<Palette> {
+    let bytes = images::load_tmdb(&state, &format!("w185{path}")).await?;
+    tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(e.to_string()))?
+}
+
 #[tauri::command]
 pub fn cache_clear(state: St<'_>) -> Result<()> {
     state.images.clear()

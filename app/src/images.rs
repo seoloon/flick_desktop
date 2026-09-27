@@ -87,13 +87,15 @@ pub fn handle(app: &AppHandle, request: Request<Vec<u8>>, responder: UriSchemeRe
     tauri::async_runtime::spawn(async move {
         let state = app.state::<Arc<AppState>>();
         let p = path.trim_start_matches('/');
-        let loaded = match p.strip_prefix("avatar/") {
-            _ if p.starts_with("tmdb/") => Some(load_tmdb(&state, &p["tmdb/".len()..]).await),
-            Some(rest) => Some(load_avatar(&state, rest).await),
-            None => match parse_path(&path) {
+        let loaded = if let Some(rest) = p.strip_prefix("tmdb/") {
+            Some(load_tmdb(&state, rest).await)
+        } else if let Some(rest) = p.strip_prefix("avatar/") {
+            Some(load_avatar(&state, rest).await)
+        } else {
+            match parse_path(&path) {
                 Some((image, size)) => Some(load(&state, &image, size).await),
                 None => None,
-            },
+            }
         };
         let response = match loaded {
             None => Response::builder().status(StatusCode::BAD_REQUEST).body(Vec::new()),
@@ -134,7 +136,7 @@ async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
 
 /// A TMDB photo or poster (`tmdb/<size>/<file>`), public; only TMDB files,
 /// so the route cannot fetch anything else.
-async fn load_tmdb(state: &AppState, rest: &str) -> Result<Vec<u8>> {
+pub async fn load_tmdb(state: &AppState, rest: &str) -> Result<Vec<u8>> {
     let url = oneshot_tmdb::image_url(rest).ok_or_else(|| Error::Invalid("tmdb image path".into()))?;
     let key = oneshot_storage::images::tmdb_cache_key(&url);
     if let Some(bytes) = state.images.get(&key) {

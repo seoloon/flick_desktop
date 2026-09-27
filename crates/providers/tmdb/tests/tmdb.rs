@@ -4,7 +4,8 @@ use oneshot_core::person::{PersonInfo, TmdbUse};
 use oneshot_core::{ItemRef, ServerId};
 use oneshot_tmdb::{PersonRef, TitleKind, Tmdb, image_url, merge_details, pick_by_name};
 use url::Url;
-use wiremock::matchers::{header, method, path, query_param};
+use wiremock::matchers::{header, method, path, query_param, query_param_is_missing};
+use wiremock::Request;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const V3: &str = "0123456789abcdef0123456789abcdef";
@@ -32,6 +33,11 @@ fn person_json(bio: &str) -> serde_json::Value {
     })
 }
 
+/// Each key form goes one way only: no v3 key in a header.
+fn no_authorization(req: &Request) -> bool {
+    !req.headers.contains_key("authorization")
+}
+
 #[test]
 fn keys_are_recognised_by_format() {
     let http = oneshot_net::reqwest::Client::new();
@@ -43,9 +49,9 @@ fn keys_are_recognised_by_format() {
 #[tokio::test]
 async fn v3_key_goes_in_the_query_v4_in_the_header() {
     let server = MockServer::start().await;
-    Mock::given(method("GET")).and(path("/3/authentication")).and(query_param("api_key", V3))
+    Mock::given(method("GET")).and(path("/3/authentication")).and(query_param("api_key", V3)).and(no_authorization)
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "success": true }))).expect(1).mount(&server).await;
-    Mock::given(method("GET")).and(path("/3/authentication")).and(header("Authorization", format!("Bearer {V4}").as_str()))
+    Mock::given(method("GET")).and(path("/3/authentication")).and(header("Authorization", format!("Bearer {V4}").as_str())).and(query_param_is_missing("api_key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "success": true }))).expect(1).mount(&server).await;
     tmdb(&server, V3).check().await.unwrap();
     tmdb(&server, V4).check().await.unwrap();
