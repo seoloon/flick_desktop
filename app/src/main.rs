@@ -16,6 +16,7 @@ use oneshot_player::presenter::HostWindow;
 use oneshot_player::{Player, PlayerConfig};
 use oneshot_storage::cache::MetadataCache;
 use oneshot_storage::images::ImageCache;
+use oneshot_storage::pin::PinGuard;
 use oneshot_storage::{Paths, Store};
 use parking_lot::{Mutex, RwLock};
 use tauri::{Emitter, Manager};
@@ -65,6 +66,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
     let paths = Paths { config: app.path().app_config_dir()?, cache: app.path().app_cache_dir()? };
     let store = Store::open(paths.clone())?;
     let settings = store.settings();
+    let profiles = store.profiles();
     log_reload(&settings.advanced.log_level);
     let identity = store.identity()?;
     let http = oneshot_net::client(&settings.network)?;
@@ -108,8 +110,19 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         log_reload,
         plex_account: Mutex::new(None),
         pip_restore: Mutex::new(None),
+        profiles: RwLock::new(profiles),
+        active_profile: RwLock::new(None),
+        pin_guards: Mutex::new(Default::default()),
+        config_guard: Mutex::new(PinGuard::default()),
+        offline: RwLock::new(Default::default()),
+        excluded: RwLock::new(Default::default()),
+        switching: tokio::sync::Mutex::new(()),
     });
-    state.restore_servers();
+    // Multi-user: resume the last profile, or wait for the picker (nothing
+    // is loaded until someone is chosen). Off: every connection, as before.
+    if !state.resume_last_profile() {
+        state.restore_servers();
+    }
     app.manage(Arc::clone(&state));
     #[cfg(debug_assertions)]
     tauri::async_runtime::block_on(dev::bootstrap(Arc::clone(&state)));

@@ -80,6 +80,13 @@ impl Catalog {
         let _ = self.cache.invalidate_server(&id.to_string());
     }
 
+    /// Swaps the whole set of live providers (profile switch). The metadata
+    /// cache is kept: it is keyed by connection, so the next profile's
+    /// screens paint from it at once.
+    pub fn replace(&self, providers: Vec<Arc<dyn MediaProvider>>) {
+        *self.providers.write() = providers;
+    }
+
     pub fn providers(&self) -> Vec<Arc<dyn MediaProvider>> {
         self.providers.read().clone()
     }

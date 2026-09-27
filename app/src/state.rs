@@ -1,16 +1,21 @@
 //! Application state shared by commands.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 use oneshot_capabilities::CapabilityManager;
 use oneshot_catalog::Catalog;
+use oneshot_core::profile::{Origin, Profile, ProfileId, ProfileMode, ProfilesConfig};
 use oneshot_core::provider::MediaProvider;
 use oneshot_core::server::{ProviderKind, ServerDescriptor};
-use oneshot_core::settings::Settings;
+use oneshot_core::settings::{PersonalSettings, Settings};
 use oneshot_core::{Error, Result, ServerId};
 use oneshot_net::reqwest::Client;
 use oneshot_player::Player;
 use oneshot_storage::images::ImageCache;
+use oneshot_storage::pin::{self, PinGuard};
+use oneshot_storage::profiles::{self, Resolved};
 use oneshot_storage::{Identity, Store, secrets};
 use parking_lot::{Mutex, RwLock};
 
@@ -40,6 +45,22 @@ pub struct AppState {
     pub plex_account: Mutex<Option<String>>,
     /// Window geometry to restore when leaving picture-in-picture.
     pub pip_restore: Mutex<Option<WindowRestore>>,
+    /// `profiles.json`: multi-user mode, profiles, last discovery.
+    pub profiles: RwLock<ProfilesConfig>,
+    /// The profile in use (multi-user on); `None` until someone is picked.
+    pub active_profile: RwLock<Option<ProfileId>>,
+    /// Failed PIN attempts, per profile, for this run.
+    pub pin_guards: Mutex<HashMap<ProfileId, PinGuard>>,
+    /// Failed PIN attempts on changes that could bypass PINs (turning
+    /// multi-user off, changing mode), for this run.
+    pub config_guard: Mutex<PinGuard>,
+    /// Connections whose server did not answer the last discovery.
+    pub offline: RwLock<HashSet<ServerId>>,
+    /// Connections left out of the active profile for this session (a
+    /// protected Plex Home member whose PIN plex.tv could not check).
+    pub excluded: RwLock<HashSet<ServerId>>,
+    /// One profile switch at a time.
+    pub switching: tokio::sync::Mutex<()>,
 }
 
 /// How the main window looked before it shrank into picture-in-picture.
@@ -93,26 +114,189 @@ impl AppState {
         }
     }
 
-    /// Persists a new/updated server, its token, and connects it.
-    pub fn register_server(&self, d: ServerDescriptor, token: &str) -> Result<()> {
-        secrets::store_token(d.id, token)?;
+    /// The profiles of the current mode. Derived profiles appearing for the
+    /// first time are saved.
+    pub fn resolved_profiles(&self) -> Vec<Resolved> {
+        let servers = self.servers.read().clone();
+        let defaults = || PersonalSettings::from_settings(&self.store.settings());
+        let mut cfg = self.profiles.write();
+        let before = cfg.profiles.len();
+        let out = profiles::resolve(&mut cfg, &servers, &defaults);
+        if cfg.profiles.len() != before
+            && let Err(e) = self.store.save_profiles(&cfg)
+        {
+            tracing::warn!(target: "storage", "profiles not saved: {e}");
+        }
+        out
+    }
+
+    /// Connections the catalogue should hold: `None` = all (multi-user off),
+    /// empty = nobody picked yet.
+    pub fn active_connections(&self) -> Option<HashSet<ServerId>> {
+        if !self.profiles.read().enabled {
+            return None;
+        }
+        let active = *self.active_profile.read();
+        let Some(id) = active else { return Some(HashSet::new()) };
+        let excluded = self.excluded.read().clone();
+        Some(
+            self.resolved_profiles()
+                .iter()
+                .find(|r| r.profile.id == id)
+                .map(|r| profiles::connections_of(r).into_iter().filter(|c| !excluded.contains(c)).collect())
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Connections the active profile owns, disabled ones included: `None` =
+    /// multi-user off (all of them), empty = nobody picked yet.
+    pub fn active_members(&self) -> Option<HashSet<ServerId>> {
+        if !self.profiles.read().enabled {
+            return None;
+        }
+        let active = *self.active_profile.read();
+        let Some(id) = active else { return Some(HashSet::new()) };
+        Some(
+            self.resolved_profiles()
+                .iter()
+                .find(|r| r.profile.id == id)
+                .map(|r| r.accounts.iter().filter_map(|a| a.connection.as_ref().map(|d| d.id)).collect())
+                .unwrap_or_default(),
+        )
+    }
+
+    fn wanted(&self, id: ServerId) -> bool {
+        self.active_connections().is_none_or(|w| w.contains(&id))
+    }
+
+    pub fn update_profile(&self, id: ProfileId, f: impl FnOnce(&mut Profile)) -> Result<()> {
+        let mut cfg = self.profiles.write();
+        let p = cfg.profiles.iter_mut().find(|p| p.id == id).ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        f(p);
+        self.store.save_profiles(&cfg)
+    }
+
+    /// Checks `given` against the profile's PIN (open profiles pass).
+    pub fn check_pin(&self, id: ProfileId, given: Option<&str>) -> Result<()> {
+        let hash = self
+            .profiles
+            .read()
+            .profiles
+            .iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| Error::NotFound(format!("profile {id}")))?
+            .pin
+            .clone();
+        let mut guards = self.pin_guards.lock();
+        pin::check_pin(hash.as_deref(), given, guards.entry(id).or_default(), Instant::now())
+    }
+
+    pub fn apply_effective_settings(&self, effective: Settings) {
+        self.player.apply_settings(&effective);
+        *self.settings.write() = effective;
+    }
+
+    /// Makes `id` the active profile: its preferences, its connections.
+    /// Returns the names of connections that could not be loaded.
+    pub fn activate_profile(&self, id: ProfileId) -> Result<Vec<String>> {
+        let resolved = self.resolved_profiles();
+        let r = resolved.iter().find(|r| r.profile.id == id).ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        *self.active_profile.write() = Some(id);
+        {
+            let mut cfg = self.profiles.write();
+            cfg.last_profile = Some(id);
+            self.store.save_profiles(&cfg)?;
+        }
+        let mut effective = self.store.settings();
+        r.profile.prefs.apply(&mut effective);
+        self.apply_effective_settings(effective);
+        self.restore_servers();
+        let live: HashSet<ServerId> = self.catalog.providers().iter().map(|p| p.descriptor().id).collect();
+        tracing::info!(target: "provider", profile = %r.profile.name, "profile active");
+        Ok(r.accounts
+            .iter()
+            .filter_map(|a| a.connection.as_ref())
+            .filter(|d| !d.disabled && !live.contains(&d.id))
+            .map(|d| d.name.clone())
+            .collect())
+    }
+
+    /// Multi-user on, picker not wanted at startup: resume the last profile
+    /// when nothing has to be typed. Returns whether a profile was activated.
+    pub fn resume_last_profile(&self) -> bool {
+        let cfg = self.profiles.read().clone();
+        if !cfg.enabled || cfg.ask_on_startup {
+            return false;
+        }
+        let Some(id) = cfg.last_profile else { return false };
+        let Some(r) = self.resolved_profiles().into_iter().find(|r| r.profile.id == id) else { return false };
+        let needs_typing = r.profile.pin.is_some() || r.accounts.iter().any(|a| a.discovered.as_ref().is_some_and(|u| u.protected));
+        if needs_typing {
+            return false;
+        }
+        match self.activate_profile(id) {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::warn!(target: "provider", "last profile not resumed: {e}");
+                false
+            }
+        }
+    }
+
+    /// Modes A/C: a connection added while a profile is active belongs to it.
+    fn attach_to_active(&self, id: ServerId) -> Result<()> {
+        let (enabled, mode) = {
+            let cfg = self.profiles.read();
+            (cfg.enabled, cfg.mode)
+        };
+        let active = *self.active_profile.read();
+        match active {
+            Some(pid) if enabled && mode != ProfileMode::ServerUsers => self.update_profile(pid, |p| {
+                if p.origin == Origin::Manual && !p.connections.contains(&id) {
+                    p.connections.push(id);
+                }
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// Persists a new/updated connection and its token, and connects it when
+    /// the active profile uses it. Signing in again as the same user on the
+    /// same server keeps the connection's id (profiles and caches refer to it).
+    pub fn register_server(&self, mut d: ServerDescriptor, token: &str) -> Result<ServerDescriptor> {
         {
             let mut servers = self.servers.write();
-            servers.retain(|s| s.id != d.id && !(s.kind == d.kind && s.remote_id == d.remote_id && s.user.id == d.user.id));
+            if let Some(existing) = servers.iter().find(|s| s.kind == d.kind && s.remote_id == d.remote_id && s.user.id == d.user.id) {
+                d.id = existing.id;
+                d.disabled = existing.disabled;
+            }
+            secrets::store_token(d.id, token)?;
+            servers.retain(|s| s.id != d.id);
             servers.push(d.clone());
             self.store.save_servers(&servers)?;
         }
-        self.catalog.add(self.build_provider(&d, token.to_owned()));
+        self.attach_to_active(d.id)?;
+        if !d.disabled && self.wanted(d.id) {
+            self.catalog.add(self.build_provider(&d, token.to_owned()));
+        }
         tracing::info!(target: "provider", server = %d.name, kind = ?d.kind, "server connected");
-        Ok(())
+        Ok(d)
     }
 
     pub fn remove_server(&self, id: ServerId) -> Result<()> {
         self.catalog.remove(id);
         secrets::delete_token(id)?;
-        let mut servers = self.servers.write();
-        servers.retain(|s| s.id != id);
-        self.store.save_servers(&servers)
+        {
+            let mut servers = self.servers.write();
+            servers.retain(|s| s.id != id);
+            self.store.save_servers(&servers)?;
+        }
+        let mut cfg = self.profiles.write();
+        for p in &mut cfg.profiles {
+            p.connections.retain(|c| *c != id);
+            p.detached.retain(|c| *c != id);
+        }
+        self.store.save_profiles(&cfg)
     }
 
     /// Turns a server on or off. Off keeps it and its token but takes it out
@@ -126,7 +310,7 @@ impl AppState {
             self.store.save_servers(&servers)?;
             d
         };
-        if enabled {
+        if enabled && self.wanted(id) {
             match secrets::load_token(id)? {
                 Some(token) => self.catalog.add(self.build_provider(&d, token)),
                 None => tracing::warn!(target: "provider", server = %d.name, "enabled without a stored token; sign-in required"),
@@ -138,21 +322,28 @@ impl AppState {
         Ok(())
     }
 
-    /// Reconnects every stored server at startup. Missing tokens are not an
-    /// error: the server is listed as needing sign-in.
+    /// Connects the stored connections the catalogue should hold (all of
+    /// them with multi-user off, the active profile's otherwise). Missing
+    /// tokens are not an error: the server is listed as needing sign-in.
     pub fn restore_servers(&self) {
+        let wanted = self.active_connections();
         let servers = self.servers.read().clone();
+        let mut providers = Vec::new();
         for d in servers {
             if d.disabled {
                 tracing::info!(target: "provider", server = %d.name, "server disabled; not connecting");
                 continue;
             }
+            if wanted.as_ref().is_some_and(|w| !w.contains(&d.id)) {
+                continue;
+            }
             match secrets::load_token(d.id) {
-                Ok(Some(token)) => self.catalog.add(self.build_provider(&d, token)),
+                Ok(Some(token)) => providers.push(self.build_provider(&d, token)),
                 Ok(None) => tracing::warn!(target: "provider", server = %d.name, "no stored token; sign-in required"),
                 Err(e) => tracing::error!(target: "provider", server = %d.name, "credential store error: {e}"),
             }
         }
+        self.catalog.replace(providers);
     }
 }
 

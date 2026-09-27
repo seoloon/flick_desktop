@@ -23,7 +23,17 @@ pub fn settings_get(state: St<'_>) -> Settings {
 
 #[tauri::command]
 pub fn settings_set(state: St<'_>, settings: Settings) -> Result<()> {
-    state.store.save_settings(&settings)?;
+    // A profile is active: its part of the settings goes to the profile,
+    // the rest to the shared settings file.
+    let active = state.profiles.read().enabled.then(|| *state.active_profile.read()).flatten();
+    match active {
+        Some(id) => {
+            let (shared, prefs) = oneshot_core::settings::split_settings(&settings, &state.store.settings());
+            state.store.save_settings(&shared)?;
+            state.update_profile(id, |p| p.prefs = prefs)?;
+        }
+        None => state.store.save_settings(&settings)?,
+    }
     let network_changed = state.settings.read().network != settings.network;
     state.catalog.set_ttl(settings.cache.metadata_ttl_secs);
     state.player.apply_settings(&settings);
