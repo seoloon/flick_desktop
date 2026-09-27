@@ -1,7 +1,7 @@
 import "./index.css";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { releaseIntro, settled, useIntro } from "./lib/intro";
+import { fullscreenSized, introCovering, releaseIntro, useIntro } from "./lib/intro";
 import { setFrame } from "./lib/mode";
 import { getSettings, loadSettings } from "./lib/settings";
 import { installGamepad, installKeyboard } from "./nav/input";
@@ -25,7 +25,7 @@ async function boot() {
     // The start-up intro waits for the window to be fullscreen, as when
     // entering Flick Frame later.
     useIntro.setState({ held: true });
-    void setFrame(true).then(() => settled()).then(releaseIntro);
+    void setFrame(true).then(() => fullscreenSized()).then(introCovering).then(releaseIntro);
   }
 
   // No StrictMode: its dev double-mount would start, stop and restart the

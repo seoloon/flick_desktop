@@ -3,7 +3,7 @@
 // when idle and goes fullscreen.
 import { create } from "zustand";
 import { api } from "@/ipc/api";
-import { introCovering, playIntro, releaseIntro, settled } from "@/lib/intro";
+import { fullscreenSized, introCovering, playIntro, releaseIntro } from "@/lib/intro";
 
 export const useMode = create<{ frame: boolean }>(() => ({ frame: false }));
 
@@ -33,6 +33,7 @@ export async function toggleFrame() {
   playIntro({ held: true });
   await introCovering();
   await setFrame(true);
-  await settled();
+  await fullscreenSized();
+  await introCovering();
   releaseIntro();
 }

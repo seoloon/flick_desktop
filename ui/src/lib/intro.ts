@@ -20,23 +20,26 @@ export function introCovering(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
 
-/** Resolves once `target` has gone `quiet` ms without a resize (a window
- * going fullscreen grows in several steps), or after `cap` ms whatever. */
-export function settled(target: EventTarget = window, quiet = 150, cap = 1000): Promise<void> {
+/** Whether the page has the whole screen (sizes in CSS pixels, a pixel of rounding allowed). */
+function fillsScreen() {
+  return Math.abs(window.innerWidth - screen.width) <= 1 && Math.abs(window.innerHeight - screen.height) <= 1;
+}
+
+/** Resolves once the page has the screen's size: going fullscreen resizes
+ * the window in steps, and not right when asked. Gives up after `cap` ms
+ * (fullscreen refused, or a size that never matches exactly). */
+export function fullscreenSized(target: EventTarget = window, full: () => boolean = fillsScreen, cap = 1500): Promise<void> {
   return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout>;
     const finish = () => {
-      clearTimeout(timer);
       clearTimeout(limit);
-      target.removeEventListener("resize", wait);
+      target.removeEventListener("resize", check);
       resolve();
     };
-    const wait = () => {
-      clearTimeout(timer);
-      timer = setTimeout(finish, quiet);
+    const check = () => {
+      if (full()) finish();
     };
     const limit = setTimeout(finish, cap);
-    target.addEventListener("resize", wait);
-    wait();
+    target.addEventListener("resize", check);
+    check();
   });
 }

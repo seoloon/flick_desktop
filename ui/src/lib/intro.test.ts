@@ -1,36 +1,41 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { settled } from "./intro";
+import { fullscreenSized } from "./intro";
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("settled", () => {
-  it("resolves once resizes have stopped for the quiet period", async () => {
+describe("fullscreenSized", () => {
+  it("waits for the window to reach the screen's size, however late the resize comes", async () => {
     vi.useFakeTimers();
     const target = new EventTarget();
+    let full = false;
     let done = false;
-    void settled(target, 150, 1000).then(() => (done = true));
-    for (let i = 0; i < 5; i++) {
-      await vi.advanceTimersByTimeAsync(100);
-      target.dispatchEvent(new Event("resize"));
-    }
+    void fullscreenSized(target, () => full, 1500).then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(400);
+    target.dispatchEvent(new Event("resize"));
+    await vi.advanceTimersByTimeAsync(0);
     expect(done).toBe(false);
-    await vi.advanceTimersByTimeAsync(149);
-    expect(done).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
+    full = true;
+    target.dispatchEvent(new Event("resize"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toBe(true);
+  });
+
+  it("resolves at once when the window already has that size", async () => {
+    let done = false;
+    void fullscreenSized(new EventTarget(), () => true, 1500).then(() => (done = true));
+    await Promise.resolve();
     expect(done).toBe(true);
   });
 
   it("gives up waiting after the cap", async () => {
     vi.useFakeTimers();
-    const target = new EventTarget();
     let done = false;
-    void settled(target, 150, 1000).then(() => (done = true));
-    for (let i = 0; i < 12; i++) {
-      await vi.advanceTimersByTimeAsync(100);
-      target.dispatchEvent(new Event("resize"));
-    }
+    void fullscreenSized(new EventTarget(), () => false, 1500).then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
     expect(done).toBe(true);
   });
 });
