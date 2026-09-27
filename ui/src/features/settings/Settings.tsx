@@ -12,6 +12,7 @@ import type { Choice } from "@/components/tv/Segmented";
 import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
 import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
 import { ServerManager } from "@/features/servers/Servers";
+import { TmdbSettings } from "./TmdbSettings";
 import { api, unwrap } from "@/ipc/api";
 import type { BitstreamFormat } from "@/ipc/bindings/BitstreamFormat";
 import type { CapabilityReport } from "@/ipc/bindings/CapabilityReport";
@@ -36,6 +37,7 @@ const sections = [
   ["subtitles", "Subtitles"],
   ["downloads", "Downloads"],
   ["servers", "Servers"],
+  ["metadata", "Metadata"],
   ["profiles", "Profiles"],
   ["network", "Network"],
   ["cache", "Cache"],
@@ -378,6 +380,8 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       );
     case "profiles":
       return <ProfilesSettings />;
+    case "metadata":
+      return <TmdbSettings />;
     case "network":
       return (
         <>
