@@ -10,6 +10,7 @@ import { toggleFrame } from "@/lib/mode";
 import { toggleSidebar, useSidebar } from "@/lib/sidebar";
 import { cn } from "@/lib/utils";
 import { FlickMark } from "@/components/tv/FlickMark";
+import { SidebarProfile } from "@/features/profiles/ProfileSwitcher";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { NAV_KEY } from "@/nav/spatial";
 import { type NavItem, useNavItems } from "./navItems";
@@ -28,6 +29,7 @@ export function Sidebar() {
         className="glass flex h-full flex-col gap-1 overflow-hidden rounded-[1.75rem] p-3"
       >
         <Brand />
+        <SidebarProfile />
         <nav aria-label="Main" className="flex flex-col gap-0.5">
           {items.map((item) => (
             <SidebarItem key={item.id} item={item} />

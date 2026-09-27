@@ -8,6 +8,7 @@ import { focusSpring, panelSpring, pillSpring } from "@/lib/motion";
 import { toggleFrame } from "@/lib/mode";
 import { cn } from "@/lib/utils";
 import { FlickMark } from "@/components/tv/FlickMark";
+import { TabBarProfile } from "@/features/profiles/ProfileSwitcher";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { NAV_KEY } from "@/nav/spatial";
 import { useNavItems } from "./navItems";
@@ -37,6 +38,7 @@ export function TabBar({ scrolled }: { scrolled: boolean }) {
         {items.map((item) => (
           <Tab key={item.id} id={item.id} label={item.label} icon={ICON_ONLY.has(item.id) ? <item.icon /> : undefined} active={item.active} onClick={() => navigate(item.href)} />
         ))}
+        <TabBarProfile />
         <Tab id="frame" label="Exit Flick Frame" icon={<Minimize2 />} onClick={() => void toggleFrame()} />
       </FocusGroup>
     </motion.div>

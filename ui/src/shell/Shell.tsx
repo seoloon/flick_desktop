@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { useMode } from "@/lib/mode";
+import { finishSwitch, useProfileSwitch } from "@/lib/profiles";
 import { cn } from "@/lib/utils";
 import { onAction } from "@/nav/input";
 import { focusKey, NAV_KEY, SCREEN_KEY } from "@/nav/spatial";
@@ -75,6 +76,7 @@ function ScrollEdge({ side }: { side: "top" | "bottom" }) {
 export function Shell() {
   const location = useLocation();
   const frame = useMode((s) => s.frame);
+  const phase = useProfileSwitch((s) => s.phase);
   const main = useRef<HTMLElement>(null);
   const [scrolled, setScrolled] = useState(false);
   useScrollFade(main, "y");
@@ -116,8 +118,23 @@ export function Shell() {
         className="peer no-scrollbar relative h-full overflow-x-hidden overflow-y-auto pl-[var(--content-left)]"
       >
         {/* No fade here: an ancestor's opacity would switch off every glass
-            panel's blur until it ends. Screens fade their own pieces in. */}
-        <motion.div key={location.pathname} initial={{ y: 10 }} animate={{ y: 0 }} transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}>
+            panel's blur until it ends. Screens fade their own pieces in.
+            The one exception is a profile switch (~200 ms), when glass
+            panels briefly losing their blur is acceptable. */}
+        <motion.div
+          key={location.pathname}
+          // After a switch the new profile's screen fades in; ordinary route
+          // changes only slide (no fade: see the note above).
+          initial={phase === "entering" ? { y: 10, opacity: 0 } : { y: 10 }}
+          animate={
+            phase === "leaving"
+              ? { y: 0, opacity: 0, filter: "blur(12px)" }
+              : // Back to `none`: a leftover filter would cut glass panels off the artwork.
+                { y: 0, opacity: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }
+          }
+          transition={phase === "leaving" ? { duration: 0.2, ease: [0.4, 0, 1, 1] } : { duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
+          onAnimationComplete={() => phase === "entering" && finishSwitch()}
+        >
           <Outlet />
         </motion.div>
       </main>
