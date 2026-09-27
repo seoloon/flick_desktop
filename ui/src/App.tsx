@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { MotionConfig } from "motion/react";
+import { LayoutGroup, MotionConfig } from "motion/react";
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useNavigate, useSearchParams } from "react-router";
 import { Toaster } from "@/components/ui/sonner";
@@ -10,6 +10,8 @@ import { Home } from "@/features/home/Home";
 import { Libraries } from "@/features/library/Libraries";
 import { LibraryGrid } from "@/features/library/LibraryGrid";
 import { PlayerView } from "@/features/player/PlayerView";
+import { ProfileGate } from "@/features/profiles/ProfileGate";
+import { ProfilePicker } from "@/features/profiles/ProfilePicker";
 import { Search } from "@/features/search/Search";
 import { Servers } from "@/features/servers/Servers";
 import { Settings } from "@/features/settings/Settings";
@@ -48,20 +50,25 @@ export function App() {
       <MotionConfig reducedMotion={intensity === 0 ? "always" : "user"}>
         <BrowserRouter>
           <GlobalActions />
-          <Routes>
-            <Route path="/play" element={<PlayerRoute />} />
-            <Route element={<Shell />}>
-              <Route path="/" element={<Home />} />
-              <Route path="/libraries" element={<Libraries />} />
-              <Route path="/library/:id" element={<LibraryGrid />} />
-              <Route path="/item/:id" element={<Detail />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/servers" element={<Servers />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="/debug" element={<Debug />} />
-            </Route>
-          </Routes>
+          <ProfileGate />
+          {/* One layout group: a profile's avatar flies from the picker to the sidebar. */}
+          <LayoutGroup>
+            <Routes>
+              <Route path="/play" element={<PlayerRoute />} />
+              <Route path="/profiles" element={<ProfilePicker />} />
+              <Route element={<Shell />}>
+                <Route path="/" element={<Home />} />
+                <Route path="/libraries" element={<Libraries />} />
+                <Route path="/library/:id" element={<LibraryGrid />} />
+                <Route path="/item/:id" element={<Detail />} />
+                <Route path="/search" element={<Search />} />
+                <Route path="/servers" element={<Servers />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/admin" element={<Admin />} />
+                <Route path="/debug" element={<Debug />} />
+              </Route>
+            </Routes>
+          </LayoutGroup>
         </BrowserRouter>
         <Toaster position="bottom-center" />
       </MotionConfig>
