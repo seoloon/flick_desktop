@@ -487,17 +487,24 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
 
 - **Profils** (`profiles.json`) : un profil = un ensemble de connexions +
   des préférences personnelles ; le profil actif décide des connexions
-  chargées. Le PIN (4 chiffres) est haché en argon2id, jamais stocké ni
-  journalisé en clair ; 5 échecs → 30 s, puis 60 s, puis 5 min (même verrouillage
-  pour les demandes de PIN lors de la désactivation du multi-utilisateurs ou
-  d'un changement de mode). C'est un **verrou d'usage local**, pas une
-  protection contre qui a accès aux fichiers de la session : les tokens, eux,
-  restent dans le trousseau. Le PIN Plex Home n'est jamais stocké : il part à
-  plex.tv à chaque changement. Un membre Plex Home protégé par un PIN Plex ne
-  charge que si plex.tv peut vérifier ce PIN ; si plex.tv ou le token de compte
-  est indisponible, ce compte reste indisponible mais le reste du profil charge.
-  **Limitation (Modes A/C)** : un profil peut utiliser n'importe quelle connexion
-  de la machine ; le PIN verrouille un profil, pas une connexion.
+  chargées (règle unique : `oneshot_storage::profiles::loadable`). Le
+  catalogue et les images ne servent, même depuis le cache, que les connexions
+  chargées.
+- **PIN de profil** : 4 chiffres hachés en argon2id, jamais stockés ni
+  journalisés en clair ; 5 échecs → 30 s, puis 60 s, puis 5 min (même
+  verrouillage pour les demandes de PIN lors de la désactivation du
+  multi-utilisateurs ou d'un changement de mode). C'est un **verrou d'usage
+  local**, pas une protection contre qui a accès aux fichiers de la session :
+  les tokens, eux, restent dans le trousseau. Modes A/C : relier à un profil
+  une connexion qu'utilise un autre profil protégé demande le PIN de ce
+  dernier. **Limitation** : le PIN verrouille un profil, pas une connexion ;
+  une connexion qu'aucun profil protégé n'utilise reste libre.
+- **PIN Plex Home** : jamais stocké, il part à plex.tv à chaque changement de
+  profil. Les connexions d'un membre Plex Home protégé ne chargent qu'une fois
+  son PIN vérifié par plex.tv pendant cette exécution, au choix de son profil
+  (multi-utilisateurs désactivé, elles ne chargent donc pas) ; si plex.tv ou
+  la connexion du compte plex.tv est indisponible (ou si le PIN est passé), ce
+  membre reste indisponible mais le reste du profil charge.
 - **Aucun mot de passe stocké.** Jellyfin : mot de passe envoyé une fois pour
   obtenir un token (ou Quick Connect). Plex : flux PIN, jamais de mot de passe.
 - Tokens dans le **trousseau de l'OS** (`keyring` : Windows Credential Manager,
@@ -507,7 +514,8 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
   passés à mpv avec en-têtes HTTP (`http-header-fields`) quand le serveur le
   permet.
 - CSP stricte dans la WebView, aucune origine distante chargée.
-- Logs : en-têtes `Authorization`/`X-Plex-Token`/`api_key` masqués.
+- Logs : en-têtes `Authorization`/`X-Plex-Token`/`api_key` et valeurs de
+  PIN (`pin=`) masqués.
 - Admin : aucune action n'est tentée si le serveur ne l'autorise pas ; 403
   affiché tel quel.
 
