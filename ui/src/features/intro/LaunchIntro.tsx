@@ -4,6 +4,7 @@
 import { Player, type PlayerRef } from "@remotion/player";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { useIntro } from "@/lib/intro";
 import { onAction, onKey } from "@/nav/input";
 import { FLICK_INTRO, FlickIntro, type FlickIntroProps } from "./FlickIntro";
 
@@ -22,15 +23,18 @@ const FADE = { duration: 0.3, ease: [0.4, 0, 0.2, 1] } as const;
 export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIntroProps) {
   const ref = useRef<PlayerRef>(null);
   const [skipped] = useState(() => skip || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  // Held: only the background covers the window while it goes fullscreen;
+  // the animation starts once it has its final size.
+  const held = useIntro((s) => s.held);
   // The composition takes the window's size: everything scales with its height,
-  // so there is no letterboxing whatever the aspect ratio. It follows the
-  // window, which goes fullscreen underneath when Flick Frame opens.
+  // so there is no letterboxing whatever the aspect ratio.
   const [size, setSize] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   useEffect(() => {
     const resize = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+    resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, []);
+  }, [held]);
   const [leaving, setLeaving] = useState(false);
   const done = useRef(onDone);
   done.current = onDone;
@@ -41,40 +45,46 @@ export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIn
 
   useEffect(() => {
     if (skipped) return;
-    const leave = () => setLeaving(true);
-    const player = ref.current;
-    player?.addEventListener("ended", leave);
     // Not skippable: keys (before they become actions) and controller
     // actions are swallowed so nothing moves underneath.
     const offKey = onKey(() => true);
     const offAction = onAction(() => true);
     return () => {
-      player?.removeEventListener("ended", leave);
       offKey();
       offAction();
     };
   }, [skipped]);
 
+  useEffect(() => {
+    if (skipped || held) return;
+    const leave = () => setLeaving(true);
+    const player = ref.current;
+    player?.addEventListener("ended", leave);
+    return () => player?.removeEventListener("ended", leave);
+  }, [skipped, held]);
+
   if (skipped) return null;
   return (
     <AnimatePresence onExitComplete={() => done.current()}>
       {!leaving && (
-        <motion.div key="intro" exit={{ opacity: 0 }} transition={FADE} className="fixed inset-0 z-[9999] cursor-default">
-          <Player
-            ref={ref}
-            component={FlickIntro}
-            inputProps={{ variant }}
-            durationInFrames={FLICK_INTRO.durationInFrames}
-            fps={FLICK_INTRO.fps}
-            compositionWidth={size.width}
-            compositionHeight={size.height}
-            autoPlay
-            controls={false}
-            clickToPlay={false}
-            doubleClickToFullscreen={false}
-            spaceKeyToPlayOrPause={false}
-            style={{ width: "100%", height: "100%" }}
-          />
+        <motion.div key="intro" exit={{ opacity: 0 }} transition={FADE} className="fixed inset-0 z-[9999] cursor-default bg-background">
+          {!held && (
+            <Player
+              ref={ref}
+              component={FlickIntro}
+              inputProps={{ variant }}
+              durationInFrames={FLICK_INTRO.durationInFrames}
+              fps={FLICK_INTRO.fps}
+              compositionWidth={size.width}
+              compositionHeight={size.height}
+              autoPlay
+              controls={false}
+              clickToPlay={false}
+              doubleClickToFullscreen={false}
+              spaceKeyToPlayOrPause={false}
+              style={{ width: "100%", height: "100%" }}
+            />
+          )}
         </motion.div>
       )}
     </AnimatePresence>

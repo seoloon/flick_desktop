@@ -3,7 +3,7 @@
 // when idle and goes fullscreen.
 import { create } from "zustand";
 import { api } from "@/ipc/api";
-import { introCovering, playIntro } from "@/lib/intro";
+import { introCovering, playIntro, releaseIntro, settled } from "@/lib/intro";
 
 export const useMode = create<{ frame: boolean }>(() => ({ frame: false }));
 
@@ -24,13 +24,15 @@ export async function setFrame(on: boolean) {
 }
 
 /** The sidebar button, the tab bar and the Menu key. Entering Flick Frame
- * plays the intro first and switches underneath it, so the fullscreen
- * resize and the new layout are never seen half done. */
+ * covers the window, switches underneath and starts the intro only once
+ * the window has finished growing: the fullscreen resize comes in steps,
+ * and an animation already playing would be seen stretching with it. */
 export async function toggleFrame() {
   const on = !useMode.getState().frame;
-  if (on) {
-    playIntro();
-    await introCovering();
-  }
-  await setFrame(on);
+  if (!on) return setFrame(false);
+  playIntro({ held: true });
+  await introCovering();
+  await setFrame(true);
+  await settled();
+  releaseIntro();
 }
