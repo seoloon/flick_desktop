@@ -59,7 +59,7 @@ fn parse_datetime(s: &Option<String>) -> Option<DateTime<Utc>> {
     s.as_deref().and_then(|s| DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&Utc))
 }
 
-fn parse_date(s: &Option<String>) -> Option<NaiveDate> {
+pub(crate) fn parse_date(s: &Option<String>) -> Option<NaiveDate> {
     s.as_deref().and_then(|s| s.get(..10)).and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
 }
 
@@ -168,11 +168,7 @@ pub fn item(server: ServerId, dto: &BaseItemDto) -> MediaItem {
         .collect();
     item.images = images(server, dto);
     item.user = user_state(dto.user_data.as_ref());
-    item.external_ids = ExternalIds {
-        imdb: dto.provider_ids.get("Imdb").cloned(),
-        tmdb: dto.provider_ids.get("Tmdb").cloned(),
-        tvdb: dto.provider_ids.get("Tvdb").cloned(),
-    };
+    item.external_ids = external_ids(dto);
     item.child_count = dto.child_count.or(dto.recursive_item_count);
     item.added_at = parse_datetime(&dto.date_created);
     if matches!(k, ItemKind::Episode | ItemKind::Season) {
@@ -313,6 +309,14 @@ pub fn marker(seg: &MediaSegmentDto) -> Option<Marker> {
         _ => return None,
     };
     Some(Marker { kind, start_ms: ticks_to_ms(seg.start_ticks), end_ms: ticks_to_ms(seg.end_ticks) })
+}
+
+pub(crate) fn external_ids(dto: &BaseItemDto) -> ExternalIds {
+    ExternalIds {
+        imdb: dto.provider_ids.get("Imdb").cloned(),
+        tmdb: dto.provider_ids.get("Tmdb").cloned(),
+        tvdb: dto.provider_ids.get("Tvdb").cloned(),
+    }
 }
 
 #[cfg(test)]

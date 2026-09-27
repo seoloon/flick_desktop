@@ -107,6 +107,11 @@ pub struct BaseItemDto {
     pub taglines: Vec<String>,
     pub production_year: Option<i32>,
     pub premiere_date: Option<String>,
+    /// A person's death date.
+    pub end_date: Option<String>,
+    /// A person's birthplace (first entry).
+    #[serde(default)]
+    pub production_locations: Vec<String>,
     pub date_created: Option<String>,
     pub run_time_ticks: Option<i64>,
     pub official_rating: Option<String>,

@@ -10,6 +10,8 @@ use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, Stream
 use oneshot_core::provider::{AdminProvider, Adjacent, MediaProvider};
 use oneshot_core::query::{HomeRow, HomeRowKind, ItemQuery, Page, SortBy, SortOrder};
 use oneshot_core::server::{Library, LibraryKind, ProviderKind, ServerDescriptor, ServerStatus};
+use oneshot_core::person::PersonInfo;
+use oneshot_core::text::normalize_name;
 use oneshot_core::{Error, Result};
 use oneshot_net::reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
@@ -342,6 +344,53 @@ impl MediaProvider for JellyfinProvider {
 
     async fn report(&self, report: &PlaybackReport) -> Result<()> {
         crate::playback::report(self, report).await
+    }
+
+    async fn person(&self, id: &ItemRef) -> Result<PersonInfo> {
+        self.check_server(id)?;
+        let dto: BaseItemDto = self
+            .get(&format!("Items/{}", id.key), &[self.uid(), ("Fields", "Overview,ProviderIds,ProductionLocations".into())])
+            .await?;
+        Ok(PersonInfo {
+            id: id.clone(),
+            name: dto.name.clone().unwrap_or_default(),
+            overview: dto.overview.clone().filter(|o| !o.trim().is_empty()),
+            birth: map::parse_date(&dto.premiere_date),
+            death: map::parse_date(&dto.end_date),
+            birthplace: dto.production_locations.first().cloned(),
+            image: dto.image_tags.get("Primary").map(|t| ImageRef {
+                item: id.clone(),
+                kind: ImageKind::Poster,
+                tag: format!("Primary/{t}"),
+                blurhash: None,
+            }),
+            external_ids: map::external_ids(&dto),
+        })
+    }
+
+    async fn person_items(&self, name: &str, hint: Option<&ItemRef>) -> Result<Vec<MediaItem>> {
+        let person = match hint.filter(|h| h.server == self.server()) {
+            Some(h) => h.key.clone(),
+            None => {
+                let found: QueryResult<BaseItemDto> =
+                    self.get("Persons", &[self.uid(), ("searchTerm", name.to_owned()), ("Limit", "20".into())]).await?;
+                let key = normalize_name(name);
+                match found.items.into_iter().find(|p| p.name.as_deref().is_some_and(|n| normalize_name(n) == key)) {
+                    Some(p) => p.id,
+                    None => return Ok(Vec::new()),
+                }
+            }
+        };
+        let mut q = self.list_query();
+        q.extend([
+            ("PersonIds", person),
+            ("IncludeItemTypes", "Movie,Series".into()),
+            ("Recursive", "true".into()),
+            ("SortBy", "ProductionYear,SortName".into()),
+            ("SortOrder", "Descending".into()),
+        ]);
+        let r: QueryResult<BaseItemDto> = self.get("Items", &q).await?;
+        Ok(self.items(&r.items))
     }
 
     fn image_url(&self, image: &ImageRef, size: ImageSize) -> Result<Url> {
