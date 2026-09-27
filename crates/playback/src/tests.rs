@@ -443,6 +443,28 @@ fn smart_subtitles_show_forced_only_when_audio_is_understood() {
 }
 
 #[test]
+fn full_subtitles_skip_tracks_titled_forced_even_without_the_flag() {
+    let c = caps(HdrState::Unsupported, vec![device("spk", 2, &[])]);
+    let sdr = || video(VideoCodec::H264, 1920, 1080, 8, DynamicRange::Sdr);
+    let mut s = Settings::default();
+    s.subtitles.mode = SubtitleMode::Always;
+    s.subtitles.languages = vec!["fr".into()];
+    let titled = |index, title: &str| SubtitleStream { title: Some(title.into()), ..subtitle(index, SubtitleFormat::Srt, "fre", false) };
+    // Forced track listed first and only named so; SDH before the plain one.
+    let subs = vec![
+        titled(3, "Français (forcés)"),
+        SubtitleStream { hearing_impaired: true, ..titled(4, "Français SDH") },
+        titled(5, "Français"),
+    ];
+    let o = offer(sdr(), vec![audio(1, AudioCodec::Aac, 2, "eng", None)], subs);
+    assert_eq!(run(&o, &c, &s).subtitles, SubtitlePlan::Local { index: 5, external: false });
+
+    s.subtitles.mode = SubtitleMode::ForcedOnly;
+    let o = offer(sdr(), vec![audio(1, AudioCodec::Aac, 2, "fre", None)], vec![titled(5, "Français"), titled(3, "Signs & Songs")]);
+    assert_eq!(run(&o, &c, &s).subtitles, SubtitlePlan::Local { index: 3, external: false });
+}
+
+#[test]
 fn unknown_platform_capabilities_stay_conservative() {
     let mut c = caps(HdrState::Unknown { reason: "not implemented".into() }, vec![]);
     c.video.hardware_probe_ok = false;

@@ -5,6 +5,9 @@
 //!
 //! Uses the dedicated-window presenter (no Tauri host needed): a real mpv
 //! window opens for each file.
+//!
+//! `E2E_ONLY=<title part>` plays matching titles only; `E2E_MAX_BITRATE=<bps>`
+//! caps the bitrate so the server transcodes (checks capped, offset streams).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,6 +43,7 @@ async fn provider() -> Arc<dyn MediaProvider> {
             alternate_urls: vec![],
             version: s.version.clone(),
             user: UserProfile { id: s.user_id.clone(), name: s.user_name.clone(), avatar: None, is_admin: s.is_admin },
+            disabled: false,
         };
         return Arc::new(oneshot_jellyfin::JellyfinProvider::new(d, http, id, s.token));
     }
@@ -60,6 +64,7 @@ async fn provider() -> Arc<dyn MediaProvider> {
         alternate_urls: vec![],
         version: None,
         user: UserProfile { id: "1".into(), name: "owner".into(), avatar: None, is_admin: true },
+        disabled: false,
     };
     Arc::new(oneshot_plex::PlexProvider::new(d, http, id, String::new(), true))
 }
@@ -74,6 +79,8 @@ async fn main() {
     settings.advanced.presenter = PresenterChoice::DedicatedWindow;
     settings.audio.volume = 10;
     settings.playback.report_interval_secs = 5;
+    settings.playback.max_bitrate = std::env::var("E2E_MAX_BITRATE").ok().and_then(|s| s.parse().ok());
+    let only = std::env::var("E2E_ONLY").ok();
 
     let events: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
     let ev2 = Arc::clone(&events);
@@ -103,7 +110,7 @@ async fn main() {
         .items;
     items.sort_by_key(|i| i.sort_title.clone().unwrap_or_else(|| i.title.clone()));
 
-    for item in &items {
+    for item in items.iter().filter(|i| only.as_deref().is_none_or(|o| i.title.contains(o))) {
         let long = item.runtime_ms.is_some_and(|r| r > 300_000);
         let start_ms = if long { Some(60_000) } else { None };
         println!("\n=== {} ({})", item.title, item.id);
@@ -121,7 +128,7 @@ async fn main() {
         tokio::time::sleep(Duration::from_secs(secs)).await;
         let snap = player.snapshot();
         let stats = player.stats();
-        println!("  phase={:?} pos={}ms dur={:?} presenter={:?}", snap.phase, snap.position_ms, snap.duration_ms, snap.presenter);
+        println!("  phase={:?} pos={}ms dur={:?} presenter={:?} error={:?}", snap.phase, snap.position_ms, snap.duration_ms, snap.presenter, snap.error);
         println!("  hwdec={:?} ao={:?}", stats.hwdec, stats.current_ao);
         let vp = stats.video_params.as_ref();
         println!(

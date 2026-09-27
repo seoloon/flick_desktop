@@ -37,6 +37,10 @@ pub struct ServerDescriptor {
     pub alternate_urls: Vec<Url>,
     pub version: Option<String>,
     pub user: UserProfile,
+    /// Turned off by the user: kept, with its token, but left out of the
+    /// catalogue (home, libraries, search) until turned back on.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

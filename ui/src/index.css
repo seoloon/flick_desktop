@@ -91,8 +91,10 @@
   --thumb-w: 20rem;
   --card-gap: 1.5rem;
   --sidebar-w: 15.5rem;
-  /* Screens start right of the sidebar; heroes bleed under it. */
-  --content-left: var(--sidebar-w);
+  /* Screens start right of the sidebar; heroes bleed under it. Unlike the
+     sidebar width this does not animate: the content jumps to its new
+     margin once and slides there by transform (lib/sidebar.ts). */
+  --content-left: 15.5rem;
 }
 
 :root[data-density="compact"] {
@@ -218,6 +220,18 @@
   }
 }
 
+/* Sidebar width. Only the sidebar animates it (a plain `width` transition
+   on the aside): animating the variable on :root would restyle the whole
+   document every frame. Collapsed, it is exactly wide enough to centre the
+   icons, which therefore never move. */
+:root[data-sidebar="collapsed"] {
+  --sidebar-w: 5.65rem;
+  --content-left: 5.65rem;
+}
+:root.frame[data-sidebar="collapsed"] {
+  --content-left: 0rem;
+}
+
 /* Scroll edge fades (nav/useScrollFade.ts). Registered so the fade length
    animates instead of snapping when an edge appears or goes away. */
 @property --fade-start {
@@ -256,6 +270,16 @@
   }
   &[data-fade-end] {
     --fade-end: var(--fade-size, 2rem);
+  }
+}
+
+/* Home carousel: the active dot fills over a slide's duration. */
+@keyframes flick-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 

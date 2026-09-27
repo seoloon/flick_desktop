@@ -35,6 +35,7 @@ pub async fn bootstrap(state: Arc<AppState>) {
                         alternate_urls: vec![],
                         version: s.version.clone(),
                         user: UserProfile { id: s.user_id.clone(), name: s.user_name.clone(), avatar: None, is_admin: s.is_admin },
+                        disabled: false,
                     };
                     if let Err(e) = state.register_server(d, &s.token) {
                         tracing::error!("dev bootstrap (jellyfin): {e}");
@@ -58,6 +59,7 @@ pub async fn bootstrap(state: Arc<AppState>) {
             alternate_urls: vec![],
             version: None,
             user: UserProfile { id: "1".into(), name: "owner".into(), avatar: None, is_admin: true },
+            disabled: false,
         };
         if let Err(e) = state.register_server(d, "") {
             tracing::error!("dev bootstrap (plex): {e}");

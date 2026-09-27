@@ -45,6 +45,11 @@ pub fn server_remove(state: St<'_>, id: ServerId) -> Result<()> {
     state.remove_server(id)
 }
 
+#[tauri::command]
+pub fn server_set_enabled(state: St<'_>, id: ServerId, enabled: bool) -> Result<()> {
+    state.set_server_enabled(id, enabled)
+}
+
 // ------------------------------------------------------------------ Jellyfin
 
 #[derive(Debug, Serialize)]
@@ -72,6 +77,7 @@ fn jellyfin_descriptor(s: &Session) -> ServerDescriptor {
         alternate_urls: vec![],
         version: s.version.clone(),
         user: UserProfile { id: s.user_id.clone(), name: s.user_name.clone(), avatar: None, is_admin: s.is_admin },
+        disabled: false,
     }
 }
 
@@ -186,6 +192,7 @@ pub async fn plex_add_servers(state: St<'_>, machine_ids: Vec<String>) -> Result
             alternate_urls: server.reachable.iter().skip(1).cloned().collect(),
             version: server.version.clone(),
             user: UserProfile { id: account.user_id.clone(), name: account.username.clone(), avatar: account.avatar.clone(), is_admin: server.owned },
+            disabled: false,
         };
         state.register_server(d.clone(), &server.access_token)?;
         added.push(d);

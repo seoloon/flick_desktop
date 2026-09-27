@@ -19,4 +19,9 @@ remoteId: string, baseUrl: string,
 /**
  * Alternative addresses (Plex exposes local, remote and relay ones).
  */
-alternateUrls: Array<string>, version: string | null, user: UserProfile, };
+alternateUrls: Array<string>, version: string | null, user: UserProfile, 
+/**
+ * Turned off by the user: kept, with its token, but left out of the
+ * catalogue (home, libraries, search) until turned back on.
+ */
+disabled: boolean, };

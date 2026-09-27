@@ -32,6 +32,7 @@ fn provider() -> Option<PlexProvider> {
         alternate_urls: vec![],
         version: None,
         user: UserProfile { id: "1".into(), name: "owner".into(), avatar: None, is_admin: true },
+        disabled: false,
     };
     let http = oneshot_net::client(&NetworkSettings::default()).unwrap();
     // Unclaimed server + allowed network: no token needed.

@@ -107,6 +107,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         diagnostics: diag,
         log_reload,
         plex_account: Mutex::new(None),
+        pip_restore: Mutex::new(None),
     });
     state.restore_servers();
     app.manage(Arc::clone(&state));
@@ -158,6 +159,7 @@ fn main() {
             commands::servers::servers_list,
             commands::servers::server_status,
             commands::servers::server_remove,
+            commands::servers::server_set_enabled,
             commands::servers::jellyfin_probe,
             commands::servers::jellyfin_login,
             commands::servers::jellyfin_quick_connect_start,
@@ -178,6 +180,7 @@ fn main() {
             commands::catalog::set_played,
             commands::catalog::set_favorite,
             commands::playback::play,
+            commands::playback::player_reload,
             commands::playback::player_command,
             commands::playback::player_viewport,
             commands::playback::player_snapshot,
@@ -188,6 +191,7 @@ fn main() {
             commands::system::about,
             commands::system::diagnostics,
             commands::system::set_fullscreen,
+            commands::system::window_pip,
             commands::system::palette,
             commands::system::cache_clear,
             commands::admin::admin_overview,

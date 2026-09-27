@@ -238,6 +238,21 @@ impl Player {
         self.inner.lock().snapshot.clone()
     }
 
+    /// The request that restarts the current title where it is, on the same
+    /// version and tracks (after a quality change). `None` when idle.
+    pub fn resume_request(&self) -> Option<PlayRequest> {
+        let inner = self.inner.lock();
+        let s = inner.session.as_ref()?;
+        let (audio, subtitle) = s.current_tracks(&inner.snapshot.tracks);
+        Some(PlayRequest {
+            item: Some(s.item().clone()),
+            source_id: Some(s.decision().source_id.clone()),
+            start_ms: Some(inner.snapshot.position_ms),
+            audio,
+            subtitle,
+        })
+    }
+
     /// Live technical stats straight from mpv (for the info overlay).
     pub fn stats(&self) -> LiveStats {
         let inner = self.inner.lock();

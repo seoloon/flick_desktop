@@ -5,12 +5,19 @@
 // Remote model (tvOS): the scrubber has focus by default, left/right skip
 // 10 s, Enter pauses, Up opens the settings menu, Down reaches the buttons. With
 // the controls hidden, any key reveals them; left/right also skip at once.
+//
+// Picture in picture shrinks the whole window into a small always-on-top
+// video (Rust `window_pip`); the video layer follows the window. Its controls
+// are a compact overlay shown on hover, the rest of the window drags it.
 import { useQuery } from "@tanstack/react-query";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ChevronLeft,
   Maximize,
+  Maximize2,
   Minimize,
   Pause,
+  PictureInPicture2,
   Play,
   RotateCcw,
   RotateCw,
@@ -19,9 +26,10 @@ import {
   SkipForward,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion, type MotionValue, useMotionValue, useMotionValueEvent, useSpring, useTransform } from "motion/react";
-import { type CSSProperties, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { SlidingNumber } from "@/components/animate-ui/primitives/texts/sliding-number";
 import { Button } from "@/components/tv/Button";
@@ -40,6 +48,8 @@ import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { onAction } from "@/nav/input";
 import { focusKey } from "@/nav/spatial";
+import { ServerBadge } from "@/components/tv/ServerBadge";
+import { useSources } from "@/lib/servers";
 import { TitleBar } from "@/shell/TitleBar";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
@@ -73,11 +83,25 @@ function Clock({ value, remainingOf, className }: { value: MotionValue<number>; 
   );
 }
 
-function Timeline({ store, markers, scrub, onSeek, onScrub }: { store: PlayerStore; markers: Marker[]; scrub: number | null; onSeek: (ms: number) => void; onScrub: (ms: number | null) => void }) {
+function Timeline({
+  store,
+  markers,
+  scrub,
+  onSeek,
+  onScrub,
+  focusKey: key = TIMELINE_KEY,
+}: {
+  store: PlayerStore;
+  markers: Marker[];
+  scrub: number | null;
+  onSeek: (ms: number) => void;
+  onScrub: (ms: number | null) => void;
+  focusKey?: string;
+}) {
   const duration = store.state((s) => s.duration);
   const buffered = store.state((s) => s.buffered);
   const chapters = store.state((s) => s.chapters);
-  const tv = useTv<HTMLDivElement>({ focusKey: TIMELINE_KEY, scroll: false });
+  const tv = useTv<HTMLDivElement>({ focusKey: key, scroll: false });
   const pct = (ms: number) => (duration ? `${Math.min(100, (ms / duration) * 100)}%` : "0%");
   // The bar shows the playhead, or the pointer while scrubbing, through a
   // stiff spring: seeks glide instead of teleporting, playback looks the same.
@@ -242,11 +266,11 @@ function NextUp({ next, countdown, onPlay, onDismiss }: { next: MediaItem; count
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 40 }}
       transition={{ type: "spring", stiffness: 260, damping: 30 }}
-      className="absolute right-8 bottom-[calc(var(--bar-h)+1rem)] w-[21rem] overflow-hidden rounded-2xl bg-black/75 p-3 text-sm shadow-[inset_0_1px_0_rgb(255_255_255/0.12),inset_0_0_0_1px_rgb(255_255_255/0.08),0_30px_60px_-20px_rgb(0_0_0/0.9)]"
+      className="absolute right-8 bottom-[calc(var(--bar-h)+1rem)] w-[21rem] overflow-hidden rounded-3xl bg-black/75 p-3 text-sm shadow-[inset_0_1px_0_rgb(255_255_255/0.12),inset_0_0_0_1px_rgb(255_255_255/0.08),0_30px_60px_-20px_rgb(0_0_0/0.9)]"
     >
       <FocusGroup focusKey="next-up" boundary autoFocus className="flex flex-col gap-3">
         <div className="flex gap-3">
-          <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-lg bg-white/10">{art && <img src={art} alt="" className="size-full object-cover" />}</div>
+          <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-xl bg-white/10">{art && <img src={art} alt="" className="size-full object-cover" />}</div>
           <div className="flex min-w-0 flex-col justify-center gap-1">
             <span className="flex items-center gap-1 text-[0.6875rem] font-semibold tracking-wide text-white/55 uppercase">
               Up next
@@ -274,6 +298,60 @@ function NextUp({ next, countdown, onPlay, onDismiss }: { next: MediaItem; count
   );
 }
 
+/**
+ * Picture-in-picture chrome: title and window actions on top, transport in the
+ * middle, the timeline at the bottom, all shown while the pointer is over the
+ * video (or when paused). Everything else drags the window.
+ */
+function PipOverlay({
+  store,
+  title,
+  markers,
+  visible,
+  onSeek,
+  onSeekBy,
+  onExit,
+  onClose,
+}: {
+  store: PlayerStore;
+  title: string;
+  markers: Marker[];
+  visible: boolean;
+  onSeek: (ms: number) => void;
+  onSeekBy: (ms: number) => void;
+  onExit: () => void;
+  onClose: () => void;
+}) {
+  const phase = store.state((st) => st.phase);
+  const duration = store.state((st) => st.duration);
+  const [scrub, setScrub] = useState<number | null>(null);
+  const small = "bg-black/40 text-white hover:bg-black/60 [&_svg]:size-4";
+  return (
+    <motion.div
+      className="absolute inset-0 flex flex-col justify-between bg-black/35 p-2"
+      animate={{ opacity: visible ? 1 : 0 }}
+      transition={{ duration: 0.2 }}
+      style={{ pointerEvents: visible ? "auto" : "none" }}
+    >
+      <div className="flex items-center gap-1">
+        <span className="min-w-0 flex-1 truncate px-1.5 text-xs font-semibold drop-shadow-[0_1px_6px_rgb(0_0_0/0.7)]">{title}</span>
+        <Button variant="ghost" size="icon-sm" icon={Maximize2} label="Back to the full player" onClick={onExit} className={small} />
+        <Button variant="ghost" size="icon-sm" icon={X} label="Stop" onClick={onClose} className={small} />
+      </div>
+      <div className="flex items-center justify-center gap-2">
+        <Button variant="ghost" size="icon-sm" icon={RotateCcw} label="Back 10 seconds" onClick={() => onSeekBy(-SEEK_STEP)} className={small} />
+        <Button variant="ghost" size="icon" icon={phase === "paused" ? Play : Pause} iconFilled label={phase === "paused" ? "Play" : "Pause"} onClick={() => cmd({ type: "togglePause" })} className="bg-black/40 hover:bg-black/60" />
+        <Button variant="ghost" size="icon-sm" icon={RotateCw} label="Forward 10 seconds" onClick={() => onSeekBy(SEEK_STEP)} className={small} />
+      </div>
+      <div className="flex items-center gap-2 px-1 text-[0.6875rem] font-medium text-white/80 drop-shadow-[0_1px_6px_rgb(0_0_0/0.7)]">
+        {scrub !== null ? <span className="tabular-nums">{clock(scrub)}</span> : <Clock value={store.position} />}
+        <Timeline store={store} markers={markers} scrub={scrub} onSeek={onSeek} onScrub={setScrub} focusKey="pip-timeline" />
+        {duration > 0 && <Clock value={store.position} remainingOf={duration} />}
+      </div>
+    </motion.div>
+  );
+}
+
 export function PlayerView({ itemId, startMs }: { itemId: string; startMs: number }) {
   const navigate = useNavigate();
   const settings = useSettings();
@@ -286,6 +364,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const ended = store.state((s) => s.ended);
 
   const item = useQuery({ queryKey: ["item", itemId], queryFn: () => api.item(itemId) });
+  const [source] = useSources([itemId]);
   const markers = useQuery({ queryKey: ["markers", itemId], queryFn: () => api.markers(itemId).catch(() => [] as Marker[]) });
   const adjacent = useQuery({ queryKey: ["adjacent", itemId], queryFn: () => api.adjacent(itemId).catch(() => null) });
 
@@ -295,6 +374,9 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   // Window fullscreen for this playback only; Flick Frame stays what the user chose.
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef(false);
+  const [pip, setPip] = useState(false);
+  const pipRef = useRef(false);
+  const [hover, setHover] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [nextDismissed, setNextDismissed] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -321,13 +403,33 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     setFullscreen(next);
     void api.setFullscreen(next).catch(() => undefined);
   }, []);
-  // Leaving the player gives the window back as it was.
+  const setPipMode = useCallback((on: boolean) => {
+    if (pipRef.current === on) return;
+    pipRef.current = on;
+    setPip(on);
+    setMenu(false);
+    setHover(false);
+    void api.windowPip(on).catch(() => undefined);
+    if (!on) requestAnimationFrame(() => focusKey(TIMELINE_KEY));
+  }, []);
+  // Leaving the player gives the window back as it was: out of PiP first
+  // (which restores a fullscreen window), then out of the player's fullscreen.
   useEffect(
     () => () => {
-      if (fullscreenRef.current && !useMode.getState().frame) void api.setFullscreen(false).catch(() => undefined);
+      const frame = useMode.getState().frame;
+      void (async () => {
+        if (pipRef.current) await api.windowPip(false).catch(() => undefined);
+        if (fullscreenRef.current && !frame) await api.setFullscreen(false).catch(() => undefined);
+      })();
     },
     [],
   );
+  // In PiP the window is its own drag handle; a double click returns to the full player.
+  const pipMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || (e.target as Element).closest("button, [role=slider]")) return;
+    if (e.detail === 2) setPipMode(false);
+    else void getCurrentWindow().startDragging();
+  };
 
   // Session lifecycle.
   useEffect(() => {
@@ -414,6 +516,14 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   // ---- remote/keyboard -------------------------------------------------------
   useEffect(() => {
     return onAction((a) => {
+      if (pip) {
+        if (a.type === "playPause" || a.type === "activate") cmd({ type: "togglePause" });
+        else if (a.type === "seek") seekBy(a.seconds * 1000);
+        else if (a.type === "move" && (a.dir === "left" || a.dir === "right")) seekBy(a.dir === "left" ? -SEEK_STEP : SEEK_STEP);
+        else if (a.type === "back") setPipMode(false);
+        else return false;
+        return true;
+      }
       const wasHidden = !chrome;
       poke();
       if (menu) {
@@ -462,20 +572,23 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           return false;
       }
     });
-  }, [chrome, menu, poke, seekBy, leave]);
+  }, [chrome, menu, pip, poke, seekBy, leave, setPipMode]);
 
   const it = item.data;
   const title = it?.episode ? (it.episode.seriesTitle ?? it.title) : (it?.title ?? "");
   const subtitle = it?.episode ? `${episodeLabel(it)} · ${it.title}` : it?.year ? String(it.year) : "";
-  const visible = chrome || phase !== "playing" || menu;
+  const visible = !pip && (chrome || phase !== "playing" || menu);
   const scrubbing = scrub !== null;
 
   return (
     <div
-      className={cn("fixed inset-0 overflow-hidden text-white select-none", !visible && "cursor-none")}
+      className={cn("fixed inset-0 overflow-hidden text-white select-none", !visible && !pip && "cursor-none")}
       style={{ "--bar-h": "8.5rem" } as CSSProperties}
-      onClick={poke}
-      onDoubleClick={(e) => e.target === e.currentTarget && toggleFullscreen()}
+      onClick={pip ? undefined : poke}
+      onDoubleClick={(e) => !pip && e.target === e.currentTarget && toggleFullscreen()}
+      onMouseDown={pip ? pipMouseDown : undefined}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
     >
       {/* Before the first frame, the artwork stands in for the video. */}
       <AnimatePresence>
@@ -494,6 +607,19 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             <Spinner />
           </div>
         </div>
+      )}
+
+      {pip && (
+        <PipOverlay
+          store={store}
+          title={title}
+          markers={markers.data ?? []}
+          visible={hover || phase === "paused"}
+          onSeek={seekTo}
+          onSeekBy={seekBy}
+          onExit={() => setPipMode(false)}
+          onClose={leave}
+        />
       )}
 
       {/* Scrims keep the controls readable over bright video. */}
@@ -522,7 +648,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
       </AnimatePresence>
 
       <AnimatePresence>
-        {showSkip && activeMarker && (
+        {showSkip && activeMarker && !pip && (
           <motion.div
             key="skip"
             initial={{ opacity: 0, y: 12 }}
@@ -537,7 +663,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             </FocusGroup>
           </motion.div>
         )}
-        {showNext && next && !showSkip && (
+        {showNext && next && !showSkip && !pip && (
           <NextUp
             key="next"
             next={next}
@@ -552,57 +678,61 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         )}
       </AnimatePresence>
 
-      {!fullscreen && <TitleBar hidden={!visible} />}
+      {!fullscreen && !pip && <TitleBar hidden={!visible} />}
 
       {/* Bottom bar: a quiet title, the scrubber between its times, then the
           transport centred with volume on the left and options on the right. */}
-      <motion.footer
-        className="absolute inset-x-0 bottom-0 flex flex-col gap-2 px-8 pb-5"
-        animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 16 }}
-        transition={{ type: "spring", stiffness: 300, damping: 34 }}
-        style={{ pointerEvents: visible ? "auto" : "none" }}
-      >
-        <AnimatePresence>{menu && <PlayerMenu key="menu" store={store} actions={menuActions} />}</AnimatePresence>
+      {!pip && (
+        <motion.footer
+          className="absolute inset-x-0 bottom-0 flex flex-col gap-2 px-8 pb-5"
+          animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 16 }}
+          transition={{ type: "spring", stiffness: 300, damping: 34 }}
+          style={{ pointerEvents: visible ? "auto" : "none" }}
+        >
+          <AnimatePresence>{menu && <PlayerMenu key="menu" store={store} actions={menuActions} source={source} />}</AnimatePresence>
 
-        <div className="flex min-w-0 items-baseline gap-2 drop-shadow-[0_1px_8px_rgb(0_0_0/0.6)]">
-          <span className="truncate text-[0.9375rem] font-semibold">{title}</span>
-          {subtitle && <span className="truncate text-[0.8125rem] text-white/60">{subtitle}</span>}
-        </div>
+          <div className="flex min-w-0 items-baseline gap-2 drop-shadow-[0_1px_8px_rgb(0_0_0/0.6)]">
+            <span className="truncate text-[0.9375rem] font-semibold">{title}</span>
+            {subtitle && <span className="truncate text-[0.8125rem] text-white/60">{subtitle}</span>}
+            {source && <ServerBadge server={source} quiet className="ml-1 text-[0.8125rem]" />}
+          </div>
 
-        <FocusGroup focusKey="player-timeline-row" className="flex items-center gap-3 text-xs font-medium text-white/70">
-          {scrubbing ? <span className="w-14 tabular-nums">{clock(scrub)}</span> : <Clock value={store.position} className="w-14" />}
-          <Timeline store={store} markers={markers.data ?? []} scrub={scrub} onSeek={seekTo} onScrub={setScrub} />
-          <span className="w-14 text-right">{duration > 0 && <Clock value={store.position} remainingOf={duration} />}</span>
-        </FocusGroup>
+          <FocusGroup focusKey="player-timeline-row" className="flex items-center gap-3 text-xs font-medium text-white/70">
+            {scrubbing ? <span className="w-14 tabular-nums">{clock(scrub)}</span> : <Clock value={store.position} className="w-14" />}
+            <Timeline store={store} markers={markers.data ?? []} scrub={scrub} onSeek={seekTo} onScrub={setScrub} />
+            <span className="w-14 text-right">{duration > 0 && <Clock value={store.position} remainingOf={duration} />}</span>
+          </FocusGroup>
 
-        <FocusGroup focusKey="player-controls" className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-          <div className="flex items-center">
-            <VolumeControl store={store} />
-          </div>
-          <div className="flex items-center gap-1.5">
-            {adjacent.data?.previous && (
-              <Button variant="ghost" size="icon-sm" icon={SkipBack} label="Previous episode" onClick={() => navigate(playPath(adjacent.data!.previous!.id), { replace: true })} />
-            )}
-            <Button variant="ghost" size="icon-sm" icon={RotateCcw} label="Back 10 seconds" onClick={() => seekBy(-SEEK_STEP)} />
-            <Button variant="ghost" size="icon" icon={phase === "paused" ? Play : Pause} iconFilled label={phase === "paused" ? "Play" : "Pause"} onClick={() => cmd({ type: "togglePause" })} />
-            <Button variant="ghost" size="icon-sm" icon={RotateCw} label="Forward 10 seconds" onClick={() => seekBy(SEEK_STEP)} />
-            {next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
-          </div>
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              icon={Settings}
-              label="Audio, subtitles and playback info"
-              onClick={() => setMenu((m) => !m)}
-              className={cn("[&_svg]:transition-transform [&_svg]:duration-500 [&_svg]:ease-apple", menu && "bg-white/20 text-white [&_svg]:rotate-90")}
-            />
-            {!frame && (
-              <Button variant="ghost" size="icon-sm" icon={fullscreen ? Minimize : Maximize} label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen} />
-            )}
-          </div>
-        </FocusGroup>
-      </motion.footer>
+          <FocusGroup focusKey="player-controls" className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+            <div className="flex items-center">
+              <VolumeControl store={store} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              {adjacent.data?.previous && (
+                <Button variant="ghost" size="icon-sm" icon={SkipBack} label="Previous episode" onClick={() => navigate(playPath(adjacent.data!.previous!.id), { replace: true })} />
+              )}
+              <Button variant="ghost" size="icon-sm" icon={RotateCcw} label="Back 10 seconds" onClick={() => seekBy(-SEEK_STEP)} />
+              <Button variant="ghost" size="icon" icon={phase === "paused" ? Play : Pause} iconFilled label={phase === "paused" ? "Play" : "Pause"} onClick={() => cmd({ type: "togglePause" })} />
+              <Button variant="ghost" size="icon-sm" icon={RotateCw} label="Forward 10 seconds" onClick={() => seekBy(SEEK_STEP)} />
+              {next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
+            </div>
+            <div className="flex items-center justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                icon={Settings}
+                label="Audio, subtitles and playback info"
+                onClick={() => setMenu((m) => !m)}
+                className={cn("[&_svg]:transition-transform [&_svg]:duration-500 [&_svg]:ease-apple", menu && "bg-white/20 text-white [&_svg]:rotate-90")}
+              />
+              {!frame && <Button variant="ghost" size="icon-sm" icon={PictureInPicture2} label="Picture in Picture" onClick={() => setPipMode(true)} />}
+              {!frame && (
+                <Button variant="ghost" size="icon-sm" icon={fullscreen ? Minimize : Maximize} label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen} />
+              )}
+            </div>
+          </FocusGroup>
+        </motion.footer>
+      )}
 
       {error && (
         <div className="absolute inset-0 grid place-items-center bg-black/70">

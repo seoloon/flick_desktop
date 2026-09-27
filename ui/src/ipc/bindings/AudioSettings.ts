@@ -23,4 +23,13 @@ exclusive: boolean, normalization: Normalization,
 /**
  * Encode multichannel PCM to AC3 for S/PDIF receivers (lossy).
  */
-ac3Reencode: boolean, volume: number, };
+ac3Reencode: boolean, volume: number, 
+/**
+ * Amplify beyond 100 % (quiet mixes, laptop speakers). Decoded audio only:
+ * bitstreamed tracks reach the receiver untouched.
+ */
+volumeBoost: boolean, 
+/**
+ * Gain while boosting, in percent of the original level (110..=300).
+ */
+volumeBoostPercent: number, };

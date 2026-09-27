@@ -112,6 +112,20 @@ pub struct PlaybackSettings {
     pub preferred_audio_languages: Vec<String>,
 }
 
+/// Widest picture worth sending at a bitrate, so a capped transcode drops
+/// resolution instead of starving a 4K picture. Thresholds follow common
+/// real-time encoder ladders (H.264/HEVC): ≈ 25 Mb/s for 4K, 6 for 1080p,
+/// 3 for 720p, 1.5 for 480p. `None` = no reason to downscale.
+pub fn max_width_for_bitrate(bits_per_sec: u64) -> Option<u32> {
+    match bits_per_sec {
+        25_000_000.. => None,
+        6_000_000.. => Some(1920),
+        3_000_000.. => Some(1280),
+        1_500_000.. => Some(854),
+        _ => Some(640),
+    }
+}
+
 impl Default for PlaybackSettings {
     fn default() -> Self {
         Self {
@@ -180,6 +194,11 @@ pub struct AudioSettings {
     /// Encode multichannel PCM to AC3 for S/PDIF receivers (lossy).
     pub ac3_reencode: bool,
     pub volume: u8,
+    /// Amplify beyond 100 % (quiet mixes, laptop speakers). Decoded audio only:
+    /// bitstreamed tracks reach the receiver untouched.
+    pub volume_boost: bool,
+    /// Gain while boosting, in percent of the original level (110..=300).
+    pub volume_boost_percent: u16,
 }
 
 impl Default for AudioSettings {
@@ -193,6 +212,8 @@ impl Default for AudioSettings {
             normalization: Normalization::Off,
             ac3_reencode: false,
             volume: 100,
+            volume_boost: false,
+            volume_boost_percent: 150,
         }
     }
 }
@@ -307,7 +328,11 @@ pub enum SubtitleMode {
 pub struct SubtitleSettings {
     pub mode: SubtitleMode,
     pub languages: Vec<String>,
-    pub font: String,
+    /// System font family; empty = the platform's default subtitle font.
+    /// Replaces the former `font` field, whose default ("Inter") is only
+    /// bundled with the UI, not installed where libass looks for fonts.
+    pub font_family: String,
+    pub bold: bool,
     /// Relative size, 1.0 = default.
     pub scale: f32,
     pub color: String,
@@ -325,12 +350,13 @@ impl Default for SubtitleSettings {
         Self {
             mode: SubtitleMode::Smart,
             languages: Vec::new(),
-            font: "Inter".into(),
+            font_family: String::new(),
+            bold: true,
             scale: 1.0,
             color: "#ffffff".into(),
             background: "#000000".into(),
             background_opacity: 0.0,
-            outline: 2.5,
+            outline: 1.6,
             position: 100,
             override_ass: false,
         }
@@ -478,5 +504,22 @@ mod tests {
         assert!(s.audio.passthrough);
         assert_eq!(s.audio.volume, 100);
         assert_eq!(s.video, VideoSettings::default());
+    }
+
+    #[test]
+    fn legacy_subtitle_font_falls_back_to_platform_default() {
+        let s: Settings = serde_json::from_str(r#"{"subtitles":{"font":"Inter","scale":1.2}}"#).unwrap();
+        assert_eq!(s.subtitles.font_family, "");
+        assert!(s.subtitles.bold);
+        assert_eq!(s.subtitles.scale, 1.2);
+    }
+
+    #[test]
+    fn bitrate_ladder_downscales_below_4k_rates() {
+        assert_eq!(max_width_for_bitrate(80_000_000), None);
+        assert_eq!(max_width_for_bitrate(20_000_000), Some(1920));
+        assert_eq!(max_width_for_bitrate(4_000_000), Some(1280));
+        assert_eq!(max_width_for_bitrate(2_000_000), Some(854));
+        assert_eq!(max_width_for_bitrate(1_000_000), Some(640));
     }
 }

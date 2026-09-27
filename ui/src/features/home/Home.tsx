@@ -17,10 +17,10 @@ import type { HomeRow } from "@/ipc/bindings/HomeRow";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { ambientFor } from "@/lib/ambient";
 import { remaining } from "@/lib/format";
-import { enter, pillSpring } from "@/lib/motion";
+import { enter } from "@/lib/motion";
 import { useSettings } from "@/lib/settings";
 import { FocusGroup, Screen } from "@/nav/Focusable";
-import { onAction } from "@/nav/input";
+import { onAction, useModality } from "@/nav/input";
 import { serversQuery } from "@/shell/navItems";
 import { isPlayable, playPath } from "../player/route";
 
@@ -35,24 +35,61 @@ function rowId(row: HomeRow, i: number) {
   return `${row.kind.type}-${i}`;
 }
 
-/** Featured titles: discovery rows first, anything with a backdrop. */
-function pickFeatured(rows: HomeRow[]): MediaItem[] {
-  const order = ["recommended", "popular", "recentlyAdded", "nextUp", "continueWatching"];
-  const sorted = [...rows].sort((a, b) => {
-    const ia = order.indexOf(a.kind.type);
-    const ib = order.indexOf(b.kind.type);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-  });
+// One draw per app session: coming back to Home keeps the same lineup,
+// the next launch brings a new one.
+const SESSION_SEED = Math.floor(Math.random() * 2 ** 31);
+
+/** Small seeded PRNG (mulberry32), so a lineup is stable for its seed. */
+function random(seed: number) {
+  let t = seed;
+  return () => {
+    t = (t + 0x6d2b79f5) | 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const RESUME_ROWS = new Set(["continueWatching", "nextUp"]);
+const MAX_PER_ROW = 2;
+
+/**
+ * Featured titles, drawn at random: unwatched films and series with a
+ * backdrop, from the discovery rows (resume rows already have their shelf),
+ * at most two per row so the lineup mixes libraries and servers. Falls back
+ * to anything with a backdrop when the libraries are nearly all watched.
+ */
+function pickFeatured(rows: HomeRow[], seed: number): MediaItem[] {
+  const rand = random(seed);
   const seen = new Set<string>();
-  const out: MediaItem[] = [];
-  for (const row of sorted) {
+  const pool: { item: MediaItem; row: number; key: number }[] = [];
+  const fallback: { item: MediaItem; row: number; key: number }[] = [];
+  rows.forEach((row, r) => {
     for (const item of row.items) {
       if (!item.images.backdrop || seen.has(item.id)) continue;
       seen.add(item.id);
-      out.push(item);
-      if (out.length >= MAX_SLIDES) return out;
+      const entry = { item, row: r, key: rand() };
+      const discovery = !RESUME_ROWS.has(row.kind.type);
+      if (discovery && !item.user.played && (item.kind === "movie" || item.kind === "series")) pool.push(entry);
+      else fallback.push(entry);
     }
-  }
+  });
+  const byKey = (a: { key: number }, b: { key: number }) => a.key - b.key;
+  const draw = (candidates: typeof pool, out: MediaItem[], perRow: Map<number, number>) => {
+    for (const c of candidates.sort(byKey)) {
+      if (out.length >= MAX_SLIDES) break;
+      const n = perRow.get(c.row) ?? 0;
+      if (n >= MAX_PER_ROW) continue;
+      perRow.set(c.row, n + 1);
+      out.push(c.item);
+    }
+  };
+  const out: MediaItem[] = [];
+  const perRow = new Map<number, number>();
+  draw(pool, out, perRow);
+  // Too few after the per-row cap: lift it, then use the fallback.
+  if (out.length < MAX_SLIDES) draw(pool.filter((c) => !out.includes(c.item)), out, new Map());
+  if (out.length < MAX_SLIDES) draw(fallback, out, new Map());
   return out;
 }
 
@@ -66,18 +103,17 @@ function Featured({ items }: { items: MediaItem[] }) {
 
   const go = (step: number) => setIndex((i) => (i + step + items.length) % items.length);
 
-  // Auto-advance while the user is elsewhere.
-  useEffect(() => {
-    if (focusInside || hover || items.length < 2) return;
-    const t = window.setTimeout(() => go(1), SLIDE_MS);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, focusInside, hover, items.length]);
+  // Auto-advance is driven by the active dot's fill animation (below): it
+  // pauses with hover/focus and resumes where it stopped.
+  // Paused while looked at: pointer over it, or remote focus on it. Focus
+  // alone does not count with a mouse: Home puts it on Play at launch.
+  const modality = useModality((m) => m.modality);
+  const paused = hover || (focusInside && modality === "keys");
 
   // The featured title sets the mood while it is being looked at.
   useEffect(() => {
-    if (focusInside || hover) ambientFor(item);
-  }, [item, focusInside, hover]);
+    if (paused) ambientFor(item);
+  }, [item, paused]);
 
   // Left/right beyond the first/last button pages the carousel.
   useEffect(() => {
@@ -154,10 +190,17 @@ function Featured({ items }: { items: MediaItem[] }) {
                   aria-selected={i === index}
                   aria-label={it.title}
                   onClick={() => setIndex(i)}
-                  className="relative h-2 w-2 cursor-pointer rounded-full bg-white/30 transition-[width] duration-500 ease-apple data-[on=true]:w-7"
+                  className="relative h-2 w-2 cursor-pointer overflow-hidden rounded-full bg-white/30 transition-[width,background-color] duration-500 ease-apple data-[on=true]:w-8 data-[on=true]:bg-white/25"
                   data-on={i === index}
                 >
-                  {i === index && <motion.span layoutId="featured-dot" className="absolute inset-0 rounded-full bg-white" transition={pillSpring} />}
+                  {i === index && (
+                    <span
+                      key={index}
+                      onAnimationEnd={() => go(1)}
+                      className="absolute inset-0 origin-left rounded-full bg-white"
+                      style={{ animation: `flick-progress ${SLIDE_MS}ms linear forwards`, animationPlayState: paused ? "paused" : "running" }}
+                    />
+                  )}
                 </button>
               ))}
             </div>
@@ -174,7 +217,7 @@ export function Home() {
   const home = useQuery({ queryKey: ["home"], queryFn: () => api.home() });
   const servers = useQuery(serversQuery);
   const rows = home.data?.data ?? [];
-  const featured = useMemo(() => pickFeatured(rows), [rows]);
+  const featured = useMemo(() => pickFeatured(rows, SESSION_SEED), [rows]);
 
   // Seed the ambience with the first featured title.
   useEffect(() => {

@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import { onAction } from "@/nav/input";
 import { focusKey, NAV_KEY, SCREEN_KEY } from "@/nav/spatial";
 import { useScrollFade } from "@/nav/useScrollFade";
-import ProgressiveBlur from "@/components/smoothui/progressive-blur";
 import { AmbientBackdrop } from "./AmbientBackdrop";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
@@ -23,21 +22,52 @@ const scrollMemory = new Map<string, number>();
 /**
  * Soft top/bottom edges for the screen scroller. It cannot be masked: a mask
  * would make it a backdrop root and cut the glass panels inside it off from
- * the ambient artwork. So a progressive blur and a light veil sit over it,
- * shown by the `data-fade-*` attributes of the preceding <main> (peer).
+ * the ambient artwork. So stacked blur layers and a light veil sit over it.
+ *
+ * Shown by the `data-fade-*` attributes of the preceding <main> (peer),
+ * relayed as `--edge-on`. Each layer fades its *own* opacity: fading a parent
+ * instead would make Chromium drop the blur until the fade ends (backdrop
+ * filters only see inside a translucent ancestor), which showed as a plain
+ * dark gradient snapping to blur.
  */
+const EDGE_BLURS = [1, 2, 4, 8, 16];
+
+function edgeMask(top: boolean, i: number) {
+  // Stops run past 100 % for the last layers, so the strongest blur stays
+  // opaque right up to the window edge instead of fading out on it.
+  const step = 100 / EDGE_BLURS.length;
+  const stops = `transparent ${i * step}%, #000 ${(i + 1) * step}%, #000 ${(i + 2) * step}%, transparent ${(i + 3) * step}%`;
+  return `linear-gradient(to ${top ? "top" : "bottom"}, ${stops})`;
+}
+
 function ScrollEdge({ side }: { side: "top" | "bottom" }) {
   const top = side === "top";
+  const layer = "absolute inset-0 transition-opacity duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]";
   return (
     <div
       aria-hidden
       className={cn(
-        "pointer-events-none fixed inset-x-0 z-20 opacity-0 transition-opacity duration-500",
-        top ? "top-0 h-20 peer-data-fade-start:opacity-100" : "bottom-0 h-16 peer-data-fade-end:opacity-100",
+        "pointer-events-none fixed inset-x-0 z-20 [--edge-on:0]",
+        top ? "top-0 h-20 peer-data-fade-start:[--edge-on:1]" : "bottom-0 h-16 peer-data-fade-end:[--edge-on:1]",
       )}
     >
-      <ProgressiveBlur direction={top ? "top" : "bottom"} blur={14} layers={5} fadeIn={false} />
-      <div className={cn("absolute inset-0", top ? "bg-[linear-gradient(to_bottom,rgb(0_0_0/0.4),transparent)]" : "bg-[linear-gradient(to_top,rgb(0_0_0/0.35),transparent)]")} />
+      {EDGE_BLURS.map((blur, i) => (
+        <div
+          key={blur}
+          className={layer}
+          style={{
+            opacity: "var(--edge-on)",
+            backdropFilter: `blur(${blur}px)`,
+            WebkitBackdropFilter: `blur(${blur}px)`,
+            maskImage: edgeMask(top, i),
+            WebkitMaskImage: edgeMask(top, i),
+          }}
+        />
+      ))}
+      <div
+        className={cn(layer, top ? "bg-[linear-gradient(to_bottom,rgb(0_0_0/0.4),transparent)]" : "bg-[linear-gradient(to_top,rgb(0_0_0/0.35),transparent)]")}
+        style={{ opacity: "var(--edge-on)" }}
+      />
     </div>
   );
 }
@@ -85,7 +115,9 @@ export function Shell() {
         }}
         className="peer no-scrollbar relative h-full overflow-x-hidden overflow-y-auto pl-[var(--content-left)]"
       >
-        <motion.div key={location.pathname} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35, ease: [0.32, 0.72, 0, 1] }}>
+        {/* No fade here: an ancestor's opacity would switch off every glass
+            panel's blur until it ends. Screens fade their own pieces in. */}
+        <motion.div key={location.pathname} initial={{ y: 10 }} animate={{ y: 0 }} transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}>
           <Outlet />
         </motion.div>
       </main>

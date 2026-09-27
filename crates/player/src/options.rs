@@ -37,10 +37,19 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
         ("demuxer-max-bytes", s(format!("{}MiB", settings.network.buffer_mib))),
         ("demuxer-max-back-bytes", s(format!("{}MiB", (settings.network.buffer_mib / 3).max(16)))),
         ("volume", Node::Double(f64::from(settings.audio.volume))),
-        ("sub-font", s(sub.font.clone())),
+        // Streaming-service look for plain-text subtitles: a bold sans, a
+        // thin black edge softened by a slight blur, and a faint drop shadow
+        // instead of a heavy outline. Sizes are relative to a 720p frame.
+        ("sub-font", s(subtitle_font(&sub.font_family))),
+        ("sub-bold", Node::Flag(sub.bold)),
+        ("sub-font-size", Node::Double(40.0)),
         ("sub-scale", Node::Double(f64::from(sub.scale))),
         ("sub-color", s(sub.color.clone())),
+        ("sub-border-color", s("#000000")),
         ("sub-border-size", Node::Double(f64::from(sub.outline))),
+        ("sub-blur", Node::Double(0.3)),
+        ("sub-shadow-offset", Node::Double(1.2)),
+        ("sub-shadow-color", s("#8C000000")),
         ("sub-pos", Node::Int64(i64::from(sub.position.min(150)))),
         ("sub-ass-override", s(if sub.override_ass { "force" } else { "scale" })),
     ];
@@ -56,19 +65,51 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
     p
 }
 
-/// Audio filter chain: optional normalisation, then optional AC3 encoder for
-/// S/PDIF receivers (must be last: it outputs the compressed stream).
+/// The platform's closest match to streaming services' subtitle fonts, for
+/// an empty setting. libass resolves families through DirectWrite (Windows),
+/// CoreText (macOS) or fontconfig (Linux, which understands `sans-serif`).
+fn subtitle_font(family: &str) -> String {
+    if !family.trim().is_empty() {
+        return family.trim().to_owned();
+    }
+    if cfg!(windows) {
+        "Arial".into()
+    } else if cfg!(target_os = "macos") {
+        "Helvetica Neue".into()
+    } else {
+        "sans-serif".into()
+    }
+}
+
+/// Audio filter chain: optional normalisation, optional boost, then optional
+/// AC3 encoder for S/PDIF receivers (must be last: it outputs the compressed
+/// stream).
 fn audio_filters(settings: &Settings, ac3_encode: bool) -> String {
-    let mut chain: Vec<&str> = Vec::new();
+    let mut chain: Vec<String> = Vec::new();
     match settings.audio.normalization {
         Normalization::Off => {}
-        Normalization::NightMode => chain.push("lavfi=[acompressor=threshold=0.08:ratio=4:attack=20:release=250]"),
-        Normalization::Loudness => chain.push("lavfi=[loudnorm=I=-16:TP=-1.5:LRA=11]"),
+        Normalization::NightMode => chain.push("lavfi=[acompressor=threshold=0.08:ratio=4:attack=20:release=250]".into()),
+        Normalization::Loudness => chain.push("lavfi=[loudnorm=I=-16:TP=-1.5:LRA=11]".into()),
+    }
+    if let Some(boost) = volume_boost(settings) {
+        chain.push(boost);
     }
     if ac3_encode {
-        chain.push("lavcac3enc");
+        chain.push("lavcac3enc".into());
     }
     chain.join(",")
+}
+
+/// Gain followed by a limiter, so loud scenes are held just under full scale
+/// instead of clipping. mpv's own volume is applied after the filters, so the
+/// limiter has to sit in the same graph as the gain.
+fn volume_boost(settings: &Settings) -> Option<String> {
+    let a = &settings.audio;
+    if !a.volume_boost || a.volume_boost_percent <= 100 {
+        return None;
+    }
+    let gain_db = 20.0 * (f64::from(a.volume_boost_percent.min(300)) / 100.0).log10();
+    Some(format!("lavfi=[volume={gain_db:.2}dB,alimiter=limit=0.97:level=0]"))
 }
 
 /// Per-file properties derived from the decision.
@@ -92,7 +133,8 @@ pub fn decision_properties(
             // did not validate (mpv does not fall back to PCM on refusal).
             p.push(("audio-spdif", s(format.mpv_name())));
             p.push(("audio-exclusive", Node::Flag(true)));
-            p.push(("af", s(audio_filters(settings, *reencoded))));
+            // An untouched bitstream cannot be filtered (no boost, no levelling).
+            p.push(("af", s(if *reencoded { audio_filters(settings, true) } else { String::new() })));
         }
         AudioOutputPlan::Pcm { output_channels, .. } => {
             p.push(("audio-spdif", s("")));
@@ -248,5 +290,31 @@ mod tests {
         s.subtitles.background = "#101010".into();
         let p = base_properties(&s);
         assert_eq!(get(&p, "sub-back-color"), Some(&Node::from("#80101010")));
+    }
+
+    #[test]
+    fn empty_subtitle_font_uses_platform_default() {
+        let p = base_properties(&Settings::default());
+        let Some(Node::String(font)) = get(&p, "sub-font") else { panic!("sub-font missing") };
+        assert!(!font.is_empty());
+        assert_eq!(get(&p, "sub-bold"), Some(&Node::Flag(true)));
+    }
+
+    #[test]
+    fn volume_boost_adds_gain_and_limiter_only_when_enabled() {
+        let mut s = Settings::default();
+        assert_eq!(get(&base_properties(&s), "af"), Some(&Node::from("")));
+        s.audio.volume_boost = true;
+        s.audio.volume_boost_percent = 200;
+        assert_eq!(get(&base_properties(&s), "af"), Some(&Node::from("lavfi=[volume=6.02dB,alimiter=limit=0.97:level=0]")));
+    }
+
+    #[test]
+    fn untouched_bitstream_is_never_filtered() {
+        let mut s = Settings::default();
+        s.audio.volume_boost = true;
+        let d = decision(VideoOutputPlan::Sdr, AudioOutputPlan::Bitstream { format: BitstreamFormat::TrueHd, device: "AVR".into(), reencoded: false });
+        let p = decision_properties(&d, &s, None, Some(&device()));
+        assert_eq!(get(&p, "af"), Some(&Node::from("")));
     }
 }

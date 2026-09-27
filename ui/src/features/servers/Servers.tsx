@@ -4,6 +4,8 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/tv/Button";
+import { ProviderLogo } from "@/components/tv/ServerBadge";
+import { Switch } from "@/components/tv/Switch";
 import { Notice, Spinner } from "@/components/tv/Feedback";
 import { Page, PageHeader, Pill } from "@/components/tv/Page";
 import { TextField } from "@/components/tv/TextField";
@@ -244,8 +246,9 @@ function AddPlex({ onDone }: { onDone: () => void }) {
   );
 }
 
-function ServerCard({ entry, status, onRemove, index }: { entry: ServerEntry; status: ServerStatus | undefined; onRemove: () => void; index: number }) {
+function ServerCard({ entry, status, onRemove, onToggle, index }: { entry: ServerEntry; status: ServerStatus | undefined; onRemove: () => void; onToggle: (enabled: boolean) => void; index: number }) {
   const s = entry.server;
+  const off = s.disabled;
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -253,16 +256,19 @@ function ServerCard({ entry, status, onRemove, index }: { entry: ServerEntry; st
       transition={{ ...enter, delay: index * 0.05 }}
       className="glass flex flex-wrap items-center gap-x-8 gap-y-4 rounded-3xl p-6"
     >
-      <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-white/10 text-xl font-bold">{s.kind === "plex" ? "P" : "J"}</span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <motion.span animate={{ opacity: off ? 0.45 : 1, filter: off ? "grayscale(1)" : "grayscale(0)" }} transition={{ duration: 0.35 }} className="grid size-14 shrink-0 place-items-center rounded-2xl bg-white/10">
+        <ProviderLogo kind={s.kind} className="size-7" />
+      </motion.span>
+      <motion.div animate={{ opacity: off ? 0.5 : 1 }} transition={{ duration: 0.35 }} className="flex min-w-0 flex-1 flex-col gap-1">
         <h2 className="text-xl font-semibold">{s.name}</h2>
         <p className="text-sm text-muted-foreground">
           {s.kind === "plex" ? "Plex" : "Jellyfin"} {s.version ?? ""} · signed in as {s.user.name}
           {s.user.isAdmin ? " (administrator)" : ""}
         </p>
         <p className="truncate font-mono text-xs text-white/40">{s.baseUrl}</p>
-      </div>
-      {entry.connected ? <StatusPill status={status} /> : <Pill tone="warn">Sign in again</Pill>}
+      </motion.div>
+      {off ? <Pill>Off</Pill> : entry.connected ? <StatusPill status={status} /> : <Pill tone="warn">Sign in again</Pill>}
+      <Switch checked={!off} onChange={onToggle} label={off ? `Turn on ${s.name}` : `Turn off ${s.name}`} />
       <Button variant="danger" size="sm" icon={Trash2} onClick={onRemove}>
         Remove
       </Button>
@@ -284,6 +290,16 @@ export function Servers() {
     void queryClient.invalidateQueries({ queryKey: ["servers"] });
     void queryClient.invalidateQueries({ queryKey: ["libraries"] });
     void queryClient.invalidateQueries({ queryKey: ["home"] });
+    void queryClient.invalidateQueries({ queryKey: ["search"] });
+  };
+  // Optimistic: the card flips at once; the catalogue follows once Rust has
+  // connected or dropped the server.
+  const toggle = (id: string, enabled: boolean) => {
+    queryClient.setQueryData<ServerEntry[]>(["servers"], (list) => list?.map((e) => (e.server.id === id ? { ...e, server: { ...e.server, disabled: !enabled } } : e)));
+    api.serverSetEnabled(id, enabled).then(refresh, (e) => {
+      toast.error(asError(e).message);
+      refresh();
+    });
   };
   const done = () => {
     setAdding(null);
@@ -319,6 +335,7 @@ export function Servers() {
                 index={i}
                 entry={s}
                 status={statusOf(s.server.id)}
+                onToggle={(enabled) => toggle(s.server.id, enabled)}
                 onRemove={() =>
                   void api.serverRemove(s.server.id).then(refresh, (e) => toast.error(asError(e).message))
                 }

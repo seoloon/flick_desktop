@@ -46,6 +46,12 @@ deviennent opaques, sans `backdrop-filter` (GPU faibles, écrans 4K).
 
 - Le rayon suit le contenu : affiche 8 px, vignette 12 px, tuile 16 px,
   panneau 24–32 px, boutons et onglets en pilule.
+- **Rayons concentriques** : un élément posé dans un cadre prend le rayon du
+  cadre moins la marge qui les sépare, sinon ses coins « flottent » dans ceux
+  du cadre. Groupe de réglages et menu du lecteur : cadre `2xl` (25 px),
+  marge 6 px → lignes `xl` (19,6 px). Barre latérale : 28 px − 12 px → 16 px.
+  Carte « À suivre » : pilules de 18 px à 12 px du bord → carte `3xl`.
+  Dialogue : le bouton Fermer est centré sur l'arc du coin.
 - La profondeur vient du focus (élévation + ombre) et du verre, pas d'ombres
   grises systématiques.
 
@@ -67,6 +73,9 @@ deviennent opaques, sans `backdrop-filter` (GPU faibles, écrans 4K).
 | `Segmented` | Onglets / tri / versions | pilule de sélection glissante, focus blanc |
 | `SettingsGroup`, `ToggleRow`, `SelectRow`, `SliderRow`, `LinkRow`, `InfoRow` | Réglages façon tvOS | gauche/droite modifie la valeur de la ligne focalisée : jamais de popup à la télécommande |
 | `HeroBackdrop`, `TitleArt`, `MetaLine` | Héros d'accueil et de fiche | l'image passe sous la barre latérale et s'estompe par un flou progressif (smoothui) |
+| `ServerBadge`, `ProviderLogo` | Source d'un titre : logo Jellyfin/Plex + nom du serveur | seulement avec plusieurs serveurs (`useSources`) ; logos en couleurs de marque, comme des badges de chaîne : c'est du contenu, pas du chrome. Pastille sur les cartes au focus, ligne « Also on » sur la fiche, à côté du titre dans le lecteur |
+| `CompactRows` | Mêmes lignes de réglages en taille réduite | menu du lecteur (amplification du volume) |
+| `Switch` | Interrupteur autonome (activer / désactiver un serveur) | pouce sur ressort, focus = anneau blanc |
 | `TvDialog` | Ajout de serveur | Radix (animate-ui) + frontière de focus ; Retour ferme |
 | `TextField`, `Notice`, `Spinner`, `EmptyState`, `Panel`, `Facts`, `Pill` | Formulaires, états, faits | `Pill` n'affiche que ce que les métadonnées disent |
 
@@ -96,6 +105,10 @@ composants `tv/` les habillent pour la télécommande.
 ## Cadre
 
 - **Bureau** : barre latérale flottante en verre ; les héros passent dessous.
+  Elle se replie (bouton en bas, mémorisé par appareil). Seule la barre
+  anime sa largeur ; le contenu prend sa nouvelle marge d'un coup puis glisse
+  par `transform` (FLIP, `lib/sidebar.ts`) : aucune remise en page par
+  image. Repliée, sa largeur centre exactement les icônes, qui ne bougent pas.
 - **Flick Frame** : barre d'onglets tvOS en haut, qui s'efface quand on
   descend dans le contenu et revient quand le focus remonte. Police racine
   `clamp(18px, 1.25vw, 40px)` (tout est en rem), plein écran, curseur masqué
@@ -125,8 +138,14 @@ une rangée pas encore défilée n'a pas de fondu à gauche.
   (`scroll-fade-x/y`), longueur animée via `@property`. Taille réglable par
   `--fade-size`.
 - Écran principal : pas de masque (il couperait le verre des panneaux du fond
-  ambiant) ; un flou progressif et un léger voile se posent en haut quand on
+  ambiant) ; des couches de flou et un léger voile se posent en haut quand on
   a défilé, en bas tant qu'il reste du contenu.
+
+**Règle du verre** : un élément en verre (`backdrop-filter`) peut fondre sa
+propre opacité, jamais celle d'un parent. Sous un parent translucide,
+Chromium ne floute que l'intérieur de ce parent, c'est-à-dire rien : le flou
+n'apparaît qu'à la fin du fondu. Les transitions d'écran et les en-têtes
+glissent donc sans fondre, et les panneaux en verre fondent eux-mêmes.
 
 ## Lecteur
 
@@ -142,6 +161,22 @@ centre, réglages et plein écran à droite. Les commandes se masquent après
   Gauche revient à la racine, sur la ligne d'origine.
 - **Mouvement** : la barre de lecture et le volume passent par des ressorts
   (un saut de ±10 s glisse, le volume suit la main puis mpv rattrape).
+- **Qualité** (page du menu et *Lecture > Streaming quality*) : plafond de
+  débit avec la résolution correspondante entre parenthèses (`lib/quality.ts`,
+  échelle alignée sur `max_width_for_bitrate` côté Rust). Changer de qualité
+  relance la lecture à la même position, sur les mêmes pistes.
+- **Amplification du volume** (page Audio du menu et *Audio*) : interrupteur +
+  curseur 110–300 % ; gain suivi d'un limiteur, jamais appliqué au bitstream.
+- **Image dans l'image** : la fenêtre entière devient une petite vidéo
+  toujours au premier plan dans un coin de l'écran (`window_pip`), déplaçable
+  en la faisant glisser et redimensionnable par ses bords. Au survol, une
+  surcouche compacte : titre, retour au lecteur complet et arrêt en haut,
+  transport au centre, barre de lecture en bas. Double-clic ou Retour : retour
+  au lecteur, la fenêtre reprend sa taille, sa place et son état.
+- **Sous-titres** : style des services de streaming (police sans empattement
+  en gras, contour noir fin adouci, ombre portée légère). Police au choix
+  parmi celles installées (libass et la WebView les trouvent de la même
+  façon) ; aperçu en direct dans *Sous-titres*.
 - **Plein écran** : celui du lecteur ne concerne que la fenêtre, le temps de
   la lecture (double-clic sur la vidéo aussi) ; en sortant, la fenêtre revient
   comme avant. Flick Frame ne s'active que par son bouton, la touche Menu ou le

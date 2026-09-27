@@ -13,7 +13,7 @@ use oneshot_core::provider::MediaProvider;
 use oneshot_core::settings::Settings;
 use oneshot_core::{Error, Result};
 use oneshot_mpv::{EndReason, Node};
-use oneshot_playback::{DecisionInput, client_profile, decide};
+use oneshot_playback::{DecisionInput, TrackRequest, client_profile, decide};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -40,6 +40,44 @@ pub(crate) struct Session {
     hwdec_checked: bool,
     audio_fallback_done: bool,
     last_report: Instant,
+}
+
+impl Session {
+    pub(crate) fn item(&self) -> &ItemRef {
+        &self.item
+    }
+
+    pub(crate) fn decision(&self) -> &PlaybackDecision {
+        &self.decision
+    }
+
+    /// Audio and subtitle choices in provider numbering. With the original
+    /// file, mpv's selection maps back through `ff-index` (or the URL of an
+    /// external subtitle), so a track picked in the player carries over.
+    /// A server stream only holds the tracks that were requested.
+    pub(crate) fn current_tracks(&self, tracks: &[tracks::Track]) -> (TrackRequest, TrackRequest) {
+        let decided_sub = match self.decision.subtitles {
+            SubtitlePlan::Local { index, .. } | SubtitlePlan::BurnIn { index } => TrackRequest::Index(index),
+            SubtitlePlan::None => TrackRequest::Off,
+        };
+        let decided_audio = self.decision.audio_stream.map_or(TrackRequest::Auto, TrackRequest::Index);
+        if self.delivery != DeliveryKind::DirectPlay || tracks.is_empty() {
+            return (decided_audio, decided_sub);
+        }
+        let selected = |kind: TrackType| tracks.iter().find(|t| t.kind == kind && t.selected);
+        let provider_index = |t: &tracks::Track| {
+            t.stream_index.or_else(|| {
+                let url = t.external_url.as_deref()?;
+                self.external_subtitles.iter().find(|e| e.url.as_str() == url).map(|e| e.stream_index)
+            })
+        };
+        let audio = selected(TrackType::Audio).and_then(provider_index).map_or(decided_audio, TrackRequest::Index);
+        let subtitle = match selected(TrackType::Sub) {
+            None => TrackRequest::Off,
+            Some(t) => provider_index(t).map_or(decided_sub, TrackRequest::Index),
+        };
+        (audio, subtitle)
+    }
 }
 
 fn delivery_kind(d: &DeliveryRequest) -> DeliveryKind {
@@ -165,9 +203,10 @@ async fn negotiate_and_load(
         if let Err(e) = engine.mpv.set_property("pause", false) {
             tracing::warn!(target: "player", "unpause before load: {e}");
         }
-        // Server-side transcodes already start at `start_ms`.
-        let local_start = if matches!(decision.delivery, DeliveryRequest::Direct) { start_ms } else { 0 };
-        let file_opts = format!("start={:.3}", local_start as f64 / 1000.0);
+        // Server streams (Jellyfin and Plex HLS alike) list the whole title
+        // from 0 and encode from whichever segment is fetched first: the
+        // start offset sent to the server only warms it up, the seek is ours.
+        let file_opts = format!("start={:.3}", start_ms as f64 / 1000.0);
         engine
             .mpv
             .command(&["loadfile", target.url.as_str(), "replace", "-1", &file_opts])

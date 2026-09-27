@@ -1,20 +1,33 @@
 // Settings rows in the tvOS style: an inset grouped list on glass; the
 // focused row turns white. Every row is one focus target: pickers and sliders
 // change with left/right while focused, so a remote never needs a popup.
+//
+// Shape: a group is a 2xl panel with 1.5 (6 px) padding, so its rows use xl —
+// the panel radius minus the padding — and sit concentric with its corners.
+// `CompactRows` renders the same rows smaller for the player menu, which is
+// built on the same panel geometry.
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
-import { type PointerEvent, type ReactNode, useEffect, useRef } from "react";
+import { createContext, type PointerEvent, type ReactNode, useContext, useEffect, useRef } from "react";
 import { focusSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useTv } from "@/nav/Focusable";
 import { onAction } from "@/nav/input";
 import type { Choice } from "./Segmented";
 
+const Compact = createContext(false);
+
+export function CompactRows({ children }: { children: ReactNode }) {
+  return <Compact.Provider value>{children}</Compact.Provider>;
+}
+
 export function SettingsGroup({ title, note, children }: { title?: string; note?: ReactNode; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2.5">
       {title && <h2 className="px-5 text-[0.8125rem] font-semibold tracking-wide text-muted-foreground uppercase">{title}</h2>}
-      <div className="glass flex flex-col rounded-2xl p-1.5">{children}</div>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }} className="glass flex flex-col rounded-2xl p-1.5">
+        {children}
+      </motion.div>
       {note && <div className="flex flex-col gap-2 px-5 text-[0.8125rem] leading-relaxed text-muted-foreground">{note}</div>}
     </section>
   );
@@ -48,6 +61,7 @@ type ShellProps = {
 
 function RowShell({ label, hint, disabled, onClick, children, role, ariaChecked, onArrow, autoFocus }: ShellProps) {
   const tv = useTv<HTMLButtonElement>({ focusable: !disabled, autoFocus, scroll: "nearest" });
+  const compact = useContext(Compact);
   useArrows(tv.focused && !disabled && !!onArrow, (s) => onArrow?.(s));
   return (
     <motion.button
@@ -59,36 +73,39 @@ function RowShell({ label, hint, disabled, onClick, children, role, ariaChecked,
       disabled={disabled}
       onClick={onClick}
       data-tv-focus={tv.showFocus || undefined}
-      animate={{ scale: tv.showFocus ? 1.025 : 1 }}
+      animate={{ scale: tv.showFocus ? (compact ? 1.02 : 1.025) : 1 }}
       transition={focusSpring}
       className={cn(
-        "group/row relative flex min-h-14 w-full cursor-pointer items-center justify-between gap-6 rounded-xl px-4 py-3 text-left scroll-my-24",
+        "group/row relative flex w-full cursor-pointer items-center justify-between rounded-xl text-left",
+        compact ? "min-h-10 gap-4 px-3 py-2 scroll-my-4" : "min-h-14 gap-6 px-4 py-3 scroll-my-24",
         "transition-colors duration-200 ease-apple disabled:cursor-default disabled:opacity-40",
         tv.showFocus ? "z-10 bg-white text-black shadow-[0_16px_36px_-14px_rgb(0_0_0/0.8)]" : "hover:bg-white/[0.07]",
       )}
     >
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-[0.9375rem] font-medium">{label}</span>
-        {hint && <span className={cn("text-[0.8125rem] leading-snug", tv.showFocus ? "text-black/60" : "text-muted-foreground")}>{hint}</span>}
+        <span className={cn("font-medium", compact ? "text-[0.8125rem]" : "text-[0.9375rem]")}>{label}</span>
+        {hint && <span className={cn("leading-snug", compact ? "text-[0.6875rem]" : "text-[0.8125rem]", tv.showFocus ? "text-black/60" : "text-muted-foreground")}>{hint}</span>}
       </span>
-      <span className={cn("flex shrink-0 items-center gap-2 text-[0.9375rem]", tv.showFocus ? "text-black/70" : "text-white/60")}>{children}</span>
+      <span className={cn("flex shrink-0 items-center gap-2", compact ? "text-[0.8125rem]" : "text-[0.9375rem]", tv.showFocus ? "text-black/70" : "text-white/60")}>{children}</span>
     </motion.button>
   );
 }
 
 export function ToggleRow({ label, hint, checked, onChange, disabled }: { label: string; hint?: ReactNode; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  const compact = useContext(Compact);
   return (
     <RowShell label={label} hint={hint} disabled={disabled} role="switch" ariaChecked={checked} onClick={() => onChange(!checked)}>
       <span
         className={cn(
-          "relative flex h-7 w-12 items-center rounded-full p-0.5 transition-colors duration-300 ease-apple",
+          "relative flex items-center rounded-full p-0.5 transition-colors duration-300 ease-apple",
+          compact ? "h-6 w-10" : "h-7 w-12",
           checked ? "justify-end bg-white group-data-tv-focus/row:bg-black" : "justify-start bg-white/20 group-data-tv-focus/row:bg-black/15",
         )}
       >
         <motion.span
           layout
           transition={focusSpring}
-          className={cn("size-6 rounded-full shadow-sm", checked ? "bg-black group-data-tv-focus/row:bg-white" : "bg-white")}
+          className={cn("rounded-full shadow-sm", compact ? "size-5" : "size-6", checked ? "bg-black group-data-tv-focus/row:bg-white" : "bg-white")}
         />
       </span>
     </RowShell>
@@ -148,6 +165,7 @@ export function SliderRow({
     return Number(Math.min(max, Math.max(min, snapped)).toFixed(4));
   };
   const pct = ((value - min) / (max - min)) * 100;
+  const compact = useContext(Compact);
   const drag = (e: PointerEvent<HTMLSpanElement>) => {
     e.stopPropagation();
     const el = e.currentTarget;
@@ -167,13 +185,13 @@ export function SliderRow({
   };
   return (
     <RowShell label={label} hint={hint} disabled={disabled} onArrow={(s) => onChange(clamp(value + s * step))}>
-      <span className="relative flex h-6 w-44 cursor-pointer items-center" onPointerDown={drag} onClick={(e) => e.stopPropagation()} role="presentation">
+      <span className={cn("relative flex h-6 cursor-pointer items-center", compact ? "w-28" : "w-44")} onPointerDown={drag} onClick={(e) => e.stopPropagation()} role="presentation">
         <span className="h-1.5 w-full overflow-hidden rounded-full bg-white/20 group-data-tv-focus/row:bg-black/15">
           <span className="block h-full rounded-full bg-white group-data-tv-focus/row:bg-black" style={{ width: `${pct}%` }} />
         </span>
         <span className="absolute size-4 -translate-x-1/2 rounded-full bg-white shadow ring-1 ring-black/10" style={{ left: `${pct}%` }} />
       </span>
-      <span className="w-20 text-right tabular-nums">{format ? format(value) : value}</span>
+      <span className={cn("text-right tabular-nums", compact ? "w-12" : "w-20")}>{format ? format(value) : value}</span>
     </RowShell>
   );
 }

@@ -55,6 +55,18 @@ pub fn select_audio<'a>(source: &'a MediaSource, request: TrackRequest, language
     }
 }
 
+/// A subtitle that only covers signs or foreign-language lines. Many files
+/// say so in the title only ("French Forced", "Signs & Songs") without the
+/// forced flag, and picking one of those as the full subtitles leaves most
+/// dialogue untranslated.
+pub fn is_partial(s: &SubtitleStream) -> bool {
+    const MARKERS: [&str; 7] = ["forced", "forcé", "forzad", "forzat", "erzwungen", "signs", "songs"];
+    s.forced || s.title.as_deref().is_some_and(|t| {
+        let t = t.to_lowercase();
+        MARKERS.iter().any(|m| t.contains(m))
+    })
+}
+
 pub fn select_subtitle<'a>(
     source: &'a MediaSource,
     request: TrackRequest,
@@ -66,13 +78,24 @@ pub fn select_subtitle<'a>(
         TrackRequest::Index(i) => source.subtitles.iter().find(|s| s.index == i),
         TrackRequest::Auto => {
             let audio_lang = audio.and_then(|a| a.language.as_deref());
-            let in_lang = |s: &&SubtitleStream, lang: &str| s.language.as_deref().is_some_and(|l| same_language(l, lang));
+            let in_lang = |s: &SubtitleStream, lang: &str| s.language.as_deref().is_some_and(|l| same_language(l, lang));
+            // A flagged forced track beats one recognised by its title only.
             let forced_for_audio = || {
-                source.subtitles.iter().find(|s| s.forced && audio_lang.is_none_or(|al| in_lang(s, al)))
+                source
+                    .subtitles
+                    .iter()
+                    .filter(|s| is_partial(s) && audio_lang.is_none_or(|al| in_lang(s, al)))
+                    .min_by_key(|s| !s.forced)
             };
+            // Full subtitles only: never a partial track, whatever its flags.
+            // The file's default comes first, then plain over SDH.
             let full_in_prefs = || {
                 prefs.languages.iter().find_map(|lang| {
-                    source.subtitles.iter().filter(|s| !s.forced).find(|s| in_lang(s, lang))
+                    source
+                        .subtitles
+                        .iter()
+                        .filter(|s| !is_partial(s) && in_lang(s, lang))
+                        .min_by_key(|s| (!s.is_default, s.hearing_impaired))
                 })
             };
             match prefs.mode {

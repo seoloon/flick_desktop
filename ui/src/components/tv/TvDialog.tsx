@@ -68,7 +68,8 @@ export function TvDialog({ open, onClose, title, description, children }: Props)
                   <DialogDescription className="sr-only">{title}</DialogDescription>
                 )}
               </div>
-              <Button variant="ghost" size="icon" icon={X} label="Close" onClick={onClose} className="-mt-1 -mr-2" />
+              {/* Centred on the corner's arc (32 px radius, 22 px button): concentric with the card. */}
+              <Button variant="ghost" size="icon" icon={X} label="Close" onClick={onClose} className="-mt-[1.375rem] -mr-[1.375rem]" />
             </header>
             {children}
           </FocusGroup>

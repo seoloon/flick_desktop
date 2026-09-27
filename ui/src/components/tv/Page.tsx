@@ -10,13 +10,18 @@ export function Page({ children, className }: { children: ReactNode; className?:
 
 export function PageHeader({ title, lead, actions }: { title: ReactNode; lead?: ReactNode; actions?: ReactNode }) {
   return (
-    <motion.header initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-      <div className="flex max-w-3xl flex-col gap-2">
+    <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="flex max-w-3xl flex-col gap-2">
         <h1 className="text-[2.75rem] leading-none font-bold tracking-tight">{title}</h1>
         {lead && <p className="text-[1.0625rem] leading-relaxed text-muted-foreground">{lead}</p>}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-3">{actions}</div>}
-    </motion.header>
+      </motion.div>
+      {/* Glass controls must not sit under a fading ancestor: slide only. */}
+      {actions && (
+        <motion.div initial={{ y: 12 }} animate={{ y: 0 }} transition={enter} className="flex flex-wrap items-center gap-3">
+          {actions}
+        </motion.div>
+      )}
+    </header>
   );
 }
 

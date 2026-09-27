@@ -45,7 +45,7 @@ export function HeroBackdrop({ image, className }: { image: ImageRef | null | un
       )}
     >
       <AnimatePresence initial={false}>{src && <FadeImage key={src} src={src} />}</AnimatePresence>
-      <ProgressiveBlur direction="bottom" blur={28} layers={7} className="top-auto h-[40%]" />
+      <ProgressiveBlur direction="bottom" blur={28} layers={7} fadeIn={false} className="top-auto h-[40%]" />
       {/* Legibility for the title block (bottom-left). */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,rgb(0_0_0/0.7),rgb(0_0_0/0.3)_38%,transparent_65%)]" />
       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-[linear-gradient(to_top,rgb(0_0_0/0.4),transparent)]" />

@@ -4,6 +4,11 @@
 //! * **DisplayConfig** (CCD API): monitor name, refresh rate, and the
 //!   *advanced colour* state — "HDR capable" vs "HDR enabled" (Windows "Use
 //!   HDR" toggle). DXGI alone cannot tell "capable but off".
+//!   Since Windows 11 24H2 "advanced colour" also covers SDR panels running
+//!   Auto Color Management / WCG, so the legacy `advancedColorSupported` bit
+//!   is set on plain SDR monitors. The newer `ADVANCED_COLOR_INFO_2` query
+//!   has a dedicated `highDynamicRangeSupported` bit and is used when the OS
+//!   knows it.
 //! * **DXGI `IDXGIOutput6::GetDesc1`**: desktop rectangle, active colour space
 //!   and the luminance range the OS reports for the panel (from EDID/driver),
 //!   used as `target-peak` when we signal HDR ourselves.
@@ -30,8 +35,8 @@ use super::{hardware_adapters, wide_to_string};
 struct CcdInfo {
     friendly_name: Option<String>,
     refresh_hz: Option<f32>,
-    advanced_color_supported: Option<bool>,
-    advanced_color_enabled: Option<bool>,
+    hdr_supported: Option<bool>,
+    hdr_enabled: Option<bool>,
     bits_per_color: Option<u8>,
 }
 
@@ -67,7 +72,7 @@ pub fn probe(notes: &mut Vec<String>) -> Vec<DisplayCapabilities> {
                     max_full_frame_luminance: lum(desc.MaxFullFrameLuminance),
                 }
             } else {
-                match info.and_then(|i| i.advanced_color_supported) {
+                match info.and_then(|i| i.hdr_supported) {
                     Some(true) => HdrState::SupportedButOff,
                     Some(false) => HdrState::Unsupported,
                     None => HdrState::Unknown { reason: "advanced colour state unavailable".into() },
@@ -85,14 +90,51 @@ pub fn probe(notes: &mut Vec<String>) -> Vec<DisplayCapabilities> {
                 bounds: Rect { x: r.left, y: r.top, width: (r.right - r.left) as u32, height: (r.bottom - r.top) as u32 },
             });
             if let Some(i) = info
-                && i.advanced_color_enabled == Some(true)
+                && i.hdr_enabled == Some(true)
                 && !hdr_active
             {
-                notes.push(format!("{gdi_name}: advanced colour enabled but DXGI reports an SDR colour space (WCG-only mode?)"));
+                notes.push(format!("{gdi_name}: HDR reported on but DXGI sees an SDR colour space"));
             }
         }
     }
     displays
+}
+
+/// `DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2` (Windows 11 24H2+),
+/// not yet in the `windows` crate.
+const GET_ADVANCED_COLOR_INFO_2: windows::Win32::Devices::Display::DISPLAYCONFIG_DEVICE_INFO_TYPE =
+    windows::Win32::Devices::Display::DISPLAYCONFIG_DEVICE_INFO_TYPE(15);
+/// `DISPLAYCONFIG_ADVANCED_COLOR_MODE_HDR`.
+const ACTIVE_COLOR_MODE_HDR: u32 = 2;
+
+/// `DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2` (wingdi.h).
+#[repr(C)]
+#[derive(Default)]
+struct AdvancedColorInfo2 {
+    header: DISPLAYCONFIG_DEVICE_INFO_HEADER,
+    /// Bitfield: 0 advancedColorSupported, 1 advancedColorActive,
+    /// 3 advancedColorLimitedByPolicy, 4 highDynamicRangeSupported,
+    /// 5 highDynamicRangeUserEnabled, 6 wideColorSupported, 7 wideColorUserEnabled.
+    value: u32,
+    color_encoding: i32,
+    bits_per_color_channel: u32,
+    active_color_mode: u32,
+}
+
+/// `(hdr supported, hdr enabled, bits per channel)` from the 24H2 query;
+/// `None` on older Windows, which rejects the request type.
+fn hdr_info2(adapter: windows::Win32::Foundation::LUID, id: u32) -> Option<(bool, bool, Option<u8>)> {
+    let mut info = AdvancedColorInfo2 {
+        header: header::<AdvancedColorInfo2>(GET_ADVANCED_COLOR_INFO_2, adapter, id),
+        ..Default::default()
+    };
+    // SAFETY: header describes the enclosing, wingdi-compatible struct.
+    if unsafe { DisplayConfigGetDeviceInfo(&mut info.header) } != 0 {
+        return None;
+    }
+    let supported = info.value & (1 << 4) != 0;
+    let enabled = info.active_color_mode == ACTIVE_COLOR_MODE_HDR;
+    Some((supported, enabled, Some(info.bits_per_color_channel as u8).filter(|b| *b > 0)))
 }
 
 fn query_ccd() -> Result<HashMap<String, CcdInfo>, String> {
@@ -149,6 +191,9 @@ fn query_ccd() -> Result<HashMap<String, CcdInfo>, String> {
         let color_ok = unsafe { DisplayConfigGetDeviceInfo(&mut color.header) } == 0;
         // SAFETY: `value` is the plain u32 view of the bitfield union.
         let bits = unsafe { color.Anonymous.value };
+        // bit 0 advancedColorSupported, bit 1 advancedColorEnabled
+        let legacy = color_ok.then(|| (bits & 0b01 != 0, bits & 0b10 != 0, Some(color.bitsPerColorChannel as u8).filter(|b| *b > 0)));
+        let color_info = hdr_info2(path.targetInfo.adapterId, path.targetInfo.id).or(legacy);
         let rr = path.targetInfo.refreshRate;
         out.insert(
             wide_to_string(&source.viewGdiDeviceName),
@@ -157,10 +202,9 @@ fn query_ccd() -> Result<HashMap<String, CcdInfo>, String> {
                     .then(|| wide_to_string(&target.monitorFriendlyDeviceName))
                     .filter(|s| !s.is_empty()),
                 refresh_hz: (rr.Denominator != 0).then(|| rr.Numerator as f32 / rr.Denominator as f32),
-                // bit 0 advancedColorSupported, bit 1 advancedColorEnabled
-                advanced_color_supported: color_ok.then_some(bits & 0b01 != 0),
-                advanced_color_enabled: color_ok.then_some(bits & 0b10 != 0),
-                bits_per_color: color_ok.then_some(color.bitsPerColorChannel as u8).filter(|b| *b > 0),
+                hdr_supported: color_info.map(|c| c.0),
+                hdr_enabled: color_info.map(|c| c.1),
+                bits_per_color: color_info.and_then(|c| c.2),
             },
         );
     }

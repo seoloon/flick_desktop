@@ -62,6 +62,7 @@ async fn provider() -> Option<JellyfinProvider> {
         alternate_urls: vec![],
         version: session.version.clone(),
         user: UserProfile { id: session.user_id.clone(), name: session.user_name.clone(), avatar: None, is_admin: session.is_admin },
+        disabled: false,
     };
     Some(JellyfinProvider::new(descriptor, http, identity(), session.token))
 }

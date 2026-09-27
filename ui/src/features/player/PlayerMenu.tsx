@@ -1,22 +1,29 @@
 // The player's single settings menu (like Apple's player): a root page with
-// Audio, Subtitles, Video and Playback Info, each opening a page that slides
-// in. The card resizes smoothly between pages (animate-ui AutoHeight).
+// Audio, Subtitles, Video, Quality and Playback Info, each opening a page that
+// slides in. The card resizes smoothly between pages (animate-ui AutoHeight).
 //
 // It sits over live video, which the WebView cannot see (native layer
 // underneath), so it is a dark translucent card rather than frosted glass.
+// Same geometry as a settings group (2xl, 6 px padding, xl rows): every row's
+// corners stay concentric with the card's.
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type MutableRefObject, type ReactNode, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { AutoHeight } from "@/components/animate-ui/primitives/effects/auto-height";
-import { Button } from "@/components/tv/Button";
 import { Facts, Pill } from "@/components/tv/Page";
-import { api } from "@/ipc/api";
+import { CompactRows, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
+import { api, asError } from "@/ipc/api";
+import { ServerBadge } from "@/components/tv/ServerBadge";
 import type { LiveStats } from "@/ipc/bindings/LiveStats";
+import type { ServerDescriptor } from "@/ipc/bindings/ServerDescriptor";
 import type { Track } from "@/ipc/bindings/Track";
 import type { TrackType } from "@/ipc/bindings/TrackType";
 import { bitrate, channelsLabel } from "@/lib/format";
 import { focusSpring, panelSpring } from "@/lib/motion";
+import { QUALITY_TIERS, qualityText, qualityTier } from "@/lib/quality";
+import { flushSettings, updateSettings, useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import type { Action } from "@/nav/input";
@@ -24,7 +31,7 @@ import { focusKey } from "@/nav/spatial";
 import { summary } from "./explain";
 import type { PlayerStore } from "./store";
 
-type Page = "root" | "info" | TrackType;
+type Page = "root" | "info" | "quality" | TrackType;
 
 /** Lets the player route Back/Left to the menu before closing it. */
 export type MenuActions = MutableRefObject<((a: Action) => boolean) | null>;
@@ -51,7 +58,7 @@ function trackLabel(t: Track): { title: string; detail: string } {
   return { title: [lang, t.title].filter(Boolean).join(" — ") || `Track ${t.mpvId}`, detail };
 }
 
-const titles: Record<Page, string> = { root: "", info: "Playback Info", audio: "Audio", sub: "Subtitles", video: "Video" };
+const titles: Record<Page, string> = { root: "", info: "Playback Info", quality: "Quality", audio: "Audio", sub: "Subtitles", video: "Video" };
 
 /** A row in any page: white on focus, lifts a touch. */
 function Row({ focusKey: key, autoFocus, onSelect, children, role, checked }: { focusKey?: string; autoFocus?: boolean; onSelect: () => void; children: ReactNode; role?: string; checked?: boolean }) {
@@ -68,7 +75,7 @@ function Row({ focusKey: key, autoFocus, onSelect, children, role, checked }: { 
       animate={{ scale: tv.showFocus ? 1.02 : 1 }}
       transition={focusSpring}
       className={cn(
-        "group/row flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors duration-200",
+        "group/row flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors duration-200",
         tv.showFocus ? "bg-white text-black" : "hover:bg-white/10",
       )}
     >
@@ -77,12 +84,10 @@ function Row({ focusKey: key, autoFocus, onSelect, children, role, checked }: { 
   );
 }
 
-function Tracks({ kind, tracks }: { kind: TrackType; tracks: Track[] }) {
-  const list = tracks.filter((t) => t.kind === kind);
-  const select = (mpvId: number | null) => void api.playerCommand({ type: "selectTrack", kind, mpvId });
-  const none = !list.some((t) => t.selected);
-  const item = (key: string, title: string, detail: string, selected: boolean, onSelect: () => void) => (
-    <Row key={key} role="menuitemradio" checked={selected} autoFocus={selected} onSelect={onSelect}>
+/** A radio row: check mark, title, optional detail line. */
+function Choice({ title, detail, selected, onSelect }: { title: string; detail?: string; selected: boolean; onSelect: () => void }) {
+  return (
+    <Row role="menuitemradio" checked={selected} autoFocus={selected} onSelect={onSelect}>
       <span className="grid size-4 shrink-0 place-items-center">
         <AnimatePresence>{selected && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={focusSpring}><Check className="size-3.5" strokeWidth={3} /></motion.span>}</AnimatePresence>
       </span>
@@ -91,6 +96,15 @@ function Tracks({ kind, tracks }: { kind: TrackType; tracks: Track[] }) {
         {detail && <span className="truncate text-[0.6875rem] text-white/55 group-data-tv-focus/row:text-black/55">{detail}</span>}
       </span>
     </Row>
+  );
+}
+
+function Tracks({ kind, tracks }: { kind: TrackType; tracks: Track[] }) {
+  const list = tracks.filter((t) => t.kind === kind);
+  const select = (mpvId: number | null) => void api.playerCommand({ type: "selectTrack", kind, mpvId });
+  const none = !list.some((t) => t.selected);
+  const item = (key: string, title: string, detail: string, selected: boolean, onSelect: () => void) => (
+    <Choice key={key} title={title} detail={detail} selected={selected} onSelect={onSelect} />
   );
   return (
     <FocusGroup fade="y" className="[--fade-size:1.25rem] no-scrollbar -m-1 flex max-h-[40vh] flex-col gap-0.5 overflow-y-auto p-1">
@@ -104,7 +118,7 @@ function Tracks({ kind, tracks }: { kind: TrackType; tracks: Track[] }) {
   );
 }
 
-function Info({ store }: { store: PlayerStore }) {
+function Info({ store, source }: { store: PlayerStore; source?: ServerDescriptor }) {
   const decision = store.state((s) => s.decision);
   const [advanced, setAdvanced] = useState(false);
   const [stats, setStats] = useState<LiveStats | null>(null);
@@ -123,58 +137,115 @@ function Info({ store }: { store: PlayerStore }) {
   const heading = "pt-1 text-[0.6875rem] font-semibold tracking-wide text-white/50 uppercase";
 
   return (
-    <FocusGroup fade="y" className="[--fade-size:1.25rem] no-scrollbar flex max-h-[46vh] flex-col gap-3 overflow-y-auto px-3 pb-1">
-      <div className="flex flex-col gap-1.5">
-        <Pill tone="strong">{s.strategy.title}</Pill>
-        <p className="text-white/70">{s.strategy.body}</p>
-      </div>
-      <Facts
-        rows={[
-          ["Picture", s.video],
-          ["Sound", s.audio],
-          ["Decoding", decoding],
-        ]}
-      />
-      {!advanced && notes.length > 0 && (
-        <ul className="flex list-disc flex-col gap-1 pl-4 text-amber-100/90">
-          {notes.map((r, i) => (
-            <li key={i}>{r.message}</li>
-          ))}
-        </ul>
-      )}
-      {advanced && (
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="flex flex-col gap-3">
-          <h3 className={heading}>Measured now</h3>
-          <Facts
-            rows={[
-              ["Video in", videoLine(stats?.videoParams as Params)],
-              ["Video out", videoLine(stats?.videoTarget as Params)],
-              ["Audio in", audioLine(stats?.audioParams as Params)],
-              ["Audio out", `${audioLine(stats?.audioOut as Params)} ${stats?.currentAo ?? ""}`],
-              ["Frames", `${str(stats?.containerFps?.toFixed(3))} fps · display ${str(stats?.displayFps?.toFixed(2))} Hz · dropped ${str(stats?.droppedFrames)} / decoder ${str(stats?.decoderDroppedFrames)}`],
-              ["A/V sync", stats?.avsync != null ? `${(stats.avsync * 1000).toFixed(1)} ms` : "—"],
-              ["Bitrate", `video ${bitrate(stats?.videoBitrate) || "—"} · audio ${bitrate(stats?.audioBitrate) || "—"}`],
-              ["Presenter", snapshot.data?.presenter ?? "—"],
-            ]}
-          />
-          <h3 className={heading}>Decision steps</h3>
-          <ul className="flex flex-col gap-1">
-            {decision.reasons.map((r, i) => (
-              <li key={i} className={cn(r.severity === "degraded" ? "text-amber-100" : r.severity === "blocking" ? "text-red-200" : "text-white/75")}>
-                <code className="mr-1.5 rounded bg-white/10 px-1 py-0.5 font-mono text-[0.6875rem]">{r.code}</code>
-                {r.message}
-              </li>
+    <>
+      <FocusGroup fade="y" className="[--fade-size:1.25rem] no-scrollbar flex max-h-[42vh] flex-col gap-3 overflow-y-auto px-3 pb-1">
+        <div className="flex flex-col gap-1.5">
+          <Pill tone="strong">{s.strategy.title}</Pill>
+          <p className="text-white/70">{s.strategy.body}</p>
+        </div>
+        <Facts
+          rows={[
+            ["Picture", s.video],
+            ["Sound", s.audio],
+            ["Decoding", decoding],
+            ...(source ? ([["Server", <ServerBadge server={source} />]] as [string, ReactNode][]) : []),
+          ]}
+        />
+        {!advanced && notes.length > 0 && (
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-amber-100/90">
+            {notes.map((r, i) => (
+              <li key={i}>{r.message}</li>
             ))}
           </ul>
-          <h3 className={heading}>Applied engine options</h3>
-          <Facts mono rows={snapshot.data?.appliedOptions ?? []} />
-        </motion.div>
-      )}
-      <div>
-        <Button variant="ghost" size="sm" onClick={() => setAdvanced((a) => !a)} className="-ml-4">
-          {advanced ? "Fewer Details" : "Technical Details"}
-        </Button>
-      </div>
+        )}
+        {advanced && (
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="flex flex-col gap-3">
+            <h3 className={heading}>Measured now</h3>
+            <Facts
+              rows={[
+                ["Video in", videoLine(stats?.videoParams as Params)],
+                ["Video out", videoLine(stats?.videoTarget as Params)],
+                ["Audio in", audioLine(stats?.audioParams as Params)],
+                ["Audio out", `${audioLine(stats?.audioOut as Params)} ${stats?.currentAo ?? ""}`],
+                ["Frames", `${str(stats?.containerFps?.toFixed(3))} fps · display ${str(stats?.displayFps?.toFixed(2))} Hz · dropped ${str(stats?.droppedFrames)} / decoder ${str(stats?.decoderDroppedFrames)}`],
+                ["A/V sync", stats?.avsync != null ? `${(stats.avsync * 1000).toFixed(1)} ms` : "—"],
+                ["Bitrate", `video ${bitrate(stats?.videoBitrate) || "—"} · audio ${bitrate(stats?.audioBitrate) || "—"}`],
+                ["Presenter", snapshot.data?.presenter ?? "—"],
+              ]}
+            />
+            <h3 className={heading}>Decision steps</h3>
+            <ul className="flex flex-col gap-1">
+              {decision.reasons.map((r, i) => (
+                <li key={i} className={cn(r.severity === "degraded" ? "text-amber-100" : r.severity === "blocking" ? "text-red-200" : "text-white/75")}>
+                  <code className="mr-1.5 rounded bg-white/10 px-1 py-0.5 font-mono text-[0.6875rem]">{r.code}</code>
+                  {r.message}
+                </li>
+              ))}
+            </ul>
+            <h3 className={heading}>Applied engine options</h3>
+            <Facts mono rows={snapshot.data?.appliedOptions ?? []} />
+          </motion.div>
+        )}
+      </FocusGroup>
+      <div className="mx-3 my-1 h-px bg-white/10" />
+      <Row onSelect={() => setAdvanced((a) => !a)}>
+        <span className="font-medium">{advanced ? "Fewer Details" : "Technical Details"}</span>
+      </Row>
+    </>
+  );
+}
+
+/** Extra gain for quiet mixes. Decoded sound only: a bitstream reaches the receiver untouched. */
+function Boost({ bitstream }: { bitstream: boolean }) {
+  const settings = useSettings();
+  if (!settings) return null;
+  const a = settings.audio;
+  return (
+    <CompactRows>
+      <ToggleRow
+        label="Volume Boost"
+        hint={bitstream ? "Not available while your receiver decodes the sound." : "Louder than 100 %, without clipping."}
+        checked={a.volumeBoost}
+        disabled={bitstream}
+        onChange={(v) => updateSettings((x) => (x.audio.volumeBoost = v))}
+      />
+      <SliderRow
+        label="Boost"
+        value={a.volumeBoostPercent}
+        min={110}
+        max={300}
+        step={10}
+        format={(v) => `${v} %`}
+        disabled={bitstream || !a.volumeBoost}
+        onChange={(v) => updateSettings((x) => (x.audio.volumeBoostPercent = v))}
+      />
+    </CompactRows>
+  );
+}
+
+/**
+ * Bandwidth cap. Heavier files are transcoded by the server at the chosen
+ * bitrate and scaled to the resolution shown; playback restarts where it is.
+ */
+function Quality({ onDone }: { onDone: () => void }) {
+  const settings = useSettings();
+  const current = settings?.playback.maxBitrate ?? null;
+  const choose = async (bitrate: number | null) => {
+    onDone();
+    if (bitrate === current) return;
+    updateSettings((x) => (x.playback.maxBitrate = bitrate));
+    try {
+      await flushSettings();
+      await api.playerReload();
+    } catch (e) {
+      toast.error(asError(e).message);
+    }
+  };
+  return (
+    <FocusGroup fade="y" className="[--fade-size:1.25rem] no-scrollbar -m-1 flex max-h-[40vh] flex-col gap-0.5 overflow-y-auto p-1">
+      {QUALITY_TIERS.map((t) => (
+        <Choice key={t.label} title={t.label} detail={t.detail} selected={t.bitrate === current} onSelect={() => void choose(t.bitrate)} />
+      ))}
     </FocusGroup>
   );
 }
@@ -185,7 +256,7 @@ const slide = {
   exit: (dir: number) => ({ x: dir * -48, opacity: 0, filter: "blur(4px)" }),
 };
 
-export function PlayerMenu({ store, actions }: { store: PlayerStore; actions: MenuActions }) {
+export function PlayerMenu({ store, actions, source }: { store: PlayerStore; actions: MenuActions; source?: ServerDescriptor }) {
   const tracks = store.state((s) => s.tracks);
   const decision = store.state((s) => s.decision);
   const [page, setPage] = useState<Page>("root");
@@ -214,13 +285,17 @@ export function PlayerMenu({ store, actions }: { store: PlayerStore; actions: Me
     requestAnimationFrame(() => focusKey(key));
   }, [page]);
 
+  const settings = useSettings();
   const selected = (kind: TrackType) => tracks.find((t) => t.kind === kind && t.selected);
   const audio = selected("audio");
   const sub = selected("sub");
+  const bitstream = decision?.audio.mode === "bitstream" && !decision.audio.reencoded;
+  const boost = settings?.audio.volumeBoost && !bitstream ? ` · ${settings.audio.volumeBoostPercent} %` : "";
   const rows: { page: Page; label: string; value: string }[] = [
-    { page: "audio", label: "Audio", value: audio ? trackLabel(audio).title : "—" },
+    { page: "audio", label: "Audio", value: (audio ? trackLabel(audio).title : "—") + boost },
     { page: "sub", label: "Subtitles", value: sub ? trackLabel(sub).title : "Off" },
     ...(tracks.filter((t) => t.kind === "video").length > 1 ? [{ page: "video" as const, label: "Video", value: trackLabel(selected("video") ?? tracks.find((t) => t.kind === "video")!).detail }] : []),
+    { page: "quality", label: "Quality", value: qualityText(qualityTier(settings?.playback.maxBitrate ?? null)) },
     { page: "info", label: "Playback Info", value: decision ? summary(decision).strategy.title : "" },
   ];
 
@@ -254,7 +329,21 @@ export function PlayerMenu({ store, actions }: { store: PlayerStore; actions: Me
                       <span className="font-semibold">{titles[page]}</span>
                     </Row>
                     <div className="mx-3 my-1 h-px bg-white/10" />
-                    {page === "info" ? <Info store={store} /> : <Tracks kind={page} tracks={tracks} />}
+                    {page === "info" ? (
+                      <Info store={store} source={source} />
+                    ) : page === "quality" ? (
+                      <Quality onDone={() => open("root")} />
+                    ) : (
+                      <>
+                        <Tracks kind={page} tracks={tracks} />
+                        {page === "audio" && (
+                          <>
+                            <div className="mx-3 my-1 h-px bg-white/10" />
+                            <Boost bitstream={bitstream} />
+                          </>
+                        )}
+                      </>
+                    )}
                   </>
                 )}
               </motion.div>

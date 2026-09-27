@@ -21,6 +21,8 @@ import { ambientFor } from "@/lib/ambient";
 import { audioCodecLabel, badges, bitrate, channelsLabel, remaining, resolutionLabel, videoCodecLabel } from "@/lib/format";
 import { enter, focusSpring } from "@/lib/motion";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
+import { ServerBadge } from "@/components/tv/ServerBadge";
+import { useSources } from "@/lib/servers";
 import { isPlayable, playPath } from "../player/route";
 
 export function Detail() {
@@ -33,6 +35,8 @@ export function Detail() {
   const fresh = useQuery({ queryKey: ["item", id], queryFn: () => api.item(id) });
   const similar = useQuery({ queryKey: ["similar", id], queryFn: () => api.similar(id).catch(() => []) });
   const item = fresh.data ?? cached.data ?? undefined;
+  // The server that plays (the item's own reference) first, then copies elsewhere.
+  const sources = useSources(item ? [item.id, ...(item.alternates ?? [])] : []);
 
   useEffect(() => ambientFor(item), [item]);
 
@@ -69,21 +73,38 @@ export function Detail() {
     <Screen ready>
       <section className="relative flex min-h-[max(36rem,80vh)] flex-col justify-end">
         <HeroBackdrop image={item.images.backdrop ?? item.images.thumb} />
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="relative flex max-w-3xl flex-col gap-5 px-[var(--gutter)] pb-14">
-          <TitleArt item={item} />
-          {item.tagline && <p className="text-lg font-medium text-white/85 italic">{item.tagline}</p>}
-          <MetaLine
-            item={item}
-            extra={
-              <>
-                {item.communityRating != null && <span className="text-white/80">★ {item.communityRating.toFixed(1)}</span>}
-                {badges(source).map((b) => (
-                  <Pill key={b}>{b}</Pill>
-                ))}
-                {(item.alternates?.length ?? 0) > 0 && <Pill>On {(item.alternates?.length ?? 0) + 1} servers</Pill>}
-              </>
-            }
-          />
+        {/* The block slides; only its text fades. The glass buttons must not
+            sit under a fading ancestor, or their blur switches on late. */}
+        <motion.div initial={{ y: 20 }} animate={{ y: 0 }} transition={enter} className="relative flex max-w-3xl flex-col gap-5 px-[var(--gutter)] pb-14">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={enter} className="flex flex-col gap-5">
+            <TitleArt item={item} />
+            {item.tagline && <p className="text-lg font-medium text-white/85 italic">{item.tagline}</p>}
+            <MetaLine
+              item={item}
+              extra={
+                <>
+                  {item.communityRating != null && <span className="text-white/80">★ {item.communityRating.toFixed(1)}</span>}
+                  {badges(source).map((b) => (
+                    <Pill key={b}>{b}</Pill>
+                  ))}
+                </>
+              }
+            />
+            {sources[0] && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <ServerBadge server={sources[0]} />
+                {sources.length > 1 && (
+                  <>
+                    <span className="text-white/35">·</span>
+                    <span className="text-white/50">Also on</span>
+                    {sources.slice(1).map((s) => (
+                      <ServerBadge key={s.id} server={s} quiet />
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </motion.div>
           <FocusGroup focusKey="detail-actions" className="flex flex-wrap items-center gap-3 pt-1">
             {isPlayable(item) && (
               <>
@@ -96,7 +117,7 @@ export function Detail() {
             <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => void toggle("played")} />
             <Button size="icon-lg" icon={Heart} iconFilled={item.user.favorite} label={item.user.favorite ? "Remove from favourites" : "Add to favourites"} onClick={() => void toggle("favorite")} />
           </FocusGroup>
-          {item.overview && <p className="line-clamp-4 max-w-2xl text-[1.0625rem] leading-relaxed text-white/80 text-pretty">{item.overview}</p>}
+          {item.overview && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...enter, delay: 0.1 }} className="line-clamp-4 max-w-2xl text-[1.0625rem] leading-relaxed text-white/80 text-pretty">{item.overview}</motion.p>}
         </motion.div>
       </section>
 

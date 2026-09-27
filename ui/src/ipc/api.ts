@@ -56,6 +56,7 @@ export const api = {
   serversList: () => call<ServerEntry[]>("servers_list"),
   serverStatus: (id: ServerId) => call<ServerStatus>("server_status", { id }),
   serverRemove: (id: ServerId) => call<void>("server_remove", { id }),
+  serverSetEnabled: (id: ServerId, enabled: boolean) => call<void>("server_set_enabled", { id, enabled }),
   jellyfinProbe: (address: string) => call<ProbeResult>("jellyfin_probe", { address }),
   jellyfinLogin: (url: string, username: string, password: string) =>
     call<ServerDescriptor>("jellyfin_login", { url, username, password }),
@@ -82,6 +83,7 @@ export const api = {
 
   // playback
   play: (request: PlayRequest) => call<PlaybackDecision>("play", { request }),
+  playerReload: () => call<PlaybackDecision>("player_reload"),
   playerCommand: (command: PlayerCommand) => call<void>("player_command", { command }),
   playerViewport: (rect: CssRect) => call<void>("player_viewport", { rect }),
   playerSnapshot: () => call<PlayerSnapshot>("player_snapshot"),
@@ -94,6 +96,7 @@ export const api = {
   about: () => call<AboutInfo>("about"),
   diagnostics: (since: number, target: string | null) => call<LogEntry[]>("diagnostics", { since, target }),
   setFullscreen: (fullscreen: boolean) => call<void>("set_fullscreen", { fullscreen }),
+  windowPip: (enter: boolean) => call<void>("window_pip", { enter }),
   palette: (item: ItemRef, kind: ImageKind, tag: string) => call<Palette>("palette", { item, kind, tag }),
   cacheClear: () => call<void>("cache_clear"),
 

@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SpatialNavigation } from "@noriginmedia/norigin-spatial-navigation";
 import { motion } from "motion/react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Notice } from "@/components/tv/Feedback";
@@ -15,7 +15,9 @@ import type { BitstreamFormat } from "@/ipc/bindings/BitstreamFormat";
 import type { CapabilityReport } from "@/ipc/bindings/CapabilityReport";
 import type { HdrState } from "@/ipc/bindings/HdrState";
 import type { Settings as SettingsModel } from "@/ipc/bindings/Settings";
+import { defaultSubtitleFont, installedSubtitleFonts } from "@/lib/fonts";
 import { enter, focusSpring, pillSpring } from "@/lib/motion";
+import { QUALITY_TIERS, qualityText } from "@/lib/quality";
 import { updateSettings, useSettings, useSettingsStore } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
@@ -68,15 +70,7 @@ function hdrText(h: HdrState): string {
   }
 }
 
-const bitrates: Choice<string>[] = [
-  { value: "0", label: "Original" },
-  { value: "120000000", label: "120 Mb/s" },
-  { value: "80000000", label: "80 Mb/s" },
-  { value: "40000000", label: "40 Mb/s" },
-  { value: "20000000", label: "20 Mb/s" },
-  { value: "10000000", label: "10 Mb/s" },
-  { value: "4000000", label: "4 Mb/s" },
-];
+const bitrates: Choice<string>[] = QUALITY_TIERS.map((t) => ({ value: String(t.bitrate ?? 0), label: qualityText(t) }));
 
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 const set = (fn: (s: SettingsModel) => void) => updateSettings(fn);
@@ -141,7 +135,7 @@ export function Settings() {
           </motion.h2>
           {saveError && <Notice tone="error">Settings could not be saved: {saveError}</Notice>}
           {settings && (
-            <motion.div key={section} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="flex flex-col gap-8">
+            <motion.div key={section} initial={{ y: 12 }} animate={{ y: 0 }} transition={enter} className="flex flex-col gap-8">
               <SectionBody section={section} s={settings} />
             </motion.div>
           )}
@@ -191,8 +185,15 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
     case "playback":
       return (
         <>
+          <LanguageDefaults s={s} />
           <SettingsGroup title="Quality">
-            <SelectRow label="Maximum streaming bitrate" hint="Above this, the server transcodes. Original keeps Direct Play." value={String(s.playback.maxBitrate ?? 0)} options={bitrates} onChange={(v) => set((x) => (x.playback.maxBitrate = Number(v) || null))} />
+            <SelectRow
+              label="Streaming quality"
+              hint="Heavier files are converted by the server to this bitrate, at the resolution shown. Original keeps Direct Play. Also in the player's menu."
+              value={String(s.playback.maxBitrate ?? 0)}
+              options={bitrates}
+              onChange={(v) => set((x) => (x.playback.maxBitrate = Number(v) || null))}
+            />
             <ToggleRow label="Allow Direct Stream" hint="Let the server repackage files it will not send as-is." checked={s.playback.allowDirectStream} onChange={(v) => set((x) => (x.playback.allowDirectStream = v))} />
             <ToggleRow label="Allow server transcoding" hint="When off, files this device cannot play are refused instead of converted." checked={s.playback.allowTranscode} onChange={(v) => set((x) => (x.playback.allowTranscode = v))} />
             <SelectRow
@@ -331,46 +332,29 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       );
     case "subtitles":
       return (
-        <SettingsGroup>
-          <SelectRow
-            label="Show subtitles"
-            value={s.subtitles.mode}
-            options={[
-              { value: "smart", label: "When audio is in another language" },
-              { value: "always", label: "Always" },
-              { value: "forcedOnly", label: "Only forced (signs, foreign dialogue)" },
-              { value: "off", label: "Off" },
-            ]}
-            onChange={(v) => set((x) => (x.subtitles.mode = v))}
-          />
-          <SelectRow
-            label="Preferred language"
-            value={s.subtitles.languages[0] ?? ""}
-            options={[
-              { value: "", label: "None" },
-              { value: "fr", label: "Français" },
-              { value: "en", label: "English" },
-              { value: "de", label: "Deutsch" },
-              { value: "es", label: "Español" },
-            ]}
-            onChange={(v) => set((x) => (x.subtitles.languages = v ? [v] : []))}
-          />
-          <SliderRow label="Size" value={s.subtitles.scale} min={0.6} max={2} step={0.05} format={pct} onChange={(v) => set((x) => (x.subtitles.scale = v))} />
-          <SelectRow
-            label="Colour"
-            value={s.subtitles.color}
-            options={[
-              { value: "#ffffff", label: "White" },
-              { value: "#ffe066", label: "Yellow" },
-              { value: "#cfe8ff", label: "Pale blue" },
-            ]}
-            onChange={(v) => set((x) => (x.subtitles.color = v))}
-          />
-          <SliderRow label="Background" value={s.subtitles.backgroundOpacity} min={0} max={1} step={0.05} format={(v) => (v === 0 ? "None" : pct(v))} onChange={(v) => set((x) => (x.subtitles.backgroundOpacity = v))} />
-          <SliderRow label="Outline" value={s.subtitles.outline} min={0} max={6} step={0.5} onChange={(v) => set((x) => (x.subtitles.outline = v))} />
-          <SliderRow label="Position" value={s.subtitles.position} min={50} max={100} step={1} format={(v) => `${v} %`} onChange={(v) => set((x) => (x.subtitles.position = v))} />
-          <ToggleRow label="Apply to styled subtitles" hint="Override the look of ASS/SSA subtitles too." checked={s.subtitles.overrideAss} onChange={(v) => set((x) => (x.subtitles.overrideAss = v))} />
-        </SettingsGroup>
+        <>
+          <SubtitlePreview s={s} />
+          <SettingsGroup note={<p>Applies to plain-text subtitles (SRT, WebVTT). Picture-based subtitles (Blu-ray, DVD) are shown as authored.</p>}>
+            <LinkRow label="Default subtitle language" hint="Chosen in Playback, with the default audio." onClick={() => navigate("/settings?s=playback", { replace: true })} />
+            <FontRow s={s} />
+            <ToggleRow label="Bold" checked={s.subtitles.bold} onChange={(v) => set((x) => (x.subtitles.bold = v))} />
+            <SliderRow label="Size" value={s.subtitles.scale} min={0.6} max={2} step={0.05} format={pct} onChange={(v) => set((x) => (x.subtitles.scale = v))} />
+            <SelectRow
+              label="Colour"
+              value={s.subtitles.color}
+              options={[
+                { value: "#ffffff", label: "White" },
+                { value: "#ffe066", label: "Yellow" },
+                { value: "#cfe8ff", label: "Pale blue" },
+              ]}
+              onChange={(v) => set((x) => (x.subtitles.color = v))}
+            />
+            <SliderRow label="Background" value={s.subtitles.backgroundOpacity} min={0} max={1} step={0.05} format={(v) => (v === 0 ? "None" : pct(v))} onChange={(v) => set((x) => (x.subtitles.backgroundOpacity = v))} />
+            <SliderRow label="Outline" value={s.subtitles.outline} min={0} max={6} step={0.5} onChange={(v) => set((x) => (x.subtitles.outline = v))} />
+            <SliderRow label="Position" value={s.subtitles.position} min={50} max={100} step={1} format={(v) => `${v} %`} onChange={(v) => set((x) => (x.subtitles.position = v))} />
+            <ToggleRow label="Apply to styled subtitles" hint="Override the look of ASS/SSA subtitles too." checked={s.subtitles.overrideAss} onChange={(v) => set((x) => (x.subtitles.overrideAss = v))} />
+          </SettingsGroup>
+        </>
       );
     case "downloads":
       return <Notice>Offline downloads are not available in this version. Playback always streams from your servers.</Notice>;
@@ -511,6 +495,123 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
   }
 }
 
+/** Installed fonts only: libass finds a family by the same system lookup as the WebView. */
+function FontRow({ s }: { s: SettingsModel }) {
+  const fonts = useMemo(installedSubtitleFonts, []);
+  const current = s.subtitles.fontFamily;
+  const options: Choice<string>[] = [
+    { value: "", label: `Automatic (${defaultSubtitleFont()})` },
+    ...fonts.filter((f) => f !== defaultSubtitleFont()).map((f) => ({ value: f, label: f })),
+    // A family typed in the settings file stays selectable.
+    ...(current && !fonts.includes(current) && current !== defaultSubtitleFont() ? [{ value: current, label: current }] : []),
+  ];
+  return <SelectRow label="Font" value={current} options={options} onChange={(v) => set((x) => (x.subtitles.fontFamily = v))} />;
+}
+
+/**
+ * A still frame with a subtitle drawn from the current settings. CSS stands
+ * in for libass: same family, weight, colour, relative size, edge and box,
+ * close enough to judge a change without starting a video.
+ */
+function SubtitlePreview({ s }: { s: SettingsModel }) {
+  const sub = s.subtitles;
+  const family = sub.fontFamily || defaultSubtitleFont();
+  // mpv measures in lines of a 720-line frame; the frame is 21:9, so one of
+  // those units is (9 / 21 / 720) of the container width.
+  const u = (v: number) => `${((100 * 9) / 21) * (v / 720)}cqw`;
+  // An ASS font size is the font's full line height (≈ 1.15 em for sans faces).
+  const size = u((40 * sub.scale) / 1.15);
+  const box = sub.backgroundOpacity > 0;
+  return (
+    <div
+      aria-hidden
+      className="relative aspect-[21/9] w-full overflow-hidden rounded-2xl bg-[radial-gradient(120%_90%_at_30%_20%,#3b4a5c,transparent_60%),radial-gradient(90%_80%_at_85%_80%,#6b4a2e,transparent_60%),linear-gradient(#1b2027,#0d0f12)] [container-type:inline-size]"
+    >
+      {/* sub-pos 100 = bottom, above mpv's 22-unit margin. */}
+      <div className="absolute inset-x-0 flex justify-center px-6" style={{ bottom: `calc(${100 - sub.position}% + ${u(22)})` }}>
+        <span
+          className="text-center leading-[1.15]"
+          style={{
+            fontFamily: `"${family}", sans-serif`,
+            fontWeight: sub.bold ? 700 : 400,
+            fontSize: size,
+            color: sub.color,
+            padding: box ? "0.05em 0.3em" : undefined,
+            background: box ? `color-mix(in srgb, ${sub.background} ${Math.round(sub.backgroundOpacity * 100)}%, transparent)` : undefined,
+            // A centred stroke painted under the fill: an outer edge of `outline`.
+            WebkitTextStroke: !box && sub.outline > 0 ? `${u(sub.outline * 2)} #000` : undefined,
+            paintOrder: "stroke fill",
+            textShadow: box ? undefined : `${u(1.2)} ${u(1.2)} ${u(1.5)} rgb(0 0 0 / 0.55)`,
+          }}
+        >
+          We'll find her before nightfall,
+          <br />
+          and then we all go home.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Languages the engine matches against file tags (ISO 639-1/2, see
+// crates/playback/src/tracks.rs `same_language`), named in their own language.
+const LANGUAGE_CODES = ["fr", "en", "de", "es", "it", "pt", "nl", "ru", "ja", "ko", "zh"];
+function nativeName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames([code], { type: "language" }).of(code) ?? code;
+    return name.charAt(0).toLocaleUpperCase(code) + name.slice(1);
+  } catch {
+    return code.toUpperCase();
+  }
+}
+const languages: Choice<string>[] = LANGUAGE_CODES.map((code) => ({ value: code, label: nativeName(code) }));
+
+/**
+ * Default audio and subtitle languages. Subtitles map onto the engine's
+ * modes: a language with "only when audio differs" is `smart` (subtitles
+ * appear when the audio is in another language), without it `always`.
+ */
+function LanguageDefaults({ s }: { s: SettingsModel }) {
+  const mode = s.subtitles.mode;
+  const subLang = s.subtitles.languages[0];
+  const subValue = mode === "off" ? "off" : mode === "forcedOnly" || !subLang ? "forced" : subLang;
+  const hasLanguage = subValue !== "off" && subValue !== "forced";
+  return (
+    <SettingsGroup title="Languages" note={<p>Used when a title offers the language; otherwise the file's own default track plays. You can always switch in the player.</p>}>
+      <SelectRow
+        label="Default audio"
+        value={s.playback.preferredAudioLanguages[0] ?? ""}
+        options={[{ value: "", label: "Original" }, ...languages]}
+        onChange={(v) => set((x) => (x.playback.preferredAudioLanguages = v ? [v] : []))}
+      />
+      <SelectRow
+        label="Default subtitles"
+        hint={subValue === "forced" ? "Only signs and foreign dialogue." : undefined}
+        value={subValue}
+        options={[{ value: "off", label: "Off" }, { value: "forced", label: "Forced only" }, ...languages]}
+        onChange={(v) =>
+          set((x) => {
+            if (v === "off") x.subtitles.mode = "off";
+            else if (v === "forced") x.subtitles.mode = "forcedOnly";
+            else {
+              // Keep "only when audio differs" as it was; on by default.
+              if (x.subtitles.mode !== "always") x.subtitles.mode = "smart";
+              x.subtitles.languages = [v];
+            }
+          })
+        }
+      />
+      <ToggleRow
+        label="Only when audio differs"
+        hint={hasLanguage ? `Hide ${nativeName(subLang!)} subtitles when the audio is already in ${nativeName(subLang!)}.` : "Choose a subtitle language first."}
+        checked={hasLanguage && mode === "smart"}
+        disabled={!hasLanguage}
+        onChange={(v) => set((x) => (x.subtitles.mode = v ? "smart" : "always"))}
+      />
+    </SettingsGroup>
+  );
+}
+
 function AudioSection({ s, caps }: { s: SettingsModel; caps: CapabilityReport | undefined }) {
   const a = s.audio;
   const device = caps?.audio.devices.find((d) => d.id === (a.device ?? caps?.audio.defaultDevice));
@@ -536,6 +637,13 @@ function AudioSection({ s, caps }: { s: SettingsModel; caps: CapabilityReport | 
           onChange={(v) => set((x) => (x.audio.channels = v))}
         />
         <SliderRow label="Volume" value={a.volume} min={0} max={100} step={1} format={(v) => `${v} %`} onChange={(v) => set((x) => (x.audio.volume = v))} />
+        <ToggleRow
+          label="Volume boost"
+          hint="Amplifies quiet mixes past 100 %; a limiter keeps loud scenes from clipping. Not applied to passthrough."
+          checked={a.volumeBoost}
+          onChange={(v) => set((x) => (x.audio.volumeBoost = v))}
+        />
+        <SliderRow label="Boost" value={a.volumeBoostPercent} min={110} max={300} step={10} format={(v) => `${v} %`} disabled={!a.volumeBoost} onChange={(v) => set((x) => (x.audio.volumeBoostPercent = v))} />
         <SelectRow
           label="Volume levelling"
           value={a.normalization}

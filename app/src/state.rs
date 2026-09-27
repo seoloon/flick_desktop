@@ -7,7 +7,7 @@ use oneshot_catalog::Catalog;
 use oneshot_core::provider::MediaProvider;
 use oneshot_core::server::{ProviderKind, ServerDescriptor};
 use oneshot_core::settings::Settings;
-use oneshot_core::{Result, ServerId};
+use oneshot_core::{Error, Result, ServerId};
 use oneshot_net::reqwest::Client;
 use oneshot_player::Player;
 use oneshot_storage::images::ImageCache;
@@ -38,6 +38,18 @@ pub struct AppState {
     pub servers: RwLock<Vec<ServerDescriptor>>,
     /// plex.tv account token between PIN approval and server selection.
     pub plex_account: Mutex<Option<String>>,
+    /// Window geometry to restore when leaving picture-in-picture.
+    pub pip_restore: Mutex<Option<WindowRestore>>,
+}
+
+/// How the main window looked before it shrank into picture-in-picture.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowRestore {
+    pub position: tauri::PhysicalPosition<i32>,
+    /// Inner size: what `set_size` takes back.
+    pub size: tauri::PhysicalSize<u32>,
+    pub maximized: bool,
+    pub fullscreen: bool,
 }
 
 impl AppState {
@@ -103,11 +115,38 @@ impl AppState {
         self.store.save_servers(&servers)
     }
 
+    /// Turns a server on or off. Off keeps it and its token but takes it out
+    /// of the catalogue; on reconnects it with the stored token.
+    pub fn set_server_enabled(&self, id: ServerId, enabled: bool) -> Result<()> {
+        let d = {
+            let mut servers = self.servers.write();
+            let s = servers.iter_mut().find(|s| s.id == id).ok_or_else(|| Error::NotFound(format!("server {id}")))?;
+            s.disabled = !enabled;
+            let d = s.clone();
+            self.store.save_servers(&servers)?;
+            d
+        };
+        if enabled {
+            match secrets::load_token(id)? {
+                Some(token) => self.catalog.add(self.build_provider(&d, token)),
+                None => tracing::warn!(target: "provider", server = %d.name, "enabled without a stored token; sign-in required"),
+            }
+        } else {
+            self.catalog.remove(id);
+        }
+        tracing::info!(target: "provider", server = %d.name, enabled, "server toggled");
+        Ok(())
+    }
+
     /// Reconnects every stored server at startup. Missing tokens are not an
     /// error: the server is listed as needing sign-in.
     pub fn restore_servers(&self) {
         let servers = self.servers.read().clone();
         for d in servers {
+            if d.disabled {
+                tracing::info!(target: "provider", server = %d.name, "server disabled; not connecting");
+                continue;
+            }
             match secrets::load_token(d.id) {
                 Ok(Some(token)) => self.catalog.add(self.build_provider(&d, token)),
                 Ok(None) => tracing::warn!(target: "provider", server = %d.name, "no stored token; sign-in required"),

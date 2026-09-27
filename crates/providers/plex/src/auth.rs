@@ -44,11 +44,16 @@ impl PlexIdentity {
         }
     }
 
+    /// Headers for the player's own requests. The transcoder answers 400 to a
+    /// request without `X-Plex-Platform` (it picks the client profile from it).
     pub fn headers(&self, token: &str) -> Vec<(String, String)> {
         vec![
             ("X-Plex-Token".into(), token.into()),
             ("X-Plex-Client-Identifier".into(), self.client_identifier.clone()),
             ("X-Plex-Product".into(), self.product.clone()),
+            ("X-Plex-Version".into(), self.version.clone()),
+            ("X-Plex-Platform".into(), self.platform.clone()),
+            ("X-Plex-Device-Name".into(), self.device_name.clone()),
         ]
     }
 }

@@ -209,11 +209,11 @@ pub async fn stream(p: &PlexProvider, req: &StreamRequest) -> Result<StreamTarge
             sel.push(("subtitleStreamID", subtitle.map_or_else(|| "0".into(), |s| s.to_string())));
             p.send_empty(Method::PUT, &format!("library/parts/{}", part.id), &sel).await?;
 
-            let (burn, max_kbps, copy_video) = match &req.delivery {
-                DeliveryRequest::Transcode { burn_subtitle, max_bitrate, video, .. } => {
-                    (burn_subtitle.is_some(), max_bitrate.map(|b| b / 1000), video.is_none())
+            let (burn, max_kbps, max_width, copy_video) = match &req.delivery {
+                DeliveryRequest::Transcode { burn_subtitle, max_bitrate, max_width, video, .. } => {
+                    (burn_subtitle.is_some(), max_bitrate.map(|b| b / 1000), *max_width, video.is_none())
                 }
-                _ => (false, None, true),
+                _ => (false, None, None, true),
             };
             let session = req.play_session_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             let mut url = p.url("video/:/transcode/universal/start.m3u8")?;
@@ -234,6 +234,11 @@ pub async fn stream(p: &PlexProvider, req: &StreamRequest) -> Result<StreamTarge
                     .append_pair("X-Plex-Session-Identifier", &session);
                 if let Some(k) = max_kbps {
                     q.append_pair("maxVideoBitrate", &k.to_string());
+                }
+                // Without a target resolution Plex keeps the source size and
+                // spends the capped bitrate on a starved 4K picture.
+                if let Some(w) = max_width {
+                    q.append_pair("videoResolution", &format!("{w}x{}", w * 9 / 16));
                 }
             }
             Ok(StreamTarget { url, headers, external_subtitles: Vec::new() })

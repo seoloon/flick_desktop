@@ -14,7 +14,7 @@ use oneshot_core::playback::{
     AudioOutputPlan, DecisionReason, DeliveryRequest, PlaybackDecision, ReasonSeverity, SourceOffer, StrategyLabel,
     SubtitlePlan, VideoOutputPlan,
 };
-use oneshot_core::settings::{HardwareDecoding, HdrMode, Settings};
+use oneshot_core::settings::{HardwareDecoding, HdrMode, Settings, max_width_for_bitrate};
 use oneshot_core::stream::{
     AudioCodec, AudioStream, BitstreamFormat, DolbyVisionCompat, DynamicRange, SubtitleStream, VideoCodec, VideoStream,
 };
@@ -89,6 +89,7 @@ pub fn decide(input: &DecisionInput<'_>) -> Result<PlaybackDecision, Unplayable>
     let mut transcode_video: Option<VideoCodec> = None;
     let mut transcode_audio: Option<AudioCodec> = None;
     let mut max_bitrate: Option<u64> = None;
+    let mut max_width: Option<u32> = None;
 
     if let (Some(v), Some(d)) = (video, decode) {
         if d == VideoDecode::Unsupported {
@@ -114,6 +115,10 @@ pub fn decide(input: &DecisionInput<'_>) -> Result<PlaybackDecision, Unplayable>
             format!("Source bitrate {:.1} Mb/s exceeds the {:.1} Mb/s limit", mbps(rate), mbps(limit)),
         );
         max_bitrate = Some(limit);
+        max_width = max_width_for_bitrate(limit).filter(|w| video.is_some_and(|v| v.width > *w));
+        if let Some(w) = max_width {
+            log.info(codes::BITRATE_LIMIT, format!("Picture scaled down to {w} pixels wide to fit the limit"));
+        }
         transcode_video.get_or_insert_with(|| video.map_or(VideoCodec::H264, |v| v.codec.clone()));
     }
 
@@ -138,7 +143,7 @@ pub fn decide(input: &DecisionInput<'_>) -> Result<PlaybackDecision, Unplayable>
             video: transcode_video.clone(),
             audio: transcode_audio.clone(),
             max_bitrate,
-            max_width: None,
+            max_width,
             audio_channels: None,
             burn_subtitle: None,
         }

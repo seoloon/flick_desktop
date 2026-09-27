@@ -26,6 +26,13 @@ export async function loadSettings(): Promise<Settings> {
   return s;
 }
 
+/** Saves pending changes now, for actions that need Rust to see them (a quality change reloads playback). */
+export async function flushSettings() {
+  const current = getSettings();
+  window.clearTimeout(saveTimer);
+  if (current) await api.settingsSet(current);
+}
+
 /** Mutates a copy of the settings and schedules a save. */
 export function updateSettings(fn: (s: Settings) => void) {
   const current = getSettings();

@@ -23,7 +23,7 @@ export function TabBar({ scrolled }: { scrolled: boolean }) {
   return (
     <motion.div
       className="pointer-events-none fixed inset-x-0 top-0 z-30 flex justify-center pt-6"
-      animate={{ y: hidden ? "-140%" : "0%", opacity: hidden ? 0 : 1 }}
+      animate={{ y: hidden ? "-140%" : "0%" }}
       transition={panelSpring}
     >
       <FocusGroup
@@ -31,7 +31,7 @@ export function TabBar({ scrolled }: { scrolled: boolean }) {
         remember={false}
         preferredChildFocusKey={active ? `nav:${active.id}` : undefined}
         onFocusWithin={setFocusInside}
-        className="glass pointer-events-auto flex items-center gap-1 rounded-full p-1.5"
+        className={cn("glass pointer-events-auto flex items-center gap-1 rounded-full p-1.5 transition-opacity duration-300", hidden && "opacity-0")}
       >
         <FlickMark title="Flick" className="mr-2 ml-4 h-5 w-auto text-white/90" />
         {items.map((item) => (

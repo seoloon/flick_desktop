@@ -117,11 +117,13 @@ pub async fn stream(p: &JellyfinProvider, req: &StreamRequest) -> Result<StreamT
             Ok(StreamTarget { url, headers, external_subtitles })
         }
         DeliveryRequest::Remux { .. } | DeliveryRequest::Transcode { .. } => {
-            let (video_copy, audio_copy, max_bitrate) = match &req.delivery {
-                DeliveryRequest::Transcode { video, audio, max_bitrate, .. } => (video.is_none(), audio.is_none(), *max_bitrate),
-                _ => (true, true, None),
+            let (video_copy, audio_copy, max_bitrate, max_width) = match &req.delivery {
+                DeliveryRequest::Transcode { video, audio, max_bitrate, max_width, .. } => {
+                    (video.is_none(), audio.is_none(), *max_bitrate, *max_width)
+                }
+                _ => (true, true, None, None),
             };
-            let mut body = request_body(p, &device_profile(&transcode_profile(max_bitrate)), max_bitrate);
+            let mut body = request_body(p, &device_profile(&transcode_profile(max_bitrate, max_width)), max_bitrate);
             body.enable_direct_play = false;
             body.enable_direct_stream = matches!(req.delivery, DeliveryRequest::Remux { .. });
             body.allow_video_stream_copy = video_copy;
@@ -149,7 +151,8 @@ pub async fn stream(p: &JellyfinProvider, req: &StreamRequest) -> Result<StreamT
 
 /// Profile for transcode requests: the transcoding profile is what matters;
 /// direct play entries are irrelevant because direct play is disabled.
-fn transcode_profile(max_bitrate: Option<u64>) -> ClientProfile {
+/// `max_width` makes the server scale down (16:9 height implied).
+fn transcode_profile(max_bitrate: Option<u64>, max_width: Option<u32>) -> ClientProfile {
     use oneshot_core::stream::{AudioCodec, SubtitleFormat, VideoCodec};
     ClientProfile {
         name: "Flick (transcode)".into(),
@@ -158,8 +161,8 @@ fn transcode_profile(max_bitrate: Option<u64>) -> ClientProfile {
         audio_codecs: vec![AudioCodec::Aac, AudioCodec::Ac3, AudioCodec::Eac3],
         containers: vec!["ts".into()],
         subtitle_formats: vec![SubtitleFormat::Srt, SubtitleFormat::Ass, SubtitleFormat::WebVtt],
-        max_width: 7680,
-        max_height: 4320,
+        max_width: max_width.unwrap_or(7680),
+        max_height: max_width.map_or(4320, |w| w * 9 / 16),
         max_audio_channels: 8,
     }
 }

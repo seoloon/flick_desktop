@@ -23,10 +23,22 @@ pub fn current_display(window: &WebviewWindow) -> Option<String> {
 
 #[tauri::command]
 pub async fn play(window: WebviewWindow, state: St<'_>, request: PlayRequest) -> Result<PlaybackDecision> {
+    start(&window, &state, request).await
+}
+
+/// Restarts the current title at its position with the current settings
+/// (quality change from the player menu), keeping version and tracks.
+#[tauri::command]
+pub async fn player_reload(window: WebviewWindow, state: St<'_>) -> Result<PlaybackDecision> {
+    let request = state.player.resume_request().ok_or_else(|| oneshot_core::Error::Invalid("nothing is playing".into()))?;
+    start(&window, &state, request).await
+}
+
+async fn start(window: &WebviewWindow, state: &AppState, request: PlayRequest) -> Result<PlaybackDecision> {
     let item = request.item.clone().ok_or_else(|| oneshot_core::Error::Invalid("no item".into()))?;
     let provider = state.catalog.provider(item.server)?;
     let caps = state.caps.report();
-    let display = current_display(&window);
+    let display = current_display(window);
     let decision = state.player.play(provider, caps, state.settings(), display, request).await;
     // Resume points and "now playing" change server-side.
     state.catalog.invalidate_item(&item);
