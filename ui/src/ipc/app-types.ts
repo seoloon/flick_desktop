@@ -6,6 +6,8 @@ import type { AdminSession } from "./bindings/AdminSession";
 import type { AdminTask } from "./bindings/AdminTask";
 import type { AdminUser } from "./bindings/AdminUser";
 import type { ServerDescriptor } from "./bindings/ServerDescriptor";
+import type { AvatarStyle } from "./bindings/AvatarStyle";
+import type { ServerId } from "./bindings/ServerId";
 
 export type AppError = { kind: string; message: string };
 /** serde's default encoding of `Result<T, E>`. */
@@ -47,3 +49,12 @@ export type AdminOverview = {
   logs: RustResult<string[]>;
 };
 export type CssRect = { x: number; y: number; width: number; height: number };
+
+export type SwitchOutcome = { failed: string[] };
+export type ProfileEdit = {
+  name: string | null;
+  color: string | null;
+  avatar: AvatarStyle | null;
+  connections: ServerId[] | null;
+  hidden: boolean | null;
+};

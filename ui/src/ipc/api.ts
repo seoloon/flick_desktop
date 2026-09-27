@@ -21,6 +21,9 @@ import type { ServerId } from "./bindings/ServerId";
 import type { ServerLibraries } from "./bindings/ServerLibraries";
 import type { ServerStatus } from "./bindings/ServerStatus";
 import type { Settings } from "./bindings/Settings";
+import type { ProfileId } from "./bindings/ProfileId";
+import type { ProfileMode } from "./bindings/ProfileMode";
+import type { ProfilesState } from "./bindings/ProfilesState";
 import type {
   AboutInfo,
   AdminOverview,
@@ -34,6 +37,8 @@ import type {
   QuickConnect,
   RustResult,
   ServerEntry,
+  ProfileEdit,
+  SwitchOutcome,
 } from "./app-types";
 
 /** Normalises a command rejection into `AppError`. */
@@ -52,8 +57,21 @@ export function unwrap<T, E>(r: RustResult<T, E>): { ok: true; value: T } | { ok
 const call = <T>(cmd: string, args?: Record<string, unknown>) => invoke<T>(cmd, args);
 
 export const api = {
+  // profiles
+  profilesState: () => call<ProfilesState>("profiles_state"),
+  profilesDiscover: () => call<ProfilesState>("profiles_discover"),
+  profilesConfigure: (enabled: boolean, mode: ProfileMode, askOnStartup: boolean, pin: string | null) =>
+    call<ProfilesState>("profiles_configure", { enabled, mode, askOnStartup, pin }),
+  profileCheckPin: (id: ProfileId, pin: string) => call<void>("profile_check_pin", { id, pin }),
+  profileSwitch: (id: ProfileId, pin: string | null, plexPin: string | null) => call<SwitchOutcome>("profile_switch", { id, pin, plexPin }),
+  profileCreate: (name: string, color: string) => call<ProfileId>("profile_create", { name, color }),
+  profileUpdate: (id: ProfileId, edit: ProfileEdit, pin: string | null) => call<void>("profile_update", { id, edit, pin }),
+  profileSetPin: (id: ProfileId, current: string | null, next: string | null) => call<void>("profile_set_pin", { id, current, next }),
+  profileDetach: (id: ProfileId, connection: ServerId, pin: string | null) => call<void>("profile_detach", { id, connection, pin }),
+  profileDelete: (id: ProfileId, pin: string | null) => call<ServerId[]>("profile_delete", { id, pin }),
+
   // servers
-  serversList: () => call<ServerEntry[]>("servers_list"),
+  serversList: (all = false) => call<ServerEntry[]>("servers_list", { all }),
   serverStatus: (id: ServerId) => call<ServerStatus>("server_status", { id }),
   serverRemove: (id: ServerId) => call<void>("server_remove", { id }),
   serverSetEnabled: (id: ServerId, enabled: boolean) => call<void>("server_set_enabled", { id, enabled }),

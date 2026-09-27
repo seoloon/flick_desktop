@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useNavigate, useSearchParams } from "react-router";
@@ -18,12 +18,7 @@ import { useSettings } from "@/lib/settings";
 import { goBack } from "@/lib/history";
 import { onAction, setBackFallback } from "@/nav/input";
 import { Shell } from "@/shell/Shell";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false },
-  },
-});
+import { queryClient } from "@/lib/queryClient";
 
 /** A new item remounts the player (fresh session state). */
 function PlayerRoute() {

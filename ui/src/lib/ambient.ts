@@ -61,3 +61,22 @@ export function ambientFor(item: MediaItem | null | undefined) {
     }
   }, 180);
 }
+
+/** No artwork, just soft light in `color` (the profile picker). The base
+ * stays dark so white text keeps its contrast. */
+export function ambientColor(color: string) {
+  wanted = "";
+  window.clearTimeout(timer);
+  const base = `color-mix(in srgb, ${color} 12%, black)`;
+  useAmbient.setState({ image: null, item: null, palette: { colors: [color, color], base, accent: color } });
+  const root = document.documentElement.style;
+  root.setProperty("--ambient-base", base);
+  root.setProperty("--ambient-accent", color);
+}
+
+/** Forget the last artwork (a profile switch: nothing of the previous one stays). */
+export function ambientReset() {
+  wanted = "";
+  window.clearTimeout(timer);
+  useAmbient.setState({ image: null, palette: null, item: null });
+}

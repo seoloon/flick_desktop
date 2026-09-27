@@ -13,3 +13,8 @@ export function imageUrl(image: ImageRef | null | undefined, size: ImageSize): s
   const enc = encodeURIComponent;
   return `${BASE}${size}/${image.kind}/${enc(image.item)}/${enc(image.tag)}`;
 }
+
+/** A profile's picture (proxied by Rust; `key` changes when the picture does). */
+export function avatarUrl(profile: string, key: string): string {
+  return `${BASE}avatar/${encodeURIComponent(profile)}/${encodeURIComponent(key)}`;
+}
