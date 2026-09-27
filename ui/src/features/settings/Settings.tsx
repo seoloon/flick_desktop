@@ -10,6 +10,7 @@ import { Notice } from "@/components/tv/Feedback";
 import { Pill } from "@/components/tv/Page";
 import type { Choice } from "@/components/tv/Segmented";
 import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
+import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
 import { api, unwrap } from "@/ipc/api";
 import type { BitstreamFormat } from "@/ipc/bindings/BitstreamFormat";
 import type { CapabilityReport } from "@/ipc/bindings/CapabilityReport";
@@ -34,6 +35,7 @@ const sections = [
   ["subtitles", "Subtitles"],
   ["downloads", "Downloads"],
   ["servers", "Accounts"],
+  ["profiles", "Profiles"],
   ["network", "Network"],
   ["cache", "Cache"],
   ["performance", "Performance"],
@@ -45,6 +47,8 @@ const sections = [
   ["debug", "Diagnostics"],
 ] as const;
 type Section = (typeof sections)[number][0];
+
+const PERSONAL = new Set<Section>(["appearance", "playback", "subtitles"]);
 
 const NAV = "settings-nav";
 const CONTENT = "settings-content";
@@ -104,6 +108,8 @@ export function Settings() {
   const settings = useSettings();
   const saveError = useSettingsStore((s) => s.saveError);
   const title = sections.find(([id]) => id === section)?.[1] ?? "Settings";
+  const personal = params.get("personal") === "1";
+  const shown = personal ? sections.filter(([id]) => PERSONAL.has(id)) : sections;
 
   // Back from the rows returns to the section list first.
   useEffect(() => {
@@ -122,10 +128,11 @@ export function Settings() {
     <Screen ready={!!settings}>
       <div className="grid grid-cols-[15rem_minmax(0,1fr)] gap-10 px-[var(--gutter)] pt-[var(--page-top)] pb-24">
         <aside className="sticky top-[var(--page-top)] flex max-h-[calc(100vh-var(--page-top)-2rem)] flex-col gap-4 self-start">
-          <h1 className="px-4 text-[2.75rem] leading-none font-bold tracking-tight">Settings</h1>
+          <h1 className="px-4 text-[2.75rem] leading-none font-bold tracking-tight">{personal ? "Your Preferences" : "Settings"}</h1>
+          {personal && <p className="px-4 text-sm text-white/55">Saved for the current profile only.</p>}
           <FocusGroup focusKey={NAV} preferredChildFocusKey={`settings:${section}`} fade="y" className="[--fade-size:1.5rem] no-scrollbar -mx-2 flex flex-col gap-0.5 overflow-y-auto px-2 py-2">
-            {sections.map(([id, label]) => (
-              <SectionButton key={id} id={id} label={label} active={section === id} onSelect={() => setParams({ s: id }, { replace: true })} />
+            {shown.map(([id, label]) => (
+              <SectionButton key={id} id={id} label={label} active={section === id} onSelect={() => setParams(personal ? { s: id, personal: "1" } : { s: id }, { replace: true })} />
             ))}
           </FocusGroup>
         </aside>
@@ -364,6 +371,8 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
           <LinkRow label="Manage servers" onClick={() => navigate("/servers")} />
         </SettingsGroup>
       );
+    case "profiles":
+      return <ProfilesSettings />;
     case "network":
       return (
         <>
