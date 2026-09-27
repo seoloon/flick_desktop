@@ -1,0 +1,365 @@
+//! Multi-user profiles: picker/settings state, switching, discovery of
+//! server users (mode B) and profile edits. Rules live in
+//! `oneshot_storage::{profiles, pin}`; this only wires them.
+
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::Duration;
+
+use oneshot_core::profile::{AvatarStyle, DiscoveredUser, Origin, Profile, ProfileId, ProfileMode, ProfilesState};
+use oneshot_core::server::{ProviderKind, UserProfile};
+use oneshot_core::settings::PersonalSettings;
+use oneshot_core::{Error, Result, ServerId};
+use oneshot_jellyfin::Connector;
+use oneshot_plex::PlexAuth;
+use oneshot_storage::{pin, profiles};
+use serde::{Deserialize, Serialize};
+use tauri::{Emitter, State};
+
+use super::servers::{jellyfin_descriptor, plex_account_token, register_plex};
+use crate::state::AppState;
+
+type St<'a> = State<'a, Arc<AppState>>;
+
+/// Per server: a slow one never holds the picker.
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
+
+pub(crate) fn snapshot(state: &AppState) -> ProfilesState {
+    let cfg = state.profiles.read().clone();
+    let offline = state.offline.read().clone();
+    let resolved = if cfg.enabled { state.resolved_profiles() } else { Vec::new() };
+    ProfilesState {
+        enabled: cfg.enabled,
+        mode: cfg.mode,
+        ask_on_startup: cfg.ask_on_startup,
+        active: *state.active_profile.read(),
+        profiles: resolved.iter().map(|r| profiles::card(r, &offline)).collect(),
+        any_locked: cfg.profiles.iter().any(|p| p.pin.is_some()),
+    }
+}
+
+#[tauri::command]
+pub fn profiles_state(state: St<'_>) -> ProfilesState {
+    snapshot(&state)
+}
+
+/// Lists server users (mode B): Jellyfin sign-in screens and the Plex Home.
+/// A server that does not answer keeps its last list and shows offline.
+#[tauri::command]
+pub async fn profiles_discover(state: St<'_>) -> Result<ProfilesState> {
+    let servers = state.servers.read().clone();
+    let previous = state.profiles.read().discovered.clone();
+    let mut found: Vec<DiscoveredUser> = Vec::new();
+    let mut offline: HashSet<ServerId> = HashSet::new();
+    let mut kept: HashSet<ServerId> = HashSet::new();
+
+    let mut seen = HashSet::new();
+    let jellyfins: Vec<_> = servers.iter().filter(|s| s.kind == ProviderKind::Jellyfin && seen.insert(s.remote_id.clone())).cloned().collect();
+    let connector = Connector::new(state.http(), state.jellyfin_identity());
+    let probes = jellyfins.iter().map(|home| {
+        let connector = connector.clone();
+        async move { (home, tokio::time::timeout(DISCOVERY_TIMEOUT, connector.public_users(&home.base_url)).await) }
+    });
+    for (home, res) in futures::future::join_all(probes).await {
+        match res {
+            Ok(Ok(users)) => found.extend(users.into_iter().map(|u| DiscoveredUser {
+                server: home.id,
+                kind: ProviderKind::Jellyfin,
+                remote_user_id: u.id,
+                switch_id: None,
+                name: u.name,
+                avatar: u.avatar,
+                has_password: u.has_password,
+                protected: false,
+            })),
+            _ => {
+                tracing::info!(target: "provider", server = %home.name, "user discovery failed; keeping the last list");
+                kept.insert(home.id);
+                offline.extend(servers.iter().filter(|s| s.kind == home.kind && s.remote_id == home.remote_id).map(|s| s.id));
+            }
+        }
+    }
+
+    let mut seen = HashSet::new();
+    let plexes: Vec<_> = servers.iter().filter(|s| s.kind == ProviderKind::Plex && seen.insert(s.remote_id.clone())).cloned().collect();
+    if !plexes.is_empty()
+        && let Some(token) = plex_account_token(&state)
+    {
+        let auth = PlexAuth::new(state.http(), state.plex_identity());
+        match tokio::time::timeout(DISCOVERY_TIMEOUT, auth.home_users(&token)).await {
+            Ok(Ok(members)) => {
+                for home in &plexes {
+                    found.extend(members.iter().map(|m| DiscoveredUser {
+                        server: home.id,
+                        kind: ProviderKind::Plex,
+                        remote_user_id: m.id.clone(),
+                        switch_id: Some(m.uuid.clone()),
+                        name: m.name.clone(),
+                        avatar: m.avatar.clone(),
+                        has_password: false,
+                        protected: m.protected,
+                    }));
+                }
+            }
+            _ => {
+                tracing::info!(target: "provider", "Plex Home discovery failed; keeping the last list");
+                kept.extend(plexes.iter().map(|h| h.id));
+            }
+        }
+    }
+
+    found.extend(previous.into_iter().filter(|u| kept.contains(&u.server)));
+    {
+        let mut cfg = state.profiles.write();
+        cfg.discovered = found;
+        state.store.save_profiles(&cfg)?;
+    }
+    *state.offline.write() = offline;
+    Ok(snapshot(&state))
+}
+
+fn os_user_name() -> String {
+    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Me".into())
+}
+
+#[tauri::command]
+pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_on_startup: bool, pin: Option<String>) -> Result<ProfilesState> {
+    let (was_enabled, old_mode) = {
+        let cfg = state.profiles.read();
+        let now = std::time::Instant::now();
+        let mut guard = state.config_guard.lock();
+        if let Err(wait) = guard.check(now) {
+            return Err(Error::PinLocked(wait.as_secs().max(1)));
+        }
+        match pin::authorize_config_change(&cfg, enabled, mode, pin.as_deref()) {
+            Ok(()) => {
+                // Only a PIN actually typed counts as a success.
+                if pin.is_some() {
+                    guard.succeed();
+                }
+            }
+            Err(Error::WrongPin) => {
+                // No PIN at all is a prompt, not an attempt.
+                if pin.is_some() {
+                    guard.fail(now);
+                    if let Err(wait) = guard.check(now) {
+                        return Err(Error::PinLocked(wait.as_secs().max(1)));
+                    }
+                }
+                return Err(Error::WrongPin);
+            }
+            Err(e) => return Err(e),
+        }
+        (cfg.enabled, cfg.mode)
+    };
+    {
+        let mut cfg = state.profiles.write();
+        cfg.enabled = enabled;
+        cfg.mode = mode;
+        cfg.ask_on_startup = ask_on_startup;
+        // Modes A/C start with one profile holding what is configured today.
+        if enabled && mode != ProfileMode::ServerUsers && !cfg.profiles.iter().any(|p| p.origin == Origin::Manual) {
+            let mut first = Profile::new(os_user_name(), profiles::PROFILE_COLORS[0], Origin::Manual, PersonalSettings::from_settings(&state.store.settings()));
+            first.connections = state.servers.read().iter().map(|s| s.id).collect();
+            cfg.profiles.push(first);
+        }
+        state.store.save_profiles(&cfg)?;
+    }
+    if !enabled {
+        *state.active_profile.write() = None;
+        state.excluded.write().clear();
+        state.apply_effective_settings(state.store.settings());
+        state.restore_servers();
+    } else if !was_enabled || mode != old_mode {
+        // Keep the person where they are: enter the profile holding what is loaded.
+        let loaded: HashSet<ServerId> = state.catalog.providers().iter().map(|p| p.descriptor().id).collect();
+        match profiles::best_match(&state.resolved_profiles(), &loaded) {
+            Some(id) => {
+                state.activate_profile(id)?;
+            }
+            None => *state.active_profile.write() = None,
+        }
+    }
+    Ok(snapshot(&state))
+}
+
+#[tauri::command]
+pub fn profile_check_pin(state: St<'_>, id: ProfileId, pin: String) -> Result<()> {
+    state.check_pin(id, Some(&pin))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchOutcome {
+    /// Servers of the profile that could not be connected.
+    pub failed: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId, pin: Option<String>, plex_pin: Option<String>) -> Result<SwitchOutcome> {
+    let _busy = state.switching.try_lock().map_err(|_| Error::Invalid("a profile switch is already in progress".into()))?;
+    state.check_pin(id, pin.as_deref())?;
+    let resolved = state
+        .resolved_profiles()
+        .into_iter()
+        .find(|r| r.profile.id == id)
+        .ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+    let configured_plex: HashSet<String> =
+        state.servers.read().iter().filter(|s| s.kind == ProviderKind::Plex).map(|s| s.remote_id.clone()).collect();
+    let mut failed = Vec::new();
+    let mut excluded = HashSet::new();
+
+    for account in &resolved.accounts {
+        let Some(user) = &account.discovered else { continue };
+        match (user.kind, &account.connection) {
+            // Plex Home: members not signed in yet, and protected ones every
+            // time (plex.tv checks their PIN).
+            (ProviderKind::Plex, conn) if conn.is_none() || user.protected => {
+                let Some(uuid) = &user.switch_id else { continue };
+                let Some(token) = plex_account_token(&state) else {
+                    failed.push(account.server_name.clone());
+                    continue;
+                };
+                let auth = PlexAuth::new(state.http(), state.plex_identity());
+                let member_pin = if user.protected { plex_pin.as_deref() } else { None };
+                match auth.switch_user(&token, uuid, member_pin).await {
+                    Ok(member_token) => {
+                        let who = UserProfile { id: user.remote_user_id.clone(), name: user.name.clone(), avatar: user.avatar.clone(), is_admin: false };
+                        if let Err(e) = register_plex(&state, &member_token, &who, &|s| configured_plex.contains(&s.machine_id)).await {
+                            tracing::warn!(target: "provider", server = %account.server_name, "Plex member not connected: {e}");
+                            failed.push(account.server_name.clone());
+                        }
+                    }
+                    Err(Error::Unauthorized | Error::Forbidden(_)) if user.protected => return Err(Error::WrongPin),
+                    Err(e) => {
+                        tracing::warn!(target: "provider", server = %account.server_name, "Plex switch failed: {e}");
+                        failed.push(account.server_name.clone());
+                        if let Some(c) = conn {
+                            excluded.insert(c.id);
+                        }
+                    }
+                }
+            }
+            // Jellyfin users without a password sign in on first use.
+            (ProviderKind::Jellyfin, None) if !user.has_password => {
+                let connector = Connector::new(state.http(), state.jellyfin_identity());
+                match connector.login(&account.base_url, &user.name, "").await {
+                    Ok(session) => {
+                        state.register_server(jellyfin_descriptor(&session), &session.token)?;
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "provider", server = %account.server_name, "Jellyfin sign-in failed: {e}");
+                        failed.push(account.server_name.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    *state.excluded.write() = excluded;
+    failed.extend(state.activate_profile(id)?);
+    failed.sort();
+    failed.dedup();
+    let _ = app.emit("profile-changed", id);
+    Ok(SwitchOutcome { failed })
+}
+
+#[tauri::command]
+pub fn profile_create(state: St<'_>, name: String, color: String) -> Result<ProfileId> {
+    let name = name.trim().to_owned();
+    if name.is_empty() {
+        return Err(Error::Invalid("a profile needs a name".into()));
+    }
+    let p = Profile::new(name, color, Origin::Manual, PersonalSettings::from_settings(&state.store.settings()));
+    let id = p.id;
+    let mut cfg = state.profiles.write();
+    cfg.profiles.push(p);
+    state.store.save_profiles(&cfg)?;
+    Ok(id)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileEdit {
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub avatar: Option<AvatarStyle>,
+    pub connections: Option<Vec<ServerId>>,
+    pub hidden: Option<bool>,
+}
+
+#[tauri::command]
+pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Option<String>) -> Result<()> {
+    state.check_pin(id, pin.as_deref())?;
+    let mut reload = false;
+    state.update_profile(id, |p| {
+        if let Some(n) = edit.name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) {
+            p.name = n;
+        }
+        if let Some(c) = edit.color {
+            p.color = c;
+        }
+        if let Some(a) = edit.avatar {
+            p.avatar = a;
+        }
+        if let Some(h) = edit.hidden {
+            p.hidden = h;
+        }
+        if let Some(c) = edit.connections
+            && p.origin == Origin::Manual
+        {
+            p.connections = c;
+            reload = true;
+        }
+    })?;
+    if reload && *state.active_profile.read() == Some(id) {
+        state.restore_servers();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn profile_set_pin(state: St<'_>, id: ProfileId, current: Option<String>, next: Option<String>) -> Result<()> {
+    state.check_pin(id, current.as_deref())?;
+    let hash = next.as_deref().map(pin::hash_pin).transpose()?;
+    state.update_profile(id, |p| p.pin = hash)
+}
+
+#[tauri::command]
+pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: Option<String>) -> Result<()> {
+    state.check_pin(id, pin.as_deref())?;
+    state.update_profile(id, |p| {
+        if !p.detached.contains(&connection) {
+            p.detached.push(connection);
+        }
+    })?;
+    if *state.active_profile.read() == Some(id) {
+        state.restore_servers();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn profile_delete(state: St<'_>, id: ProfileId, pin: Option<String>) -> Result<Vec<ServerId>> {
+    state.check_pin(id, pin.as_deref())?;
+    let (removed, used) = {
+        let mut cfg = state.profiles.write();
+        let idx = cfg.profiles.iter().position(|p| p.id == id).ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        if cfg.profiles[idx].origin != Origin::Manual {
+            return Err(Error::Invalid("profiles made from server users are hidden, not deleted".into()));
+        }
+        let removed = cfg.profiles.remove(idx);
+        if cfg.last_profile == Some(id) {
+            cfg.last_profile = None;
+        }
+        state.store.save_profiles(&cfg)?;
+        let used: HashSet<ServerId> = cfg.profiles.iter().filter(|p| p.origin == Origin::Manual).flat_map(|p| p.connections.iter().copied()).collect();
+        (removed, used)
+    };
+    if *state.active_profile.read() == Some(id) {
+        *state.active_profile.write() = None;
+        state.restore_servers();
+    }
+    Ok(removed.connections.into_iter().filter(|c| !used.contains(c)).collect())
+}

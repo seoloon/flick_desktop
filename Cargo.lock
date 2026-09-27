@@ -2775,6 +2775,7 @@ name = "oneshot-app"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures",
  "image",
  "oneshot-capabilities",
  "oneshot-catalog",

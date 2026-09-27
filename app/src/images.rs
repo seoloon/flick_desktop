@@ -4,11 +4,15 @@
 //!
 //! URL path (built by `ui/src/ipc/images.ts`):
 //! `<size>/<kind>/<item-ref>/<tag>` with each segment URI-encoded.
+//!
+//! A second form serves profile pictures: `avatar/<profile-id>/<key>` (the
+//! key only changes the URL when the picture changes).
 
 use std::sync::Arc;
 
 use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ImageKind, ImageRef, ImageSize};
+use oneshot_core::profile::ProfileId;
 use oneshot_core::{Error, Result};
 use oneshot_storage::images::cache_key;
 use serde::Serialize;
@@ -81,21 +85,48 @@ pub fn handle(app: &AppHandle, request: Request<Vec<u8>>, responder: UriSchemeRe
     let path = request.uri().path().to_owned();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<Arc<AppState>>();
-        let response = match parse_path(&path) {
-            None => Response::builder().status(StatusCode::BAD_REQUEST).body(Vec::new()),
-            Some((image, size)) => match load(&state, &image, size).await {
-                Ok(bytes) => Response::builder()
-                    .header("Content-Type", mime(&bytes))
-                    .header("Cache-Control", "max-age=604800, immutable")
-                    .body(bytes),
-                Err(e) => {
-                    tracing::debug!(target: "cache", "image {path}: {e}");
-                    Response::builder().status(StatusCode::NOT_FOUND).body(Vec::new())
-                }
+        let loaded = match path.trim_start_matches('/').strip_prefix("avatar/") {
+            Some(rest) => Some(load_avatar(&state, rest).await),
+            None => match parse_path(&path) {
+                Some((image, size)) => Some(load(&state, &image, size).await),
+                None => None,
             },
+        };
+        let response = match loaded {
+            None => Response::builder().status(StatusCode::BAD_REQUEST).body(Vec::new()),
+            Some(Ok(bytes)) => Response::builder()
+                .header("Content-Type", mime(&bytes))
+                .header("Cache-Control", "max-age=604800, immutable")
+                .body(bytes),
+            Some(Err(e)) => {
+                tracing::debug!(target: "cache", "image {path}: {e}");
+                Response::builder().status(StatusCode::NOT_FOUND).body(Vec::new())
+            }
         };
         responder.respond(response.unwrap_or_else(|_| Response::new(Vec::new())));
     });
+}
+
+/// A profile's picture: a public URL (plex.tv, a Jellyfin sign-in screen),
+/// proxied because the WebView loads no remote origin.
+async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
+    let id: ProfileId = rest.split('/').next().unwrap_or_default().parse().map_err(|_| Error::Invalid("avatar path".into()))?;
+    let url = state
+        .resolved_profiles()
+        .iter()
+        .find(|r| r.profile.id == id)
+        .and_then(oneshot_storage::profiles::avatar_of)
+        .ok_or_else(|| Error::NotFound(format!("avatar of profile {id}")))?;
+    let key = oneshot_storage::images::avatar_cache_key(&url);
+    if let Some(bytes) = state.images.get(&key) {
+        return Ok(bytes);
+    }
+    let resp = oneshot_net::ensure_ok(state.http().get(url).send().await.map_err(oneshot_net::map_err)?).await?;
+    let bytes = resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec();
+    if let Err(e) = state.images.put(&key, &bytes) {
+        tracing::warn!(target: "cache", "avatar cache write failed: {e}");
+    }
+    Ok(bytes)
 }
 
 /// Colours for the adaptive background, extracted from a tiny rendition.

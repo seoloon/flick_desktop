@@ -20,6 +20,7 @@ oneshot-catalog.workspace = true
 oneshot-net.workspace = true
 oneshot-jellyfin.workspace = true
 oneshot-plex.workspace = true
+futures.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
