@@ -198,8 +198,12 @@ centre, réglages et plein écran à droite. Les commandes se masquent après
   satiné) ; le jeu complet (`.ico`, `.icns`, PNG) se régénère avec
   `pnpm tauri icon app/icons/basic/flick-icon.svg -o app/icons`.
 - **Marque** : `app/icons/basic/flick-mark.svg`, plate, reprise dans
-  `components/tv/FlickMark.tsx` en `currentColor` (barre latérale, barre
-  d'onglets de Flick Frame, accueil vide) et en favicon (`ui/public`).
+  `components/tv/FlickMark.tsx` en `currentColor` (barre d'onglets de Flick
+  Frame, sélecteur de profils, accueil vide) et en favicon (`ui/public`).
+- **Logotype** : `app/icons/basic/flick-wordmark-flat.svg` (marque + lettrage,
+  plat), repris dans `components/tv/FlickWordmark.tsx` en `currentColor` pour
+  la barre latérale. Repliée, la barre le rogne à sa marque (largeur animée
+  avec celle de la barre) : la marque ne bouge pas.
 
 La WebView ne voit pas les pixels vidéo (calque natif dessous) : **pas de
 vrai flou au-dessus de la vidéo**, uniquement des voiles sombres translucides.

@@ -3,13 +3,13 @@
 // into the content.
 import { Maximize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { motion } from "motion/react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { focusSpring, pillSpring } from "@/lib/motion";
 import { toggleFrame } from "@/lib/mode";
 import { toggleSidebar, useSidebar } from "@/lib/sidebar";
 import { cn } from "@/lib/utils";
-import { FlickMark } from "@/components/tv/FlickMark";
+import { FlickWordmark, MARK_WIDTH, WORDMARK_HEIGHT, WORDMARK_WIDTH } from "@/components/tv/FlickWordmark";
 import { SidebarProfile } from "@/features/profiles/ProfileSwitcher";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { NAV_KEY } from "@/nav/spatial";
@@ -49,11 +49,22 @@ export function Sidebar() {
   );
 }
 
+// Collapsed, the wordmark is clipped to its mark: the mark stays put and the
+// lettering slides under the edge, in step with the sidebar's own width.
+const brandWidths = {
+  "--wordmark-w": `calc(var(--wordmark-h) * ${WORDMARK_WIDTH / WORDMARK_HEIGHT})`,
+  "--mark-w": `calc(var(--wordmark-h) * ${MARK_WIDTH / WORDMARK_HEIGHT})`,
+} as CSSProperties;
+
 function Brand() {
   return (
-    <div className="mb-5 flex items-center gap-2.5 px-3 pt-2 in-data-[platform=mac]:pt-9">
-      <FlickMark className="h-[1.15rem] w-auto" />
-      <span className="font-heading text-[1.125rem] font-bold tracking-tight whitespace-nowrap transition-opacity delay-200 duration-300 in-data-[sidebar=collapsed]:opacity-0 in-data-[sidebar=collapsed]:delay-0 in-data-[sidebar=collapsed]:duration-150">Flick</span>
+    <div className="mb-5 flex items-center px-3 pt-2 in-data-[platform=mac]:pt-9">
+      <span
+        style={brandWidths}
+        className="block w-(--wordmark-w) overflow-hidden transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] [--wordmark-h:1.2rem] in-data-[sidebar=collapsed]:w-(--mark-w)"
+      >
+        <FlickWordmark title="Flick" className="h-(--wordmark-h) w-auto max-w-none" />
+      </span>
     </div>
   );
 }
