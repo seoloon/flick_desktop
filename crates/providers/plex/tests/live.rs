@@ -152,3 +152,24 @@ async fn reqwest_head(url: &Url) -> String {
     assert!(r.status().is_success(), "{}", r.status());
     r.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned()
 }
+
+/// Confirms the Plex Home endpoints and their JSON shape on a real account:
+/// `PLEX_ACCOUNT_TOKEN=… cargo test -p oneshot-plex --test live home_users_live -- --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn home_users_live() {
+    let Ok(token) = std::env::var("PLEX_ACCOUNT_TOKEN") else { return };
+    let identity = oneshot_plex::PlexIdentity {
+        product: "Flick".into(),
+        version: "0".into(),
+        client_identifier: "flick-live-test".into(),
+        device_name: "live test".into(),
+        platform: "Windows".into(),
+    };
+    let auth = oneshot_plex::PlexAuth::new(oneshot_net::reqwest::Client::new(), identity);
+    let members = auth.home_users(&token).await.expect("home users");
+    for m in &members {
+        println!("{} uuid={} protected={} admin={}", m.name, m.uuid, m.protected, m.admin);
+    }
+    assert!(!members.is_empty(), "an account is always a member of its own home");
+}

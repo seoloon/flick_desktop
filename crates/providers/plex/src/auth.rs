@@ -10,7 +10,7 @@ use oneshot_core::{Error, Result};
 use oneshot_net::reqwest::{Client, RequestBuilder};
 use url::Url;
 
-use crate::dto::{Pin, PlexUser, Resource};
+use crate::dto::{HomeUsers, Pin, PlexUser, Resource, SwitchedUser};
 
 const PLEX_TV: &str = "https://plex.tv/";
 
@@ -86,6 +86,19 @@ pub struct PlexAccount {
     pub avatar: Option<Url>,
 }
 
+/// A member of the account's Plex Home.
+#[derive(Debug, Clone)]
+pub struct HomeMember {
+    /// Account id, as `PlexAccount::user_id` reports it once switched.
+    pub id: String,
+    pub uuid: String,
+    pub name: String,
+    pub avatar: Option<Url>,
+    /// plex.tv asks this member's PIN on switch.
+    pub protected: bool,
+    pub admin: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct PlexAuth {
     http: Client,
@@ -136,6 +149,37 @@ impl PlexAuth {
             username: user.title.or(user.username).unwrap_or_else(|| user.uuid.clone()),
             avatar: user.thumb.and_then(|t| Url::parse(&t).ok()),
         })
+    }
+
+    /// Members of the account's Plex Home (just the account itself when it
+    /// has no Home).
+    pub async fn home_users(&self, account_token: &str) -> Result<Vec<HomeMember>> {
+        let rb = self.http.get(self.url("api/v2/home/users")?);
+        let home: HomeUsers = oneshot_net::json(self.identity.apply(rb, Some(account_token)).send().await.map_err(oneshot_net::map_err)?).await?;
+        Ok(home
+            .users
+            .into_iter()
+            .map(|u| HomeMember {
+                id: u.id.to_string(),
+                name: u.title.filter(|t| !t.is_empty()).or(u.username).unwrap_or_else(|| u.uuid.clone()),
+                uuid: u.uuid,
+                avatar: u.thumb.and_then(|t| Url::parse(&t).ok()),
+                protected: u.protected,
+                admin: u.admin,
+            })
+            .collect())
+    }
+
+    /// Switches to a Home member; plex.tv checks `pin` for protected ones.
+    /// Returns the member's own account token.
+    pub async fn switch_user(&self, account_token: &str, uuid: &str, pin: Option<&str>) -> Result<String> {
+        let mut url = self.url(&format!("api/v2/home/users/{uuid}/switch"))?;
+        if let Some(pin) = pin {
+            url.query_pairs_mut().append_pair("pin", pin);
+        }
+        let rb = self.http.post(url);
+        let user: SwitchedUser = oneshot_net::json(self.identity.apply(rb, Some(account_token)).send().await.map_err(oneshot_net::map_err)?).await?;
+        Ok(user.auth_token)
     }
 
     /// Lists servers and probes every advertised connection concurrently.

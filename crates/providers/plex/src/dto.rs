@@ -216,6 +216,34 @@ pub struct PlexUser {
     pub thumb: Option<String>,
 }
 
+/// `GET plex.tv/api/v2/home/users`.
+#[derive(Debug, Deserialize)]
+pub struct HomeUsers {
+    #[serde(default)]
+    pub users: Vec<HomeUser>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeUser {
+    pub id: i64,
+    pub uuid: String,
+    pub title: Option<String>,
+    pub username: Option<String>,
+    pub thumb: Option<String>,
+    #[serde(default)]
+    pub admin: bool,
+    #[serde(default)]
+    pub protected: bool,
+}
+
+/// `POST plex.tv/api/v2/home/users/{uuid}/switch`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchedUser {
+    pub auth_token: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {

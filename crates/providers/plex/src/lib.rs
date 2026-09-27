@@ -14,6 +14,6 @@ mod map;
 mod playback;
 mod provider;
 
-pub use auth::{DiscoveredServer, PinChallenge, PlexAccount, PlexAuth, PlexIdentity};
+pub use auth::{DiscoveredServer, HomeMember, PinChallenge, PlexAccount, PlexAuth, PlexIdentity};
 pub use playback::profile_extra;
 pub use provider::PlexProvider;
