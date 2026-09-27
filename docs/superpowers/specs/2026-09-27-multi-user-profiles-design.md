@@ -226,8 +226,10 @@ cette lumière ; l'interface reste monochrome (cf. `docs/DESIGN_SYSTEM.md`).
 
 ### 3.5 Sélection
 
-1. Les autres tuiles se dispersent (fondu, ×0,9, flou) ; l'avatar choisi
-   glisse au centre (`layoutId` partagé).
+1. Rien à saisir : la tuile reste en place, les autres s'estompent, l'anneau
+   de chargement tourne autour de son avatar, qui vole ensuite directement
+   vers la sidebar (`layoutId` partagé). Sinon (PIN, connexion) : les autres
+   tuiles se dispersent et l'avatar glisse au centre pour le pavé.
 2. **PIN Flick** : l'avatar remonte, un pavé en verre glisse du bas (4
    points, chiffres navigables à la manette, saisie clavier). Faux : secousse
    horizontale + points qui clignotent, pas de message bloquant.

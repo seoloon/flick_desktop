@@ -2,7 +2,7 @@
 // name, where their accounts come from.
 import { Lock } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { AccountPills } from "@/components/tv/AccountPills";
 import { ProfileAvatar } from "@/components/tv/ProfileAvatar";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
@@ -10,9 +10,18 @@ import { focusSpring, panelSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useTv } from "@/nav/Focusable";
 
-type Props = { card: ProfileCard; index: number; dimmed: boolean; onSelect: () => void; onEdit?: () => void; onFocused: () => void };
+type Props = {
+  card: ProfileCard;
+  index: number;
+  dimmed: boolean;
+  onSelect: () => void;
+  onEdit?: () => void;
+  onFocused: () => void;
+  /** Drawn around the avatar (the loading ring while this profile opens). */
+  overlay?: ReactNode;
+};
 
-export function ProfileTile({ card, index, dimmed, onSelect, onEdit, onFocused }: Props) {
+export function ProfileTile({ card, index, dimmed, onSelect, onEdit, onFocused, overlay }: Props) {
   const tv = useTv<HTMLButtonElement>({ focusKey: `profile:${card.id}`, onFocused, scroll: false });
   const [hover, setHover] = useState(false);
   const [sheen, setSheen] = useState({ x: 30, y: 20 });
@@ -56,6 +65,7 @@ export function ProfileTile({ card, index, dimmed, onSelect, onEdit, onFocused }
           style={{ background: `radial-gradient(60% 60% at ${sheen.x}% ${sheen.y}%, rgb(255 255 255 / 0.28), transparent 70%)` }}
         />
         <span aria-hidden className={cn("pointer-events-none absolute -inset-1 rounded-full ring-white transition-[box-shadow] duration-200", tv.showFocus ? "ring-4" : "ring-0")} />
+        {overlay}
         {card.locked && (
           <span className="absolute right-1 bottom-1 grid size-8 place-items-center rounded-full bg-black/70 text-white/90">
             <Lock className="size-4" />

@@ -33,9 +33,11 @@ import { ProfileTile } from "./ProfileTile";
 
 const INTRO_MS = 700;
 
-// The chosen card is kept here: a switch clears the query cache, and the
-// avatar must not leave the centre while the profile list reloads.
-type Step = { id: ProfileId; card: ProfileCard; stage: PickStage; pin?: string; plexPin?: string; pending: ProfileAccount[]; signIn: number; plexWrong?: boolean };
+// The chosen card and the tiles are kept here: a switch clears the query
+// cache, and nothing on screen may move while the profile list reloads.
+// `direct`: nothing to type, so the avatar stays on its tile and flies from
+// there to the sidebar; otherwise it rises to the centre for the pad.
+type Step = { id: ProfileId; card: ProfileCard; cards: ProfileCard[]; direct: boolean; stage: PickStage; pin?: string; plexPin?: string; pending: ProfileAccount[]; signIn: number; plexWrong?: boolean };
 
 export function ProfilePicker() {
   const navigate = useNavigate();
@@ -49,10 +51,11 @@ export function ProfilePicker() {
   const [editing, setEditing] = useState<ProfileCard | "new" | null>(null);
 
   const data = query.data;
-  const cards = visibleProfiles(data?.profiles ?? []);
+  const cards = step?.cards ?? visibleProfiles(data?.profiles ?? []);
   const selected = step?.card;
   const focusedCard = cards.find((c) => c.id === focused);
-  const ready = !intro && !!data;
+  const ready = !intro && (!!data || !!step);
+  const onTiles = !step || step.direct;
 
   useEffect(() => {
     const t = setTimeout(() => setIntro(false), INTRO_MS);
@@ -76,8 +79,8 @@ export function ProfilePicker() {
 
   const choose = useCallback((card: ProfileCard) => {
     setProgress(0);
-    setStep({ id: card.id, card, stage: nextStage(card, null), pending: pendingSignIns(card), signIn: 0 });
-  }, []);
+    setStep({ id: card.id, card, cards, direct: nextStage(card, null) === "loading", stage: nextStage(card, null), pending: pendingSignIns(card), signIn: 0 });
+  }, [cards]);
 
   // ?pick=<id>: arriving from the sidebar for a profile that needs typing.
   useEffect(() => {
@@ -192,7 +195,7 @@ export function ProfilePicker() {
             <FlickMark title="Flick" className="h-14 w-auto" />
           </motion.div>
           <AnimatePresence>
-            {ready && !step && (
+            {ready && onTiles && (
               <motion.h1
                 key="title"
                 initial={{ opacity: 0, y: 8 }}
@@ -207,18 +210,19 @@ export function ProfilePicker() {
           </AnimatePresence>
         </motion.div>
 
-        {/* The chosen avatar carries the layoutId from its tile to the centre. */}
+        {/* The avatar carries its layoutId from the tile (or the centre) to the sidebar. */}
         <AnimatePresence>
-          {ready && !step && (
+          {ready && onTiles && (
             <FocusGroup key="tiles" focusKey="profiles" autoFocus className="flex max-w-6xl flex-wrap justify-center gap-x-10 gap-y-12">
               {cards.map((card, i) => (
                 <ProfileTile
                   key={card.id}
                   card={card}
                   index={i}
-                  dimmed={focused !== null && focused !== card.id}
+                  dimmed={step ? step.id !== card.id : focused !== null && focused !== card.id}
                   onFocused={() => setFocused(card.id)}
-                  onSelect={() => choose(card)}
+                  onSelect={() => !step && choose(card)}
+                  overlay={step?.id === card.id && step.stage === "loading" ? <ProgressRing done={progress >= 1} /> : undefined}
                   onEdit={() => setEditing(card)}
                 />
               ))}
@@ -226,11 +230,11 @@ export function ProfilePicker() {
                 label={addTile}
                 index={cards.length}
                 onFocused={() => setFocused(null)}
-                onSelect={() => (data?.mode === "serverUsers" ? setOtherUser(true) : setEditing("new"))}
+                onSelect={() => !step && (data?.mode === "serverUsers" ? setOtherUser(true) : setEditing("new"))}
               />
             </FocusGroup>
           )}
-          {step && selected && (
+          {step && !step.direct && selected && (
             <motion.div key="chosen" className="flex flex-col items-center gap-8">
               <div className="relative">
                 <ProfileAvatar profile={selected} layoutId={`profile-avatar-${selected.id}`} className="size-40 text-6xl" />
