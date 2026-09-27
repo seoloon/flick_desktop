@@ -198,6 +198,31 @@ pub fn best_match(resolved: &[Resolved], loaded: &std::collections::HashSet<Serv
     best.map(|(_, id)| id)
 }
 
+/// Connections the catalogue may load, in `servers` order: not disabled, in
+/// `wanted` (the active profile's; `None` = multi-user off, everything), and
+/// never a PIN-protected Plex user plex.tv has not checked in this run. With
+/// multi-user off, only Home-member connections need that check (the
+/// signed-in account's own connection loads as it always did).
+pub fn loadable(
+    servers: &[ServerDescriptor],
+    discovered: &[DiscoveredUser],
+    wanted: Option<&HashSet<ServerId>>,
+    verified: &HashSet<ServerId>,
+    multi_user: bool,
+) -> Vec<ServerId> {
+    servers
+        .iter()
+        .filter(|d| !d.disabled)
+        .filter(|d| wanted.is_none_or(|w| w.contains(&d.id)))
+        .filter(|d| {
+            let protected = discovered.iter().any(|u| u.protected && same_user(d, servers, u));
+            let gated = protected && (multi_user || d.home_member);
+            !gated || verified.contains(&d.id)
+        })
+        .map(|d| d.id)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +255,7 @@ mod tests {
             version: None,
             user: UserProfile { id: user_id.into(), name: user.into(), avatar: None, is_admin: false },
             disabled: false,
+            home_member: false,
         }
     }
 
@@ -367,5 +393,58 @@ mod tests {
         cfg.profiles[0].avatar = oneshot_core::profile::AvatarStyle::Initials;
         let r = resolve(&mut cfg, &[jf], &defaults);
         assert_eq!(card(&r[0], &HashSet::new()).avatar_key, None);
+    }
+
+    fn protected_member(on: &ServerDescriptor, d: &ServerDescriptor) -> DiscoveredUser {
+        DiscoveredUser { protected: true, has_password: false, ..seen(on, &d.user.id, &d.user.name) }
+    }
+
+    #[test]
+    fn multi_user_off_loads_everything_but_unverified_protected_home_members() {
+        let owner = conn(ProviderKind::Plex, "px", "11", "Antoine");
+        let mut kid = conn(ProviderKind::Plex, "px", "12", "Léa");
+        kid.home_member = true;
+        let jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let servers = [owner.clone(), kid.clone(), jf.clone()];
+        // The account owner can be PIN-protected too: that never gated it before.
+        let discovered = [protected_member(&owner, &owner), protected_member(&owner, &kid)];
+        let none = HashSet::new();
+        assert_eq!(loadable(&servers, &discovered, None, &none, false), vec![owner.id, jf.id]);
+        let verified: HashSet<ServerId> = [kid.id].into();
+        assert_eq!(loadable(&servers, &discovered, None, &verified, false), vec![owner.id, kid.id, jf.id]);
+        let open_member = [seen(&owner, "12", "Léa")];
+        assert_eq!(loadable(&servers, &open_member, None, &none, false), vec![owner.id, kid.id, jf.id], "an open member needs no PIN");
+    }
+
+    #[test]
+    fn multi_user_on_loads_the_profile_and_gates_every_protected_plex_user() {
+        let owner = conn(ProviderKind::Plex, "px", "11", "Antoine");
+        let mut kid = conn(ProviderKind::Plex, "px", "12", "Léa");
+        kid.home_member = true;
+        let jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let servers = [owner.clone(), kid.clone(), jf.clone()];
+        let discovered = [protected_member(&owner, &owner), protected_member(&owner, &kid)];
+        let none = HashSet::new();
+        let mine: HashSet<ServerId> = [owner.id, jf.id].into();
+        assert_eq!(loadable(&servers, &discovered, Some(&mine), &none, true), vec![jf.id], "protected, not home_member, still unverified");
+        let verified: HashSet<ServerId> = [owner.id].into();
+        assert_eq!(loadable(&servers, &discovered, Some(&mine), &verified, true), vec![owner.id, jf.id]);
+        let hers: HashSet<ServerId> = [kid.id].into();
+        assert!(loadable(&servers, &discovered, Some(&hers), &verified, true).is_empty(), "verifying one user does not open another");
+        assert!(loadable(&servers, &discovered, Some(&HashSet::new()), &verified, true).is_empty(), "nobody picked, nothing loaded");
+    }
+
+    #[test]
+    fn disabled_connections_never_load() {
+        let mut jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        jf.disabled = true;
+        let mut kid = conn(ProviderKind::Plex, "px", "12", "Léa");
+        kid.home_member = true;
+        kid.disabled = true;
+        let servers = [jf.clone(), kid.clone()];
+        let discovered = [protected_member(&kid, &kid)];
+        let all: HashSet<ServerId> = [jf.id, kid.id].into();
+        assert!(loadable(&servers, &discovered, None, &all, false).is_empty());
+        assert!(loadable(&servers, &discovered, Some(&all), &all, true).is_empty());
     }
 }

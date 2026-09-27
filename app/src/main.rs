@@ -115,7 +115,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         pin_guards: Mutex::new(Default::default()),
         config_guard: Mutex::new(PinGuard::default()),
         offline: RwLock::new(Default::default()),
-        excluded: RwLock::new(Default::default()),
+        verified_plex: RwLock::new(Default::default()),
         switching: tokio::sync::Mutex::new(()),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing

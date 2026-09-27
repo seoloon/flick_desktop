@@ -16,7 +16,7 @@ use oneshot_storage::{pin, profiles};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 
-use super::servers::{jellyfin_descriptor, plex_account_token, register_plex};
+use super::servers::{PlexUser, jellyfin_descriptor, plex_account_token, register_plex};
 use crate::state::AppState;
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -157,9 +157,12 @@ pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_o
         }
         state.store.save_profiles(&cfg)?;
     }
+    if enabled != was_enabled || mode != old_mode {
+        // Plex PINs are checked again for whoever is picked next.
+        state.verified_plex.write().clear();
+    }
     if !enabled {
         *state.active_profile.write() = None;
-        state.excluded.write().clear();
         state.apply_effective_settings(state.store.settings());
         state.restore_servers();
     } else if !was_enabled || mode != old_mode {
@@ -169,7 +172,12 @@ pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_o
             Some(id) => {
                 state.activate_profile(id)?;
             }
-            None => *state.active_profile.write() = None,
+            None => {
+                // Nobody picked yet: shared settings, nothing loaded until the picker.
+                *state.active_profile.write() = None;
+                state.apply_effective_settings(state.store.settings());
+                state.restore_servers();
+            }
         }
     }
     Ok(snapshot(&state))
@@ -199,45 +207,62 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
     let configured_plex: HashSet<String> =
         state.servers.read().iter().filter(|s| s.kind == ProviderKind::Plex).map(|s| s.remote_id.clone()).collect();
     let mut failed = Vec::new();
-    let mut excluded = HashSet::new();
+    // The Plex PIN is asked at every change: what the previous profile had
+    // verified is replaced (not merged) once this switch goes through.
+    let mut verified = HashSet::new();
 
     for account in &resolved.accounts {
         let Some(user) = &account.discovered else { continue };
         match (user.kind, &account.connection) {
             // Plex Home: members not signed in yet, and protected ones every
-            // time (plex.tv checks their PIN).
+            // time (plex.tv checks their PIN; unverified ones never load, see
+            // `profiles::loadable`).
             (ProviderKind::Plex, conn) if conn.is_none() || user.protected => {
                 let Some(uuid) = &user.switch_id else {
-                    if user.protected && let Some(c) = conn {
-                        excluded.insert(c.id);
+                    if user.protected {
                         failed.push(account.server_name.clone());
                     }
                     continue;
                 };
-                let Some(token) = plex_account_token(&state) else {
-                    if user.protected && let Some(c) = conn {
-                        excluded.insert(c.id);
+                let member_pin = match (user.protected, plex_pin.as_deref()) {
+                    (false, _) => None,
+                    (true, Some(p)) => Some(p),
+                    // Skipped: unavailable, and plex.tv is not asked.
+                    (true, None) => {
+                        failed.push(account.server_name.clone());
+                        continue;
                     }
+                };
+                let Some(token) = plex_account_token(&state) else {
                     failed.push(account.server_name.clone());
                     continue;
                 };
                 let auth = PlexAuth::new(state.http(), state.plex_identity());
-                let member_pin = if user.protected { plex_pin.as_deref() } else { None };
                 match auth.switch_user(&token, uuid, member_pin).await {
                     Ok(member_token) => {
+                        verified.extend(conn.as_ref().map(|c| c.id));
                         let who = UserProfile { id: user.remote_user_id.clone(), name: user.name.clone(), avatar: user.avatar.clone(), is_admin: false };
-                        if let Err(e) = register_plex(&state, &member_token, &who, &|s| configured_plex.contains(&s.machine_id), false).await {
-                            tracing::warn!(target: "provider", server = %account.server_name, "Plex member not connected: {e}");
-                            failed.push(account.server_name.clone());
+                        match register_plex(&state, &member_token, &who, &|s| configured_plex.contains(&s.machine_id), PlexUser::HomeMember).await {
+                            Ok(added) => verified.extend(added.iter().map(|d| d.id)),
+                            Err(e) => {
+                                tracing::warn!(target: "provider", server = %account.server_name, "Plex member not connected: {e}");
+                                failed.push(account.server_name.clone());
+                            }
                         }
                     }
-                    Err(Error::Unauthorized | Error::Forbidden(_)) if user.protected => return Err(Error::WrongPin),
+                    // plex.tv refuses the switch: a wrong PIN, unless the
+                    // account's own sign-in has expired.
+                    Err(Error::Unauthorized | Error::Forbidden(_)) if user.protected => {
+                        if let Err(e) = auth.account(&token).await {
+                            tracing::warn!(target: "provider", server = %account.server_name, "plex.tv sign-in expired: {e}");
+                            failed.push(account.server_name.clone());
+                            continue;
+                        }
+                        return Err(Error::WrongPin);
+                    }
                     Err(e) => {
                         tracing::warn!(target: "provider", server = %account.server_name, "Plex switch failed: {e}");
                         failed.push(account.server_name.clone());
-                        if let Some(c) = conn {
-                            excluded.insert(c.id);
-                        }
                     }
                 }
             }
@@ -258,7 +283,7 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
         }
     }
 
-    *state.excluded.write() = excluded;
+    *state.verified_plex.write() = verified;
     failed.extend(state.activate_profile(id)?);
     failed.sort();
     failed.dedup();
@@ -290,9 +315,18 @@ pub struct ProfileEdit {
     pub hidden: Option<bool>,
 }
 
+/// `owner_pin`: linking a connection that another PIN-protected profile uses
+/// (modes A/C) needs that profile's PIN.
 #[tauri::command]
-pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Option<String>) -> Result<()> {
+pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Option<String>, owner_pin: Option<String>) -> Result<()> {
     state.check_pin(id, pin.as_deref())?;
+    if let Some(next) = &edit.connections {
+        // Bound first: no `profiles` guard may be held while `check_pin` runs.
+        let owners = locked_owners(&state.profiles.read().profiles, id, next);
+        for owner in owners {
+            state.check_pin(owner, owner_pin.as_deref())?;
+        }
+    }
     let mut reload = false;
     state.update_profile(id, |p| {
         if let Some(n) = edit.name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) {
@@ -318,6 +352,18 @@ pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Opti
         state.restore_servers();
     }
     Ok(())
+}
+
+/// Other PIN-protected manual profiles using a connection that `next` adds
+/// to profile `id`.
+fn locked_owners(all: &[Profile], id: ProfileId, next: &[ServerId]) -> Vec<ProfileId> {
+    let current: &[ServerId] = all.iter().find(|p| p.id == id).map_or(&[], |p| &p.connections);
+    let added: Vec<&ServerId> = next.iter().filter(|c| !current.contains(c)).collect();
+    all.iter()
+        .filter(|p| p.id != id && p.origin == Origin::Manual && p.pin.is_some())
+        .filter(|p| added.iter().any(|c| p.connections.contains(c)))
+        .map(|p| p.id)
+        .collect()
 }
 
 #[tauri::command]
@@ -371,4 +417,29 @@ pub fn profile_delete(state: St<'_>, id: ProfileId, pin: Option<String>) -> Resu
         state.restore_servers();
     }
     Ok(removed.connections.into_iter().filter(|c| !used.contains(c)).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manual(name: &str, connections: &[ServerId], pin: bool) -> Profile {
+        let mut p = Profile::new(name, "#5e8bff", Origin::Manual, PersonalSettings::default());
+        p.connections = connections.to_vec();
+        p.pin = pin.then(|| "hash".to_owned());
+        p
+    }
+
+    #[test]
+    fn linking_a_locked_profiles_connection_names_its_owner() {
+        let (shared, parents, open) = (ServerId::new(), ServerId::new(), ServerId::new());
+        let kid = manual("Kid", &[shared], false);
+        let parent = manual("Parent", &[shared, parents], true);
+        let guest = manual("Guest", &[open], false);
+        let all = [kid.clone(), parent.clone(), guest];
+        assert!(locked_owners(&all, kid.id, &[shared]).is_empty(), "already linked: no new PIN");
+        assert!(locked_owners(&all, kid.id, &[shared, open]).is_empty(), "an open profile's connection is free");
+        assert_eq!(locked_owners(&all, kid.id, &[shared, parents]), vec![parent.id]);
+        assert!(locked_owners(&all, parent.id, &[shared, parents, open]).is_empty(), "a profile never guards itself");
+    }
 }

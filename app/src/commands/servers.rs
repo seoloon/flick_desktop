@@ -80,6 +80,7 @@ pub(crate) fn jellyfin_descriptor(s: &Session) -> ServerDescriptor {
         version: s.version.clone(),
         user: UserProfile { id: s.user_id.clone(), name: s.user_name.clone(), avatar: None, is_admin: s.is_admin },
         disabled: false,
+        home_member: false,
     }
 }
 
@@ -173,15 +174,26 @@ pub(crate) fn plex_account_token(state: &AppState) -> Option<String> {
     state.plex_account.lock().clone().or_else(|| secrets::load_secret(PLEX_ACCOUNT_KEY).ok().flatten())
 }
 
+/// Whose connections `register_plex` adds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlexUser {
+    /// The signed-in plex.tv account: its connections join the active
+    /// profile (modes A/C).
+    Account,
+    /// A Plex Home member reached by a profile switch: its connections do
+    /// not join the *previous* profile (see `register_server_with`) and are
+    /// marked `home_member`.
+    HomeMember,
+}
+
 /// Registers `user`'s connections to the Plex servers `keep` selects, with
-/// the access tokens plex.tv gives that user. `attach` controls whether each
-/// connection joins the currently active profile (see `register_server_with`).
+/// the access tokens plex.tv gives that user.
 pub(crate) async fn register_plex(
     state: &AppState,
     token: &str,
     user: &UserProfile,
     keep: &(dyn Fn(&oneshot_plex::DiscoveredServer) -> bool + Send + Sync),
-    attach: bool,
+    who: PlexUser,
 ) -> Result<Vec<ServerDescriptor>> {
     let auth = PlexAuth::new(state.http(), state.plex_identity());
     let mut added = Vec::new();
@@ -197,8 +209,9 @@ pub(crate) async fn register_plex(
             version: server.version.clone(),
             user: UserProfile { is_admin: server.owned, ..user.clone() },
             disabled: false,
+            home_member: who == PlexUser::HomeMember,
         };
-        added.push(state.register_server_with(d, &server.access_token, attach)?);
+        added.push(state.register_server_with(d, &server.access_token, who == PlexUser::Account)?);
     }
     Ok(added)
 }
@@ -208,5 +221,5 @@ pub async fn plex_add_servers(state: St<'_>, machine_ids: Vec<String>) -> Result
     let token = plex_account_token(&state).ok_or(Error::Unauthorized)?;
     let account = PlexAuth::new(state.http(), state.plex_identity()).account(&token).await?;
     let user = UserProfile { id: account.user_id, name: account.username, avatar: account.avatar, is_admin: false };
-    register_plex(&state, &token, &user, &|s| machine_ids.contains(&s.machine_id), true).await
+    register_plex(&state, &token, &user, &|s| machine_ids.contains(&s.machine_id), PlexUser::Account).await
 }

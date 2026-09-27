@@ -24,4 +24,10 @@ alternateUrls: Array<string>, version: string | null, user: UserProfile,
  * Turned off by the user: kept, with its token, but left out of the
  * catalogue (home, libraries, search) until turned back on.
  */
-disabled: boolean, };
+disabled: boolean, 
+/**
+ * Connected by switching to a Plex Home member (not the signed-in
+ * account itself); when that member is PIN-protected it only loads
+ * after plex.tv checked the PIN in this run.
+ */
+homeMember: boolean, };

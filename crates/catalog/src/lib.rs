@@ -165,21 +165,25 @@ impl Catalog {
         self.provider(parent.server)?.items(query).await
     }
 
-    /// Item detail with cache: fresh cache hits avoid a round-trip.
+    /// Item detail with cache: fresh cache hits avoid a round-trip. Only for
+    /// a live connection: the cache also holds other profiles' items.
     pub async fn item(&self, id: &ItemRef) -> Result<MediaItem> {
+        let provider = self.provider(id.server)?;
         let key = format!("{}:item:{}", id.server, id.key);
         if let Ok(Some(c)) = self.cache.get::<MediaItem>(&key)
             && c.fresh
         {
             return Ok(c.value);
         }
-        let item = self.provider(id.server)?.item(id).await?;
+        let item = provider.item(id).await?;
         let _ = self.cache.put(&id.server.to_string(), &key, &item, self.ttl());
         Ok(item)
     }
 
-    /// Cached copy regardless of freshness (for instant display before refresh).
+    /// Cached copy regardless of freshness (for instant display before
+    /// refresh), of a live connection only.
     pub fn cached_item(&self, id: &ItemRef) -> Option<MediaItem> {
+        self.provider(id.server).ok()?;
         self.cache.get::<MediaItem>(&format!("{}:item:{}", id.server, id.key)).ok().flatten().map(|c| c.value)
     }
 
@@ -210,5 +214,111 @@ impl Catalog {
     /// Called after playback reports too: resume points changed.
     pub fn invalidate_item(&self, id: &ItemRef) {
         let _ = self.cache.invalidate_prefix(&format!("{}:item:{}", id.server, id.key));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oneshot_core::media::{ImageRef, ImageSize, Marker};
+    use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
+    use oneshot_core::server::{ProviderKind, ServerStatus, UserProfile};
+    use url::Url;
+
+    use super::*;
+
+    /// A live connection that never answers: a hit proves the cache served it.
+    #[derive(Debug)]
+    struct Silent(ServerDescriptor);
+
+    #[async_trait::async_trait]
+    impl MediaProvider for Silent {
+        fn kind(&self) -> ProviderKind {
+            self.0.kind
+        }
+        fn descriptor(&self) -> &ServerDescriptor {
+            &self.0
+        }
+        async fn status(&self) -> ServerStatus {
+            ServerStatus::Unauthorized
+        }
+        async fn libraries(&self) -> Result<Vec<Library>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn home(&self) -> Result<Vec<HomeRow>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn items(&self, _: &ItemQuery) -> Result<Page<MediaItem>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn item(&self, _: &ItemRef) -> Result<MediaItem> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn children(&self, _: &ItemRef, _: ItemKind) -> Result<Vec<MediaItem>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn search(&self, _: &str, _: u32) -> Result<Vec<MediaItem>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn similar(&self, _: &ItemRef, _: u32) -> Result<Vec<MediaItem>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn adjacent_episodes(&self, _: &ItemRef) -> Result<Adjacent> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn markers(&self, _: &ItemRef) -> Result<Vec<Marker>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn set_played(&self, _: &ItemRef, _: bool) -> Result<()> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn set_favorite(&self, _: &ItemRef, _: bool) -> Result<()> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn playback_info(&self, _: &ItemRef, _: &ClientProfile) -> Result<PlaybackInfo> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn stream(&self, _: &StreamRequest) -> Result<StreamTarget> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn report(&self, _: &PlaybackReport) -> Result<()> {
+            Err(Error::Unsupported("test".into()))
+        }
+        fn image_url(&self, _: &ImageRef, _: ImageSize) -> Result<Url> {
+            Err(Error::Unsupported("test".into()))
+        }
+        fn auth_headers(&self) -> Vec<(String, String)> {
+            Vec::new()
+        }
+    }
+
+    fn descriptor() -> ServerDescriptor {
+        ServerDescriptor {
+            id: ServerId::new(),
+            kind: ProviderKind::Jellyfin,
+            name: "jf".into(),
+            remote_id: "jf".into(),
+            base_url: Url::parse("http://jf.local/").unwrap(),
+            alternate_urls: vec![],
+            version: None,
+            user: UserProfile { id: "u".into(), name: "Kid".into(), avatar: None, is_admin: false },
+            disabled: false,
+            home_member: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_items_are_served_for_live_connections_only() {
+        let d = descriptor();
+        let catalog = Catalog::new(Arc::new(MetadataCache::in_memory().unwrap()), 3600);
+        let id = ItemRef { server: d.id, key: "42".into() };
+        let item = MediaItem::new(id.clone(), ItemKind::Movie, "Cached");
+        catalog.cache.put(&d.id.to_string(), &format!("{}:item:{}", d.id, id.key), &item, 3600).unwrap();
+
+        assert!(catalog.item(&id).await.is_err(), "another profile's connection: nothing served");
+        assert!(catalog.cached_item(&id).is_none());
+
+        catalog.add(Arc::new(Silent(d)));
+        assert_eq!(catalog.item(&id).await.unwrap().title, "Cached");
+        assert_eq!(catalog.cached_item(&id).unwrap().title, "Cached");
     }
 }

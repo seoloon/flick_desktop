@@ -41,6 +41,11 @@ pub struct ServerDescriptor {
     /// catalogue (home, libraries, search) until turned back on.
     #[serde(default)]
     pub disabled: bool,
+    /// Connected by switching to a Plex Home member (not the signed-in
+    /// account itself); when that member is PIN-protected it only loads
+    /// after plex.tv checked the PIN in this run.
+    #[serde(default)]
+    pub home_member: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

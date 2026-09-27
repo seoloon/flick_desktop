@@ -45,13 +45,14 @@ pub fn parse_path(path: &str) -> Option<(ImageRef, ImageSize)> {
     Some((ImageRef { item, kind, tag, blurhash: None }, size))
 }
 
-/// Fetches (or reads from cache) the image bytes.
+/// Fetches (or reads from cache) the image bytes, of a live connection only
+/// (the disk cache also holds other profiles' artwork).
 pub async fn load(state: &AppState, image: &ImageRef, size: ImageSize) -> Result<Vec<u8>> {
+    let provider = state.catalog.provider(image.item.server)?;
     let key = cache_key(image, size);
     if let Some(bytes) = state.images.get(&key) {
         return Ok(bytes);
     }
-    let provider = state.catalog.provider(image.item.server)?;
     let url = provider.image_url(image, size)?;
     let mut req = state.http().get(url);
     for (k, v) in provider.auth_headers() {

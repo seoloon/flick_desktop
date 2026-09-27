@@ -53,13 +53,15 @@ impl PinGuard {
     }
 }
 
-/// `hash` is the profile's PIN (none = open). Counts failures in `guard`.
+/// `hash` is the profile's PIN (none = open). Counts failures in `guard`; no
+/// PIN typed (`given == None`) is a prompt, not an attempt.
 pub fn check_pin(hash: Option<&str>, given: Option<&str>, guard: &mut PinGuard, now: Instant) -> Result<()> {
     let Some(hash) = hash else { return Ok(()) };
     if let Err(wait) = guard.check(now) {
         return Err(Error::PinLocked(wait.as_secs().max(1)));
     }
-    if given.is_some_and(|p| verify_pin(hash, p)) {
+    let Some(given) = given else { return Err(Error::WrongPin) };
+    if verify_pin(hash, given) {
         guard.succeed();
         return Ok(());
     }
@@ -170,12 +172,27 @@ mod tests {
         let mut g = PinGuard::default();
         assert!(check_pin(None, None, &mut g, now).is_ok(), "no PIN, nothing to check");
         assert!(matches!(check_pin(Some(&h), None, &mut g, now), Err(Error::WrongPin)));
-        for _ in 0..3 {
+        for _ in 0..4 {
             let _ = check_pin(Some(&h), Some("0000"), &mut g, now);
         }
         assert!(matches!(check_pin(Some(&h), Some("0000"), &mut g, now), Err(Error::PinLocked(30))));
         assert!(matches!(check_pin(Some(&h), Some("1111"), &mut g, now), Err(Error::PinLocked(_))), "even the right PIN waits");
         assert!(check_pin(Some(&h), Some("1111"), &mut g, now + Duration::from_secs(30)).is_ok());
+    }
+
+    #[test]
+    fn check_pin_missing_pin_is_a_prompt_not_an_attempt() {
+        let h = hash_pin("1111").unwrap();
+        let now = Instant::now();
+        let mut g = PinGuard::default();
+        for _ in 0..6 {
+            assert!(matches!(check_pin(Some(&h), None, &mut g, now), Err(Error::WrongPin)));
+        }
+        assert_eq!(g.check(now), Ok(()), "asking for the PIN never locks anyone out");
+        for _ in 0..5 {
+            let _ = check_pin(Some(&h), Some("0000"), &mut g, now);
+        }
+        assert!(matches!(check_pin(Some(&h), None, &mut g, now), Err(Error::PinLocked(_))), "still locked while locked");
     }
 
     fn config_with_pin() -> ProfilesConfig {

@@ -56,9 +56,9 @@ pub struct AppState {
     pub config_guard: Mutex<PinGuard>,
     /// Connections whose server did not answer the last discovery.
     pub offline: RwLock<HashSet<ServerId>>,
-    /// Connections left out of the active profile for this session (a
-    /// protected Plex Home member whose PIN plex.tv could not check).
-    pub excluded: RwLock<HashSet<ServerId>>,
+    /// Connection ids of protected Plex members verified by plex.tv in this
+    /// run.
+    pub verified_plex: RwLock<HashSet<ServerId>>,
     /// One profile switch at a time.
     pub switching: tokio::sync::Mutex<()>,
 }
@@ -138,12 +138,11 @@ impl AppState {
         }
         let active = *self.active_profile.read();
         let Some(id) = active else { return Some(HashSet::new()) };
-        let excluded = self.excluded.read().clone();
         Some(
             self.resolved_profiles()
                 .iter()
                 .find(|r| r.profile.id == id)
-                .map(|r| profiles::connections_of(r).into_iter().filter(|c| !excluded.contains(c)).collect())
+                .map(|r| profiles::connections_of(r).into_iter().collect())
                 .unwrap_or_default(),
         )
     }
@@ -165,8 +164,22 @@ impl AppState {
         )
     }
 
+    /// Connections the catalogue may hold now: the active profile's (all of
+    /// them with multi-user off), minus protected Plex users plex.tv has not
+    /// checked in this run (see `profiles::loadable`).
+    fn loadable(&self) -> HashSet<ServerId> {
+        let wanted = self.active_connections();
+        let servers = self.servers.read().clone();
+        let (discovered, enabled) = {
+            let cfg = self.profiles.read();
+            (cfg.discovered.clone(), cfg.enabled)
+        };
+        let verified = self.verified_plex.read().clone();
+        profiles::loadable(&servers, &discovered, wanted.as_ref(), &verified, enabled).into_iter().collect()
+    }
+
     fn wanted(&self, id: ServerId) -> bool {
-        self.active_connections().is_none_or(|w| w.contains(&id))
+        self.loadable().contains(&id)
     }
 
     pub fn update_profile(&self, id: ProfileId, f: impl FnOnce(&mut Profile)) -> Result<()> {
@@ -205,7 +218,10 @@ impl AppState {
         {
             let mut cfg = self.profiles.write();
             cfg.last_profile = Some(id);
-            self.store.save_profiles(&cfg)?;
+            // Best effort: only the next start's resume depends on it.
+            if let Err(e) = self.store.save_profiles(&cfg) {
+                tracing::warn!(target: "storage", "last profile not saved: {e}");
+            }
         }
         let mut effective = self.store.settings();
         r.profile.prefs.apply(&mut effective);
@@ -333,10 +349,11 @@ impl AppState {
     }
 
     /// Connects the stored connections the catalogue should hold (all of
-    /// them with multi-user off, the active profile's otherwise). Missing
-    /// tokens are not an error: the server is listed as needing sign-in.
+    /// them with multi-user off, the active profile's otherwise; see
+    /// `loadable`). Missing tokens are not an error: the server is listed as
+    /// needing sign-in.
     pub fn restore_servers(&self) {
-        let wanted = self.active_connections();
+        let loadable = self.loadable();
         let servers = self.servers.read().clone();
         let mut providers = Vec::new();
         for d in servers {
@@ -344,7 +361,7 @@ impl AppState {
                 tracing::info!(target: "provider", server = %d.name, "server disabled; not connecting");
                 continue;
             }
-            if wanted.as_ref().is_some_and(|w| !w.contains(&d.id)) {
+            if !loadable.contains(&d.id) {
                 continue;
             }
             match secrets::load_token(d.id) {

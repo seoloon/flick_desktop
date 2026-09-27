@@ -44,6 +44,7 @@ async fn provider() -> Arc<dyn MediaProvider> {
             version: s.version.clone(),
             user: UserProfile { id: s.user_id.clone(), name: s.user_name.clone(), avatar: None, is_admin: s.is_admin },
             disabled: false,
+            home_member: false,
         };
         return Arc::new(oneshot_jellyfin::JellyfinProvider::new(d, http, id, s.token));
     }
@@ -65,6 +66,7 @@ async fn provider() -> Arc<dyn MediaProvider> {
         version: None,
         user: UserProfile { id: "1".into(), name: "owner".into(), avatar: None, is_admin: true },
         disabled: false,
+        home_member: false,
     };
     Arc::new(oneshot_plex::PlexProvider::new(d, http, id, String::new(), true))
 }
