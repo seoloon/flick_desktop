@@ -21,7 +21,7 @@ const FALLBACK_LANGUAGE: &str = "en-US";
 /// Talk shows and documentaries list people as themselves.
 const SELF_ROLES: [&str; 4] = ["self", "himself", "herself", "themselves"];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum Key {
     /// v3: `api_key` query parameter (masked by `oneshot_net::redact`).
     V3(String),
@@ -55,11 +55,27 @@ pub struct TmdbPerson {
     pub known_for: Vec<KnownFor>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Tmdb {
     http: Client,
     key: Key,
     base: Url,
+}
+
+/// Never prints the key: one `{:?}` in a log line must not leak it.
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::V3(_) => "V3(***)",
+            Self::V4(_) => "V4(***)",
+        })
+    }
+}
+
+impl std::fmt::Debug for Tmdb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tmdb").field("key", &self.key).field("base", &self.base.as_str()).finish()
+    }
 }
 
 fn parse_key(key: &str) -> Result<Key> {
@@ -126,8 +142,11 @@ impl Tmdb {
             .await?;
         let mut person = map_person(p);
         if person.biography.is_none() && language != FALLBACK_LANGUAGE {
-            let en: dto::Person = self.json(&format!("person/{id}"), &[("language", FALLBACK_LANGUAGE)]).await?;
-            person.biography = non_empty(en.biography);
+            // Best-effort: the first answer stands on its own.
+            match self.json::<dto::Person>(&format!("person/{id}"), &[("language", FALLBACK_LANGUAGE)]).await {
+                Ok(en) => person.biography = non_empty(en.biography),
+                Err(e) => tracing::debug!(target: "provider", "TMDB English biography of {id}: {e}"),
+            }
         }
         Ok(person)
     }
@@ -146,20 +165,33 @@ impl Tmdb {
         Ok(s.results.into_iter().map(hit).collect())
     }
 
-    /// The TMDB id of the person named `name`: a TMDB id the server already
-    /// knows; else found in the cast of the title the person was opened
-    /// from (tells namesakes apart); else the most popular namesake.
+    /// The TMDB id of the person named `name`: found in the cast of the
+    /// title the person was opened from (tells namesakes apart, even when
+    /// the server keeps one record per name); else a TMDB id the server
+    /// knows; else the most popular namesake. A cast that cannot be read
+    /// falls through to the next step.
     pub async fn identify(&self, name: &str, from: Option<(TitleKind, &str)>, known: Option<&str>) -> Result<Option<u64>> {
+        if let Some((kind, id)) = from {
+            match self.cast_of(kind, id).await {
+                Ok(cast) => {
+                    if let Some(found) = pick_by_name(&cast, name) {
+                        return Ok(Some(found));
+                    }
+                }
+                Err(e) => tracing::debug!(target: "provider", "TMDB cast of {id}: {e}"),
+            }
+        }
         if let Some(id) = known.and_then(|k| k.parse().ok()) {
             return Ok(Some(id));
         }
-        if let Some((kind, id)) = from
-            && let Some(found) = pick_by_name(&self.cast_of(kind, id).await?, name)
-        {
-            return Ok(Some(found));
-        }
         Ok(pick_by_name(&self.search_person(name).await?, name))
     }
+}
+
+/// "Self", "Self - Host", "Himself (archive footage)"… but not "Selma".
+fn plays_oneself(role: &str) -> bool {
+    let first = role.split(|c: char| !c.is_alphabetic()).next().unwrap_or_default().to_lowercase();
+    SELF_ROLES.contains(&first.as_str())
 }
 
 fn hit(h: dto::PersonHit) -> PersonRef {
@@ -186,7 +218,7 @@ fn map_person(p: dto::Person) -> TmdbPerson {
             _ => continue,
         };
         let role = if crew { non_empty(c.job) } else { non_empty(c.character) };
-        if !crew && role.as_deref().is_some_and(|r| SELF_ROLES.contains(&r.to_lowercase().as_str())) {
+        if !crew && role.as_deref().is_some_and(plays_oneself) {
             continue;
         }
         let tmdb_id = c.id.to_string();

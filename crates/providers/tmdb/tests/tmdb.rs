@@ -139,3 +139,53 @@ fn merged_details_prefer_tmdb_and_keep_server_data_without_it() {
     let nothing = merge_details("Someone", None, None, TmdbUse::Unavailable);
     assert_eq!(nothing.name, "Someone");
 }
+
+#[tokio::test]
+async fn the_titles_cast_beats_an_id_the_server_knows() {
+    // Servers keep one record per name: a namesake's TMDB id may be on it.
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/3/movie/100/credits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "cast": [{ "id": 16828, "name": "Chris Evans" }], "crew": [] }))).mount(&server).await;
+    assert_eq!(tmdb(&server, V3).identify("Chris Evans", Some((TitleKind::Movie, "100")), Some("42")).await.unwrap(), Some(16828));
+}
+
+#[tokio::test]
+async fn a_failed_cast_lookup_falls_back_to_search() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/3/tv/555/aggregate_credits")).respond_with(ResponseTemplate::new(404)).mount(&server).await;
+    Mock::given(method("GET")).and(path("/3/search/person"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "results": [{ "id": 999, "name": "Chris Evans", "popularity": 1.0 }] }))).mount(&server).await;
+    assert_eq!(tmdb(&server, V3).identify("Chris Evans", Some((TitleKind::Tv, "555")), None).await.unwrap(), Some(999));
+}
+
+#[tokio::test]
+async fn a_failed_english_fallback_keeps_the_first_answer() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/3/person/31")).and(query_param("language", "fr-FR"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(person_json(""))).mount(&server).await;
+    Mock::given(method("GET")).and(path("/3/person/31")).and(query_param("language", "en-US")).respond_with(ResponseTemplate::new(500)).mount(&server).await;
+    let p = tmdb(&server, V3).person(31, "fr-FR").await.unwrap();
+    assert_eq!(p.biography, None);
+    assert_eq!(p.known_for.len(), 3);
+}
+
+#[tokio::test]
+async fn appearances_as_oneself_are_left_out_whatever_the_wording() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/3/person/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "id": 7, "name": "X", "biography": "b", "combined_credits": { "cast": [
+            { "id": 1, "media_type": "tv", "name": "Talk", "character": "Self - Host", "vote_count": 9 },
+            { "id": 2, "media_type": "tv", "name": "Doc", "character": "Himself (archive footage)", "vote_count": 8 },
+            { "id": 3, "media_type": "movie", "title": "Real", "character": "Selma", "vote_count": 7 }
+        ] } }))).mount(&server).await;
+    let p = tmdb(&server, V3).person(7, "en-US").await.unwrap();
+    assert_eq!(p.known_for.iter().map(|k| k.title.as_str()).collect::<Vec<_>>(), ["Real"]);
+}
+
+#[test]
+fn debug_output_never_shows_the_key() {
+    let t = Tmdb::new(oneshot_net::reqwest::Client::new(), V3).unwrap();
+    assert!(!format!("{t:?}").contains(V3));
+    let t = Tmdb::new(oneshot_net::reqwest::Client::new(), V4).unwrap();
+    assert!(!format!("{t:?}").contains(V4));
+}
