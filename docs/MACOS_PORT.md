@@ -57,8 +57,10 @@ Conventions du dépôt (voir aussi `ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`) :
   densité de commentaires comme le code voisin.
 - Commits **signés GPG** ; ne jamais contourner la signature. Si elle échoue,
   préparer le commit et demander à l'utilisateur.
-- Ne **jamais** committer `app/icons/basic/flick-wordmark.svg` (fichier local
-  non suivi de l'utilisateur), ni le `app/Cargo.toml` modifié localement.
+- Ne pas committer le `app/Cargo.toml` modifié localement par l'utilisateur
+  (s'il l'est encore).
+- Les docs publiques sont en anglais : `README.md` (vitrine) et `TECHNICAL.md`
+  (build, commandes, organisation).
 - Rust : pas de verrou `parking_lot` tenu à travers un `.await` ; une commande
   Tauri `async` qui prend un `State` doit renvoyer `Result`.
 - Pas de formateur configuré côté UI : lignes longues (~180-200 colonnes).
