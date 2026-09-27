@@ -139,3 +139,33 @@ async fn without_a_plex_tv_sign_in_there_are_no_favourites() {
     let provider = PlexProvider::new(descriptor, oneshot_net::reqwest::Client::new(), identity(), "srv".into(), true);
     assert!(matches!(provider.favorites(50).await, Err(Error::Unsupported(_))));
 }
+
+#[tokio::test]
+async fn reads_every_page_of_a_long_watchlist_in_pages_plex_tv_accepts() {
+    let server = MockServer::start().await;
+    // plex.tv answers 400 to page sizes it does not accept; unmatched
+    // requests get a 404 here, so a wrong size fails the test too.
+    Mock::given(method("GET"))
+        .and(path("/library/sections/watchlist/all"))
+        .and(query_param("X-Plex-Container-Size", "100"))
+        .and(query_param("X-Plex-Container-Start", "0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "totalSize": 101, "Metadata": [
+            // Discover's own shape: tag ids are strings, not numbers.
+            { "ratingKey": "5d77a", "type": "movie", "title": "Dune", "guid": "plex://movie/5d77a",
+              "Genre": [{ "id": "5d7768254de0ee001fcc8034", "tag": "Science Fiction" }] }
+        ] } })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/library/sections/watchlist/all"))
+        .and(query_param("X-Plex-Container-Size", "100"))
+        .and(query_param("X-Plex-Container-Start", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "totalSize": 101, "Metadata": [
+            { "ratingKey": "5d77c", "type": "show", "title": "Andor", "guid": "plex://show/5d77c" }
+        ] } })))
+        .mount(&server)
+        .await;
+    let titles: Vec<String> = watchlist(&server).entries().await.unwrap().into_iter().map(|e| e.title).collect();
+    assert_eq!(titles, ["Dune", "Andor"]);
+}
+

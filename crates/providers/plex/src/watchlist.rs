@@ -11,14 +11,36 @@ use oneshot_net::reqwest::{Client, Method};
 use url::Url;
 
 use crate::auth::{PlexAuth, PlexIdentity};
-use crate::dto::{Container, Envelope};
+use serde::Deserialize;
+
+use crate::dto::Envelope;
 
 const DISCOVER: &str = "https://discover.provider.plex.tv/";
 const PLEX_TV: &str = "https://plex.tv/";
 /// The Watchlist changes from other apps too; one minute keeps screens
 /// fast without hiding those changes for long.
 const CACHE_TTL: Duration = Duration::from_secs(60);
-const PAGE_SIZE: u32 = 300;
+/// plex.tv answers 400 ("Invalid value provided for x-plex-container-size")
+/// to larger pages.
+const PAGE_SIZE: u32 = 100;
+/// A Watchlist longer than this is cut (favourites are capped lower anyway).
+const MAX_PAGES: u32 = 10;
+
+/// Only what the Watchlist needs: Discover items differ from library items
+/// (string tag ids, no media), so the library `Metadata` is not reused.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Page {
+    total_size: Option<u32>,
+    #[serde(rename = "Metadata", default)]
+    metadata: Vec<PageItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageItem {
+    guid: Option<String>,
+    title: String,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistEntry {
@@ -108,17 +130,30 @@ impl Watchlist {
             return Ok(hit);
         }
         self.check_owner().await?;
+        let mut entries = Vec::new();
+        for n in 0..MAX_PAGES {
+            let start = n * PAGE_SIZE;
+            let page = self.page(start).await?;
+            let fetched = page.metadata.len();
+            entries.extend(page.metadata.into_iter().filter_map(|m| Some(WatchlistEntry { guid: m.guid?, title: m.title })));
+            let total = page.total_size.unwrap_or(0);
+            if fetched == 0 || start + PAGE_SIZE >= total {
+                break;
+            }
+        }
+        *self.cache.lock().expect("cache lock") = Some((Instant::now(), entries.clone()));
+        Ok(entries)
+    }
+
+    async fn page(&self, start: u32) -> Result<Page> {
         let mut url = oneshot_net::join(&self.discover, "library/sections/watchlist/all")?;
         url.query_pairs_mut()
             .append_pair("sort", "watchlistedAt:desc")
-            .append_pair("X-Plex-Container-Start", "0")
+            .append_pair("X-Plex-Container-Start", &start.to_string())
             .append_pair("X-Plex-Container-Size", &PAGE_SIZE.to_string());
         let rb = self.identity.apply(self.http.get(url), Some(&self.token));
-        let page: Envelope<Container> = oneshot_net::json(rb.send().await.map_err(oneshot_net::map_err)?).await?;
-        let entries: Vec<WatchlistEntry> =
-            page.container.metadata.into_iter().filter_map(|m| Some(WatchlistEntry { guid: m.guid?, title: m.title })).collect();
-        *self.cache.lock().expect("cache lock") = Some((Instant::now(), entries.clone()));
-        Ok(entries)
+        let page: Envelope<Page> = oneshot_net::json(rb.send().await.map_err(oneshot_net::map_err)?).await?;
+        Ok(page.container)
     }
 
     pub async fn contains(&self, guid: &str) -> Result<bool> {
