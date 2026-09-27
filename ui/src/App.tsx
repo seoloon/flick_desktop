@@ -1,12 +1,13 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { LayoutGroup, MotionConfig } from "motion/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { Admin } from "@/features/admin/Admin";
 import { Debug } from "@/features/debug/Debug";
 import { Detail } from "@/features/detail/Detail";
 import { Favorites } from "@/features/favorites/Favorites";
+import { LaunchIntro } from "@/features/intro/LaunchIntro";
 import { Home } from "@/features/home/Home";
 import { Libraries } from "@/features/library/Libraries";
 import { LibraryGrid } from "@/features/library/LibraryGrid";
@@ -45,6 +46,8 @@ function GlobalActions() {
 
 export function App() {
   const intensity = useSettings()?.appearance.animationIntensity ?? 1;
+  // Once per launch; the app starts underneath and loads while it plays.
+  const [intro, setIntro] = useState(true);
   return (
     <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion={intensity === 0 ? "always" : "user"}>
@@ -73,6 +76,7 @@ export function App() {
           </LayoutGroup>
         </BrowserRouter>
         <Toaster position="bottom-center" />
+        {intro && <LaunchIntro skip={intensity === 0} onDone={() => setIntro(false)} />}
       </MotionConfig>
     </QueryClientProvider>
   );
