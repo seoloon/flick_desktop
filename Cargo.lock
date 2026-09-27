@@ -2956,6 +2956,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oneshot-tmdb"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "oneshot-core",
+ "oneshot-net",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
+ "wiremock",
+]
+
+[[package]]
 name = "open"
 version = "5.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/mpv", "crates/capabilities", "crates/playback", "crates/net", "crates/providers/jellyfin", "crates/providers/plex", "crates/storage", "crates/player", "crates/catalog", "app"]
+members = ["crates/core", "crates/mpv", "crates/capabilities", "crates/playback", "crates/net", "crates/providers/jellyfin", "crates/providers/plex", "crates/providers/tmdb", "crates/storage", "crates/player", "crates/catalog", "app"]
 
 
 [workspace.package]
@@ -20,6 +20,7 @@ oneshot-net = { path = "crates/net" }
 oneshot-catalog = { path = "crates/catalog" }
 oneshot-jellyfin = { path = "crates/providers/jellyfin" }
 oneshot-plex = { path = "crates/providers/plex" }
+oneshot-tmdb = { path = "crates/providers/tmdb" }
 
 async-trait = "0.1"
 libloading = "0.8"
