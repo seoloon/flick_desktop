@@ -48,6 +48,17 @@ pub struct ServerDescriptor {
     pub home_member: bool,
 }
 
+impl ServerDescriptor {
+    /// Re-signing in keeps the stored connection's identity and the user's choices.
+    pub fn merged_with(mut self, existing: &ServerDescriptor) -> Self {
+        self.id = existing.id;
+        self.disabled = existing.disabled;
+        // A Home admin re-signed in via a Home switch stays the owner.
+        self.home_member = self.home_member && existing.home_member;
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
@@ -94,4 +105,39 @@ pub enum ServerStatus {
     Online { latency_ms: u32, url: Url },
     Unauthorized,
     Unreachable { error: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn descriptor(home_member: bool, disabled: bool) -> ServerDescriptor {
+        ServerDescriptor {
+            id: ServerId::new(),
+            kind: ProviderKind::Plex,
+            name: "Home".into(),
+            remote_id: "machine".into(),
+            base_url: Url::parse("http://home.local:32400/").unwrap(),
+            alternate_urls: vec![],
+            version: None,
+            user: UserProfile { id: "1".into(), name: "Admin".into(), avatar: None, is_admin: true },
+            disabled,
+            home_member,
+        }
+    }
+
+    #[test]
+    fn re_signing_in_keeps_the_stored_id_and_disabled_choice() {
+        let existing = descriptor(false, true);
+        let merged = descriptor(false, false).merged_with(&existing);
+        assert_eq!(merged.id, existing.id);
+        assert!(merged.disabled);
+    }
+
+    #[test]
+    fn re_signing_in_never_turns_an_owner_connection_into_a_home_member() {
+        assert!(!descriptor(true, false).merged_with(&descriptor(false, false)).home_member, "owner stays owner");
+        assert!(!descriptor(false, false).merged_with(&descriptor(true, false)).home_member, "member may become owner");
+        assert!(descriptor(true, false).merged_with(&descriptor(true, false)).home_member, "member stays member");
+    }
 }
