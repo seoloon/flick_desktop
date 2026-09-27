@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../third_party/mpv/windows-x64/libmpv-2.dll": "libmpv/libmpv-2.dll"
+    }
+  }
+}

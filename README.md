@@ -22,6 +22,8 @@ multi-serveurs, mode TV « Flick Frame ».
 pnpm install        # une fois
 pnpm desktop        # tauri dev : Vite + l'application, rechargement à chaud
 pnpm build          # tauri build : installeur de production
+pnpm build:win      # installeur Windows x64
+pnpm build:mac      # app macOS universelle + DMG, signée ad hoc (voir docs/MACOS_PORT.md)
 pnpm test           # tests Rust + tests et typecheck de l'UI
 pnpm lint           # clippy + typecheck
 pnpm bindings       # régénère les types TypeScript depuis Rust (ts-rs)

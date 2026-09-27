@@ -5,6 +5,8 @@
   "scripts": {
     "desktop": "node tools/ensure-libmpv.mjs && tauri dev",
     "build": "node tools/ensure-libmpv.mjs && tauri build",
+    "build:win": "node tools/ensure-libmpv.mjs && tauri build --target x86_64-pc-windows-msvc",
+    "build:mac": "node tools/ensure-libmpv.mjs && tauri build --target universal-apple-darwin",
     "test": "cargo test --workspace && pnpm --filter oneshot-ui test && pnpm --filter oneshot-ui typecheck",
     "lint": "cargo clippy --workspace --all-targets && pnpm --filter oneshot-ui typecheck",
     "bindings": "cargo test -p oneshot-core -p oneshot-playback -p oneshot-player -p oneshot-catalog --features \"oneshot-core/ts oneshot-playback/ts oneshot-player/ts oneshot-catalog/ts\" export_bindings",
