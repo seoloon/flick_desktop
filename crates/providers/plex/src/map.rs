@@ -121,7 +121,8 @@ pub fn item(server: ServerId, m: &Metadata) -> MediaItem {
         },
         play_count: m.view_count.unwrap_or(0),
         position_ms: m.view_offset.unwrap_or(0),
-        // Plex has no per-user favourites for library items.
+        // Plex has no favourites on library items; the provider marks
+        // Watchlist titles (see `watchlist`).
         favorite: false,
         last_played: from_unix(m.last_viewed_at),
         unplayed_count: unplayed,

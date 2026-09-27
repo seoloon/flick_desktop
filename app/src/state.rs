@@ -109,8 +109,25 @@ impl AppState {
             }
             ProviderKind::Plex => {
                 let owned = d.user.is_admin;
-                Arc::new(oneshot_plex::PlexProvider::new(d.clone(), self.http(), self.plex_identity(), token, owned))
+                let provider = oneshot_plex::PlexProvider::new(d.clone(), self.http(), self.plex_identity(), token, owned);
+                Arc::new(match self.plex_watchlist(d) {
+                    Some(w) => provider.with_watchlist(w),
+                    None => provider,
+                })
             }
+        }
+    }
+
+    /// The plex.tv Watchlist of a Plex connection's user: their own token,
+    /// else (connections made before per-user tokens) the signed-in
+    /// account's, used only once plex.tv confirms it is this user's.
+    fn plex_watchlist(&self, d: &ServerDescriptor) -> Option<oneshot_plex::Watchlist> {
+        use crate::commands::servers::{PLEX_ACCOUNT_KEY, plex_user_key};
+        let watchlist = |token| oneshot_plex::Watchlist::new(self.http(), self.plex_identity(), token);
+        match secrets::load_secret(&plex_user_key(&d.user.id)) {
+            Ok(Some(token)) => Some(watchlist(token)),
+            _ if !d.home_member => secrets::load_secret(PLEX_ACCOUNT_KEY).ok().flatten().map(|t| watchlist(t).for_user(d.user.id.clone())),
+            _ => None,
         }
     }
 

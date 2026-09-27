@@ -16,7 +16,7 @@ use oneshot_storage::{pin, profiles};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 
-use super::servers::{PlexUser, jellyfin_descriptor, plex_account_token, register_plex};
+use super::servers::{PlexUser, jellyfin_descriptor, plex_account_token, register_plex, store_plex_user_token};
 use crate::state::AppState;
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -241,6 +241,7 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
                 match auth.switch_user(&token, uuid, member_pin).await {
                     Ok(member_token) => {
                         verified.extend(conn.as_ref().map(|c| c.id));
+                        store_plex_user_token(&user.remote_user_id, &member_token);
                         let who = UserProfile { id: user.remote_user_id.clone(), name: user.name.clone(), avatar: user.avatar.clone(), is_admin: false };
                         match register_plex(&state, &member_token, &who, &|s| configured_plex.contains(&s.machine_id), PlexUser::HomeMember).await {
                             Ok(added) => verified.extend(added.iter().map(|d| d.id)),

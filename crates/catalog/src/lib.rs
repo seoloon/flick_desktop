@@ -161,8 +161,8 @@ impl Catalog {
     }
 
     /// Favourites of every server that has them; the same title on several
-    /// servers is merged. A server without favourites (Plex) is left out
-    /// quietly: it is not unavailable.
+    /// servers is merged. A server without favourites (a Plex account with
+    /// no plex.tv sign-in) is left out quietly: it is not unavailable.
     pub async fn favorites(&self, limit: u32) -> Aggregated<Vec<MediaItem>> {
         let (results, issues) = self
             .fan_out(|p| async move {

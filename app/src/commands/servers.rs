@@ -151,6 +151,7 @@ pub async fn plex_pin_poll(state: St<'_>, id: i64) -> Result<Option<Vec<PlexServ
     let Some(account) = auth.poll_pin(id).await? else { return Ok(None) };
     let servers = auth.discover(&account.token).await?;
     secrets::store_secret(PLEX_ACCOUNT_KEY, &account.token)?;
+    store_plex_user_token(&account.user_id, &account.token);
     *state.plex_account.lock() = Some(account.token);
     Ok(Some(
         servers
@@ -169,6 +170,20 @@ pub async fn plex_pin_poll(state: St<'_>, id: i64) -> Result<Option<Vec<PlexServ
 /// Keychain slot for the plex.tv account token (lets the user add more
 /// servers, and switch Plex Home members, without a new PIN).
 pub(crate) const PLEX_ACCOUNT_KEY: &str = "plex-account";
+
+/// Keychain slot for a Plex user's own plex.tv token (their Watchlist:
+/// Flick's favourites on Plex). Keyed by plex.tv account id, so every
+/// connection of that user shares it.
+pub(crate) fn plex_user_key(user_id: &str) -> String {
+    format!("plex-user:{user_id}")
+}
+
+/// Best-effort: without it the user only loses Plex favourites.
+pub(crate) fn store_plex_user_token(user_id: &str, token: &str) {
+    if let Err(e) = secrets::store_secret(&plex_user_key(user_id), token) {
+        tracing::warn!(target: "provider", "plex.tv token not stored, Plex favourites unavailable: {e}");
+    }
+}
 
 pub(crate) fn plex_account_token(state: &AppState) -> Option<String> {
     state.plex_account.lock().clone().or_else(|| secrets::load_secret(PLEX_ACCOUNT_KEY).ok().flatten())
@@ -220,6 +235,8 @@ pub(crate) async fn register_plex(
 pub async fn plex_add_servers(state: St<'_>, machine_ids: Vec<String>) -> Result<Vec<ServerDescriptor>> {
     let token = plex_account_token(&state).ok_or(Error::Unauthorized)?;
     let account = PlexAuth::new(state.http(), state.plex_identity()).account(&token).await?;
+    // Before the connections, so their providers get the Watchlist.
+    store_plex_user_token(&account.user_id, &token);
     let user = UserProfile { id: account.user_id, name: account.username, avatar: account.avatar, is_admin: false };
     register_plex(&state, &token, &user, &|s| machine_ids.contains(&s.machine_id), PlexUser::Account).await
 }

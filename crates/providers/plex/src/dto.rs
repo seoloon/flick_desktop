@@ -84,6 +84,8 @@ pub struct Metadata {
     pub rating_key: String,
     pub r#type: String,
     pub title: String,
+    /// Plex catalogue id (`plex://movie/…`); matches Watchlist entries.
+    pub guid: Option<String>,
     pub title_sort: Option<String>,
     pub original_title: Option<String>,
     pub summary: Option<String>,

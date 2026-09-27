@@ -15,8 +15,8 @@ export function useNavItems(): NavItem[] {
   const servers = useQuery(serversQuery);
   const hasKind = (kind: string) => !!libs.data?.data.some((s) => s.libraries.some((l) => l.kind === kind));
   const hasAdmin = !!servers.data?.some((s) => s.connected && s.server.user.isAdmin);
-  // Only Jellyfin keeps favourites on library items.
-  const hasFavorites = !!servers.data?.some((s) => s.connected && !s.server.disabled && s.server.kind === "jellyfin");
+  // Jellyfin favourites, or the Plex user's plex.tv Watchlist.
+  const hasFavorites = !!servers.data?.some((s) => s.connected && !s.server.disabled);
   const kind = new URLSearchParams(search).get("kind");
   const inLibraries = pathname.startsWith("/libraries") || pathname.startsWith("/library/");
 

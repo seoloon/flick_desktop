@@ -94,6 +94,13 @@ Dolby Vision natif sur Apple, par exemple) puisse être ajouté sans toucher l'U
 - **Suivi** : `/:/timeline?ratingKey=…&state=playing|paused|stopped&time=…`,
   `/:/scrobble`, `/:/unscrobble`.
 - **Marqueurs** : `/library/metadata/{id}?includeMarkers=1` (intro, crédits).
+- **Favoris** : Plex n'en a pas sur les titres d'une bibliothèque. Flick
+  utilise la **Watchlist** du compte plex.tv
+  (`GET https://discover.provider.plex.tv/library/sections/watchlist/all`,
+  `PUT …/actions/addToWatchlist|removeFromWatchlist?ratingKey=`), rapprochée
+  des bibliothèques par le guid `plex://…` (`/library/all?guid=`). Les titres
+  de la Watchlist absents des serveurs ne sont pas montrés. API non
+  documentée officiellement : vérifiée par le test `watchlist_live`.
 - ❌ **Restriction commerciale** : depuis le 29/04/2025, la lecture **à distance**
   de médias personnels exige un Plex Pass (propriétaire ou utilisateur) ou un
   Remote Watch Pass ; l'application aux clients tiers utilisant l'API est
@@ -380,6 +387,7 @@ pub trait MediaProvider: Send + Sync {
     async fn markers(&self, id: &ItemRef) -> Result<Vec<Marker>>;
     async fn set_played(&self, id: &ItemRef, played: bool) -> Result<()>;
     async fn set_favorite(&self, id: &ItemRef, fav: bool) -> Result<()>;
+    async fn favorites(&self, limit: u32) -> Result<Vec<MediaItem>>; // défaut : filtre favoris de items
     async fn playback_info(&self, id: &ItemRef, profile: &ClientProfile) -> Result<PlaybackInfo>;
     async fn stream(&self, req: &StreamRequest) -> Result<StreamTarget>;
     async fn report(&self, r: &PlaybackReport) -> Result<()>;
@@ -508,8 +516,10 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
 - **Aucun mot de passe stocké.** Jellyfin : mot de passe envoyé une fois pour
   obtenir un token (ou Quick Connect). Plex : flux PIN, jamais de mot de passe.
 - Tokens dans le **trousseau de l'OS** (`keyring` : Windows Credential Manager,
-  macOS Keychain, Secret Service), clé = `ServerId`. La base SQLite ne contient
-  aucun secret.
+  macOS Keychain, Secret Service), clé = `ServerId`. Plex garde en plus le
+  token plex.tv du compte (`plex-account`) et celui de chaque utilisateur
+  (`plex-user:<id>`, pour sa Watchlist). La base SQLite ne contient aucun
+  secret.
 - Les tokens **ne quittent jamais Rust** : images via `oneshot-img://`, flux
   passés à mpv avec en-têtes HTTP (`http-header-fields`) quand le serveur le
   permet.

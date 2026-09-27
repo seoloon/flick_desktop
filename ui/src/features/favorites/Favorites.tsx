@@ -1,5 +1,5 @@
-// Favourites of the active profile on every server that has them (Jellyfin;
-// Plex has none on library items), one shelf per kind, newest first.
+// Favourites of the active profile: Jellyfin favourites and, for Plex, the
+// plex.tv Watchlist titles your servers have. One shelf per kind.
 import { useQuery } from "@tanstack/react-query";
 import { Heart } from "lucide-react";
 import { useEffect } from "react";
@@ -21,7 +21,7 @@ export function Favorites() {
     return (
       <Screen>
         <EmptyState title="No favourites yet" icon={<Heart className="size-14 text-white/70" />}>
-          Add titles with the heart on their page. Favourites follow your account on each Jellyfin server.
+          Add titles with the heart on their page. On Plex, favourites are your plex.tv Watchlist, shared with the Plex apps.
         </EmptyState>
       </Screen>
     );

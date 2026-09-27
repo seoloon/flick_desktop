@@ -174,3 +174,22 @@ async fn home_users_live() {
     }
     assert!(!members.is_empty(), "an account is always a member of its own home");
 }
+
+/// Confirms the Watchlist endpoint and its JSON shape on a real account:
+/// `PLEX_ACCOUNT_TOKEN=… cargo test -p oneshot-plex --test live watchlist_live -- --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn watchlist_live() {
+    let Ok(token) = std::env::var("PLEX_ACCOUNT_TOKEN") else { return };
+    let identity = PlexIdentity {
+        product: "Flick".into(),
+        version: "0".into(),
+        client_identifier: "flick-live-test".into(),
+        device_name: "live test".into(),
+        platform: "Windows".into(),
+    };
+    let watchlist = oneshot_plex::Watchlist::new(oneshot_net::reqwest::Client::new(), identity, token);
+    for entry in watchlist.entries().await.expect("watchlist") {
+        println!("{} — {}", entry.title, entry.guid);
+    }
+}

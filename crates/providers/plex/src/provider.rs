@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ImageRef, ImageSize, ItemKind, Marker, MediaItem};
 use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
@@ -17,6 +18,7 @@ use url::Url;
 use crate::auth::PlexIdentity;
 use crate::dto::{Container, Envelope, Metadata};
 use crate::map;
+use crate::watchlist::Watchlist;
 
 #[derive(Debug)]
 pub struct PlexProvider {
@@ -27,11 +29,24 @@ pub struct PlexProvider {
     pub(crate) token: String,
     /// Whether the signed-in account owns the server (admin surface).
     pub(crate) owned: bool,
+    /// The user's plex.tv Watchlist, when a plex.tv sign-in is known.
+    pub(crate) watchlist: Option<Watchlist>,
 }
 
 impl PlexProvider {
     pub fn new(descriptor: ServerDescriptor, http: Client, identity: PlexIdentity, token: String, owned: bool) -> Self {
-        Self { descriptor, http, identity, token, owned }
+        Self { descriptor, http, identity, token, owned, watchlist: None }
+    }
+
+    /// Favourites come from this user's plex.tv Watchlist.
+    pub fn with_watchlist(mut self, watchlist: Watchlist) -> Self {
+        self.watchlist = Some(watchlist);
+        self
+    }
+
+    /// This server's copy of a Plex catalogue title, if its libraries have it.
+    async fn by_guid(&self, guid: &str) -> Result<Option<Metadata>> {
+        Ok(self.container("library/all", &[("guid", guid.to_owned())]).await?.metadata.into_iter().next())
     }
 
     pub(crate) fn server(&self) -> oneshot_core::ServerId {
@@ -194,7 +209,14 @@ impl MediaProvider for PlexProvider {
 
     async fn item(&self, id: &ItemRef) -> Result<MediaItem> {
         self.check(id)?;
-        Ok(map::item(self.server(), &self.metadata(&id.key).await?))
+        let m = self.metadata(&id.key).await?;
+        let mut item = map::item(self.server(), &m);
+        // The heart on the detail page shows Watchlist membership; the
+        // detail still loads when plex.tv does not answer.
+        if let (Some(w), Some(guid)) = (&self.watchlist, &m.guid) {
+            item.user.favorite = w.contains(guid).await.unwrap_or(false);
+        }
+        Ok(item)
     }
 
     async fn children(&self, id: &ItemRef, kind: ItemKind) -> Result<Vec<MediaItem>> {
@@ -244,8 +266,30 @@ impl MediaProvider for PlexProvider {
         self.send_empty(Method::GET, path, &[("identifier", "com.plexapp.plugins.library".into()), ("key", id.key.clone())]).await
     }
 
-    async fn set_favorite(&self, _id: &ItemRef, _favorite: bool) -> Result<()> {
-        Err(Error::Unsupported("favourites (Plex has no favourites for library items)".into()))
+    async fn set_favorite(&self, id: &ItemRef, favorite: bool) -> Result<()> {
+        self.check(id)?;
+        let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported("favourites (sign in to plex.tv for this account)".into()))?;
+        let guid = self.metadata(&id.key).await?.guid.ok_or_else(|| Error::Unsupported("favourites (this title is not in the Plex catalogue)".into()))?;
+        w.set(&guid, favorite).await
+    }
+
+    /// Watchlist titles this server has, in Watchlist order (titles it
+    /// does not have are left out).
+    async fn favorites(&self, limit: u32) -> Result<Vec<MediaItem>> {
+        let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported("favourites (no plex.tv sign-in for this account)".into()))?;
+        let entries = w.entries().await?;
+        let guids: Vec<String> = entries.into_iter().take(limit as usize).map(|e| e.guid).collect();
+        let found: Vec<Result<Option<Metadata>>> =
+            futures::stream::iter(guids.into_iter().map(|guid| async move { self.by_guid(&guid).await })).buffered(8).collect().await;
+        Ok(found
+            .into_iter()
+            .filter_map(|r| r.ok().flatten())
+            .map(|m| {
+                let mut item = map::item(self.server(), &m);
+                item.user.favorite = true;
+                item
+            })
+            .collect())
     }
 
     async fn playback_info(&self, id: &ItemRef, profile: &ClientProfile) -> Result<PlaybackInfo> {
