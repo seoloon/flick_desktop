@@ -98,7 +98,9 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
 
     let state = Arc::new(AppState {
         servers: RwLock::new(store.servers()?),
-        catalog: Catalog::new(cache, settings.cache.metadata_ttl_secs),
+        catalog: Catalog::new(Arc::clone(&cache), settings.cache.metadata_ttl_secs),
+        metadata: cache,
+        tmdb: RwLock::new(commands::people::tmdb_from_keychain(&http)),
         caps: CapabilityManager::new(),
         store,
         identity,
@@ -201,6 +203,11 @@ fn main() {
             commands::catalog::markers,
             commands::catalog::search,
             commands::catalog::favorites,
+            commands::people::tmdb_status,
+            commands::people::tmdb_set_key,
+            commands::people::tmdb_remove_key,
+            commands::people::person_details,
+            commands::people::person_items,
             commands::catalog::set_played,
             commands::catalog::set_favorite,
             commands::playback::play,

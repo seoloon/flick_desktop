@@ -86,7 +86,9 @@ pub fn handle(app: &AppHandle, request: Request<Vec<u8>>, responder: UriSchemeRe
     let path = request.uri().path().to_owned();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<Arc<AppState>>();
-        let loaded = match path.trim_start_matches('/').strip_prefix("avatar/") {
+        let p = path.trim_start_matches('/');
+        let loaded = match p.strip_prefix("avatar/") {
+            _ if p.starts_with("tmdb/") => Some(load_tmdb(&state, &p["tmdb/".len()..]).await),
             Some(rest) => Some(load_avatar(&state, rest).await),
             None => match parse_path(&path) {
                 Some((image, size)) => Some(load(&state, &image, size).await),
@@ -126,6 +128,22 @@ async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
     let bytes = resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec();
     if let Err(e) = state.images.put(&key, &bytes) {
         tracing::warn!(target: "cache", "avatar cache write failed: {e}");
+    }
+    Ok(bytes)
+}
+
+/// A TMDB photo or poster (`tmdb/<size>/<file>`), public; only TMDB files,
+/// so the route cannot fetch anything else.
+async fn load_tmdb(state: &AppState, rest: &str) -> Result<Vec<u8>> {
+    let url = oneshot_tmdb::image_url(rest).ok_or_else(|| Error::Invalid("tmdb image path".into()))?;
+    let key = oneshot_storage::images::tmdb_cache_key(&url);
+    if let Some(bytes) = state.images.get(&key) {
+        return Ok(bytes);
+    }
+    let resp = oneshot_net::ensure_ok(state.http().get(url).send().await.map_err(oneshot_net::map_err)?).await?;
+    let bytes = resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec();
+    if let Err(e) = state.images.put(&key, &bytes) {
+        tracing::warn!(target: "cache", "tmdb image cache write failed: {e}");
     }
     Ok(bytes)
 }

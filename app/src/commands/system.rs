@@ -44,6 +44,7 @@ pub fn settings_set(state: St<'_>, settings: Settings) -> Result<()> {
         *state.http.write() = oneshot_net::client(&state.settings().network)?;
         // Providers hold their own client: reconnect them with the new policy.
         state.restore_servers();
+        *state.tmdb.write() = super::people::tmdb_from_keychain(&state.http());
         tracing::info!(target: "net", "network settings applied to all servers");
     }
     Ok(())

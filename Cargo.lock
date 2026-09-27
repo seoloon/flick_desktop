@@ -2787,6 +2787,7 @@ dependencies = [
  "oneshot-player",
  "oneshot-plex",
  "oneshot-storage",
+ "oneshot-tmdb",
  "parking_lot",
  "serde",
  "serde_json",

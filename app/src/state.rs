@@ -61,6 +61,11 @@ pub struct AppState {
     pub verified_plex: RwLock<HashSet<ServerId>>,
     /// One profile switch at a time.
     pub switching: tokio::sync::Mutex<()>,
+    /// TMDB client for person pages; `None` without a key (Settings ›
+    /// Metadata). The key lives in the OS keychain only.
+    pub tmdb: RwLock<Option<oneshot_tmdb::Tmdb>>,
+    /// The catalogue's metadata cache, shared with TMDB answers (a week).
+    pub metadata: Arc<oneshot_storage::cache::MetadataCache>,
 }
 
 /// How the main window looked before it shrank into picture-in-picture.

@@ -518,7 +518,8 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
 - Tokens dans le **trousseau de l'OS** (`keyring` : Windows Credential Manager,
   macOS Keychain, Secret Service), clé = `ServerId`. Plex garde en plus le
   token plex.tv du compte (`plex-account`) et celui de chaque utilisateur
-  (`plex-user:<id>`, pour sa Watchlist). La base SQLite ne contient aucun
+  (`plex-user:<id>`, pour sa Watchlist), ainsi que la clé TMDB (`tmdb-key`)
+  saisie dans Réglages › Metadata, jamais renvoyée à la WebView. La base SQLite ne contient aucun
   secret.
 - Les tokens **ne quittent jamais Rust** : images via `oneshot-img://`, flux
   passés à mpv avec en-têtes HTTP (`http-header-fields`) quand le serveur le

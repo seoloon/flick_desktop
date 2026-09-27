@@ -31,8 +31,17 @@ pub fn cache_key(image: &ImageRef, size: ImageSize) -> String {
 
 /// Cache key for a profile picture fetched from a public URL.
 pub fn avatar_cache_key(url: &url::Url) -> String {
+    url_key(b"avatar\0", url)
+}
+
+/// Cache key for a TMDB photo or poster.
+pub fn tmdb_cache_key(url: &url::Url) -> String {
+    url_key(b"tmdb\0", url)
+}
+
+fn url_key(prefix: &[u8], url: &url::Url) -> String {
     let mut h = Sha256::new();
-    h.update(b"avatar\0");
+    h.update(prefix);
     h.update(url.as_str().as_bytes());
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -121,6 +130,15 @@ fn collect(dir: &Path, out: &mut Vec<(PathBuf, u64, SystemTime)>) -> std::io::Re
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn tmdb_and_avatar_keys_never_collide() {
+        let url = url::Url::parse("https://image.tmdb.org/t/p/w342/abc.jpg").unwrap();
+        let tmdb = tmdb_cache_key(&url);
+        assert_eq!(tmdb.len(), 64);
+        assert_ne!(tmdb, avatar_cache_key(&url));
+        assert_eq!(tmdb, tmdb_cache_key(&url), "stable");
+    }
     use oneshot_core::media::ImageKind;
     use oneshot_core::{ItemRef, ServerId};
 
