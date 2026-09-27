@@ -45,6 +45,7 @@ pub fn profiles_state(state: St<'_>) -> ProfilesState {
 
 /// Lists server users (mode B): Jellyfin sign-in screens and the Plex Home.
 /// A server that does not answer keeps its last list and shows offline.
+/// Jellyfin and Plex are probed concurrently, not one after the other.
 #[tauri::command]
 pub async fn profiles_discover(state: St<'_>) -> Result<ProfilesState> {
     let servers = state.servers.read().clone();
@@ -56,11 +57,29 @@ pub async fn profiles_discover(state: St<'_>) -> Result<ProfilesState> {
     let mut seen = HashSet::new();
     let jellyfins: Vec<_> = servers.iter().filter(|s| s.kind == ProviderKind::Jellyfin && seen.insert(s.remote_id.clone())).cloned().collect();
     let connector = Connector::new(state.http(), state.jellyfin_identity());
-    let probes = jellyfins.iter().map(|home| {
-        let connector = connector.clone();
-        async move { (home, tokio::time::timeout(DISCOVERY_TIMEOUT, connector.public_users(&home.base_url)).await) }
-    });
-    for (home, res) in futures::future::join_all(probes).await {
+    let jellyfin_probe = async {
+        let probes = jellyfins.iter().map(|home| {
+            let connector = connector.clone();
+            async move { (home, tokio::time::timeout(DISCOVERY_TIMEOUT, connector.public_users(&home.base_url)).await) }
+        });
+        futures::future::join_all(probes).await
+    };
+
+    let mut seen = HashSet::new();
+    let plexes: Vec<_> = servers.iter().filter(|s| s.kind == ProviderKind::Plex && seen.insert(s.remote_id.clone())).cloned().collect();
+    // No token is treated like a failed probe: the last list is kept and the
+    // group shows offline, rather than silently dropping (and losing the
+    // `protected` flag of) every Plex Home member.
+    let plex_token = if plexes.is_empty() { None } else { plex_account_token(&state) };
+    let plex_probe = async {
+        let token = plex_token.as_ref()?;
+        let auth = PlexAuth::new(state.http(), state.plex_identity());
+        Some(tokio::time::timeout(DISCOVERY_TIMEOUT, auth.home_users(token)).await)
+    };
+
+    let (jellyfin_results, plex_result) = tokio::join!(jellyfin_probe, plex_probe);
+
+    for (home, res) in jellyfin_results {
         match res {
             Ok(Ok(users)) => found.extend(users.into_iter().map(|u| DiscoveredUser {
                 server: home.id,
@@ -80,14 +99,9 @@ pub async fn profiles_discover(state: St<'_>) -> Result<ProfilesState> {
         }
     }
 
-    let mut seen = HashSet::new();
-    let plexes: Vec<_> = servers.iter().filter(|s| s.kind == ProviderKind::Plex && seen.insert(s.remote_id.clone())).cloned().collect();
-    if !plexes.is_empty()
-        && let Some(token) = plex_account_token(&state)
-    {
-        let auth = PlexAuth::new(state.http(), state.plex_identity());
-        match tokio::time::timeout(DISCOVERY_TIMEOUT, auth.home_users(&token)).await {
-            Ok(Ok(members)) => {
+    if !plexes.is_empty() {
+        match plex_result {
+            Some(Ok(Ok(members))) => {
                 for home in &plexes {
                     found.extend(members.iter().map(|m| DiscoveredUser {
                         server: home.id,
@@ -104,6 +118,7 @@ pub async fn profiles_discover(state: St<'_>) -> Result<ProfilesState> {
             _ => {
                 tracing::info!(target: "provider", "Plex Home discovery failed; keeping the last list");
                 kept.extend(plexes.iter().map(|h| h.id));
+                offline.extend(servers.iter().filter(|s| s.kind == ProviderKind::Plex && plexes.iter().any(|h| h.remote_id == s.remote_id)).map(|s| s.id));
             }
         }
     }
@@ -124,34 +139,11 @@ fn os_user_name() -> String {
 
 #[tauri::command]
 pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_on_startup: bool, pin: Option<String>) -> Result<ProfilesState> {
-    let (was_enabled, old_mode) = {
-        let cfg = state.profiles.read();
-        let now = std::time::Instant::now();
-        let mut guard = state.config_guard.lock();
-        if let Err(wait) = guard.check(now) {
-            return Err(Error::PinLocked(wait.as_secs().max(1)));
-        }
-        match pin::authorize_config_change(&cfg, enabled, mode, pin.as_deref()) {
-            Ok(()) => {
-                // Only a PIN actually typed counts as a success.
-                if pin.is_some() {
-                    guard.succeed();
-                }
-            }
-            Err(Error::WrongPin) => {
-                // No PIN at all is a prompt, not an attempt.
-                if pin.is_some() {
-                    guard.fail(now);
-                    if let Err(wait) = guard.check(now) {
-                        return Err(Error::PinLocked(wait.as_secs().max(1)));
-                    }
-                }
-                return Err(Error::WrongPin);
-            }
-            Err(e) => return Err(e),
-        }
-        (cfg.enabled, cfg.mode)
-    };
+    // Cloned so the read lock is not held while `authorize_config_change_guarded`
+    // hashes the PIN (argon2 is slow; no lock should be held across it).
+    let cfg = state.profiles.read().clone();
+    let (was_enabled, old_mode) = (cfg.enabled, cfg.mode);
+    pin::authorize_config_change_guarded(&cfg, enabled, mode, pin.as_deref(), &mut state.config_guard.lock(), std::time::Instant::now())?;
     {
         let mut cfg = state.profiles.write();
         cfg.enabled = enabled;
@@ -215,8 +207,17 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
             // Plex Home: members not signed in yet, and protected ones every
             // time (plex.tv checks their PIN).
             (ProviderKind::Plex, conn) if conn.is_none() || user.protected => {
-                let Some(uuid) = &user.switch_id else { continue };
+                let Some(uuid) = &user.switch_id else {
+                    if user.protected && let Some(c) = conn {
+                        excluded.insert(c.id);
+                        failed.push(account.server_name.clone());
+                    }
+                    continue;
+                };
                 let Some(token) = plex_account_token(&state) else {
+                    if user.protected && let Some(c) = conn {
+                        excluded.insert(c.id);
+                    }
                     failed.push(account.server_name.clone());
                     continue;
                 };
@@ -225,7 +226,7 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
                 match auth.switch_user(&token, uuid, member_pin).await {
                     Ok(member_token) => {
                         let who = UserProfile { id: user.remote_user_id.clone(), name: user.name.clone(), avatar: user.avatar.clone(), is_admin: false };
-                        if let Err(e) = register_plex(&state, &member_token, &who, &|s| configured_plex.contains(&s.machine_id)).await {
+                        if let Err(e) = register_plex(&state, &member_token, &who, &|s| configured_plex.contains(&s.machine_id), false).await {
                             tracing::warn!(target: "provider", server = %account.server_name, "Plex member not connected: {e}");
                             failed.push(account.server_name.clone());
                         }
@@ -245,7 +246,7 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
                 let connector = Connector::new(state.http(), state.jellyfin_identity());
                 match connector.login(&account.base_url, &user.name, "").await {
                     Ok(session) => {
-                        state.register_server(jellyfin_descriptor(&session), &session.token)?;
+                        state.register_server_with(jellyfin_descriptor(&session), &session.token, false)?;
                     }
                     Err(e) => {
                         tracing::warn!(target: "provider", server = %account.server_name, "Jellyfin sign-in failed: {e}");
@@ -329,6 +330,14 @@ pub fn profile_set_pin(state: St<'_>, id: ProfileId, current: Option<String>, ne
 #[tauri::command]
 pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: Option<String>) -> Result<()> {
     state.check_pin(id, pin.as_deref())?;
+    let owns = state
+        .resolved_profiles()
+        .into_iter()
+        .find(|r| r.profile.id == id)
+        .is_some_and(|r| r.accounts.iter().any(|a| a.connection.as_ref().is_some_and(|d| d.id == connection)));
+    if !owns {
+        return Err(Error::Invalid("that account is not part of this profile".into()));
+    }
     state.update_profile(id, |p| {
         if !p.detached.contains(&connection) {
             p.detached.push(connection);

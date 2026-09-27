@@ -263,7 +263,15 @@ impl AppState {
     /// Persists a new/updated connection and its token, and connects it when
     /// the active profile uses it. Signing in again as the same user on the
     /// same server keeps the connection's id (profiles and caches refer to it).
-    pub fn register_server(&self, mut d: ServerDescriptor, token: &str) -> Result<ServerDescriptor> {
+    pub fn register_server(&self, d: ServerDescriptor, token: &str) -> Result<ServerDescriptor> {
+        self.register_server_with(d, token, true)
+    }
+
+    /// Like `register_server`, but `attach` controls whether the connection
+    /// joins the currently active profile (modes A/C). A profile switch that
+    /// signs a member in while the *previous* profile is still active passes
+    /// `false`, since `activate_profile` makes the new one active afterwards.
+    pub fn register_server_with(&self, mut d: ServerDescriptor, token: &str, attach: bool) -> Result<ServerDescriptor> {
         {
             let mut servers = self.servers.write();
             if let Some(existing) = servers.iter().find(|s| s.kind == d.kind && s.remote_id == d.remote_id && s.user.id == d.user.id) {
@@ -275,7 +283,9 @@ impl AppState {
             servers.push(d.clone());
             self.store.save_servers(&servers)?;
         }
-        self.attach_to_active(d.id)?;
+        if attach {
+            self.attach_to_active(d.id)?;
+        }
         if !d.disabled && self.wanted(d.id) {
             self.catalog.add(self.build_provider(&d, token.to_owned()));
         }

@@ -174,12 +174,14 @@ pub(crate) fn plex_account_token(state: &AppState) -> Option<String> {
 }
 
 /// Registers `user`'s connections to the Plex servers `keep` selects, with
-/// the access tokens plex.tv gives that user.
+/// the access tokens plex.tv gives that user. `attach` controls whether each
+/// connection joins the currently active profile (see `register_server_with`).
 pub(crate) async fn register_plex(
     state: &AppState,
     token: &str,
     user: &UserProfile,
     keep: &(dyn Fn(&oneshot_plex::DiscoveredServer) -> bool + Send + Sync),
+    attach: bool,
 ) -> Result<Vec<ServerDescriptor>> {
     let auth = PlexAuth::new(state.http(), state.plex_identity());
     let mut added = Vec::new();
@@ -196,7 +198,7 @@ pub(crate) async fn register_plex(
             user: UserProfile { is_admin: server.owned, ..user.clone() },
             disabled: false,
         };
-        added.push(state.register_server(d, &server.access_token)?);
+        added.push(state.register_server_with(d, &server.access_token, attach)?);
     }
     Ok(added)
 }
@@ -206,5 +208,5 @@ pub async fn plex_add_servers(state: St<'_>, machine_ids: Vec<String>) -> Result
     let token = plex_account_token(&state).ok_or(Error::Unauthorized)?;
     let account = PlexAuth::new(state.http(), state.plex_identity()).account(&token).await?;
     let user = UserProfile { id: account.user_id, name: account.username, avatar: account.avatar, is_admin: false };
-    register_plex(&state, &token, &user, &|s| machine_ids.contains(&s.machine_id)).await
+    register_plex(&state, &token, &user, &|s| machine_ids.contains(&s.machine_id), true).await
 }

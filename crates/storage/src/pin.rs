@@ -70,11 +70,17 @@ pub fn check_pin(hash: Option<&str>, given: Option<&str>, guard: &mut PinGuard, 
     })
 }
 
+/// Whether turning multi-user off, or changing where profiles come from,
+/// would let anyone past the PINs (the implicit profile sees everything).
+fn is_sensitive_config_change(config: &ProfilesConfig, enabled: bool, mode: ProfileMode) -> bool {
+    config.enabled && (!enabled || mode != config.mode)
+}
+
 /// Turning multi-user off, or changing where profiles come from, would let
 /// anyone past the PINs (the implicit profile sees everything): it needs the
 /// PIN of one protected profile, when there is one.
 pub fn authorize_config_change(config: &ProfilesConfig, enabled: bool, mode: ProfileMode, pin: Option<&str>) -> Result<()> {
-    let sensitive = config.enabled && (!enabled || mode != config.mode);
+    let sensitive = is_sensitive_config_change(config, enabled, mode);
     let mut hashes = config.profiles.iter().filter_map(|p| p.pin.as_deref()).peekable();
     if !sensitive || hashes.peek().is_none() {
         return Ok(());
@@ -83,6 +89,37 @@ pub fn authorize_config_change(config: &ProfilesConfig, enabled: bool, mode: Pro
         Some(pin) if hashes.any(|h| verify_pin(h, pin)) => Ok(()),
         _ => Err(Error::WrongPin),
     }
+}
+
+/// Like `authorize_config_change`, but counts failures in `guard` so config
+/// changes cannot be used to brute-force a profile PIN, and a locked guard
+/// does not block a change that needs no PIN at all.
+pub fn authorize_config_change_guarded(
+    config: &ProfilesConfig,
+    enabled: bool,
+    mode: ProfileMode,
+    pin: Option<&str>,
+    guard: &mut PinGuard,
+    now: Instant,
+) -> Result<()> {
+    let sensitive = is_sensitive_config_change(config, enabled, mode);
+    let mut hashes = config.profiles.iter().filter_map(|p| p.pin.as_deref()).peekable();
+    if !sensitive || hashes.peek().is_none() {
+        return Ok(());
+    }
+    if let Err(wait) = guard.check(now) {
+        return Err(Error::PinLocked(wait.as_secs().max(1)));
+    }
+    let Some(pin) = pin else { return Err(Error::WrongPin) };
+    if hashes.any(|h| verify_pin(h, pin)) {
+        guard.succeed();
+        return Ok(());
+    }
+    guard.fail(now);
+    Err(match guard.check(now) {
+        Err(wait) => Error::PinLocked(wait.as_secs().max(1)),
+        Ok(()) => Error::WrongPin,
+    })
 }
 
 #[cfg(test)]
@@ -164,5 +201,68 @@ mod tests {
         assert!(authorize_config_change(&c, false, ProfileMode::Linked, None).is_ok());
         let off = ProfilesConfig::default();
         assert!(authorize_config_change(&off, true, ProfileMode::Local, None).is_ok(), "turning it on is free");
+    }
+
+    #[test]
+    fn guarded_a_non_sensitive_change_with_junk_pin_does_not_touch_the_guard() {
+        let c = config_with_pin();
+        let now = Instant::now();
+        let mut g = PinGuard::default();
+        for _ in 0..4 {
+            g.fail(now);
+        }
+        // ask_on_startup alone is not sensitive: a junk PIN here must not reset the guard.
+        assert!(authorize_config_change_guarded(&c, true, c.mode, Some("0000"), &mut g, now).is_ok());
+        g.fail(now);
+        assert_eq!(g.check(now), Err(Duration::from_secs(30)), "the 4 prior failures were preserved");
+    }
+
+    #[test]
+    fn guarded_wrong_pin_on_a_sensitive_change_counts_toward_the_lock() {
+        let c = config_with_pin();
+        let now = Instant::now();
+        let mut g = PinGuard::default();
+        for _ in 0..4 {
+            assert!(matches!(authorize_config_change_guarded(&c, false, c.mode, Some("0000"), &mut g, now), Err(Error::WrongPin)));
+        }
+        assert!(matches!(authorize_config_change_guarded(&c, false, c.mode, Some("0000"), &mut g, now), Err(Error::PinLocked(30))));
+    }
+
+    #[test]
+    fn guarded_missing_pin_is_not_an_attempt() {
+        let c = config_with_pin();
+        let now = Instant::now();
+        let mut g = PinGuard::default();
+        assert!(matches!(authorize_config_change_guarded(&c, false, c.mode, None, &mut g, now), Err(Error::WrongPin)));
+        assert_eq!(g.check(now), Ok(()), "no PIN typed is a prompt, not a failure");
+    }
+
+    #[test]
+    fn guarded_right_pin_resets_the_guard() {
+        let c = config_with_pin();
+        let now = Instant::now();
+        let mut g = PinGuard::default();
+        for _ in 0..3 {
+            let _ = authorize_config_change_guarded(&c, false, c.mode, Some("0000"), &mut g, now);
+        }
+        assert!(authorize_config_change_guarded(&c, false, c.mode, Some("9876"), &mut g, now).is_ok());
+        assert_eq!(g.check(now), Ok(()));
+        // Confirm it was really reset: three more wrong guesses do not lock yet.
+        for _ in 0..3 {
+            let _ = authorize_config_change_guarded(&c, false, c.mode, Some("0000"), &mut g, now);
+        }
+        assert_eq!(g.check(now), Ok(()));
+    }
+
+    #[test]
+    fn guarded_a_locked_guard_does_not_block_a_non_sensitive_change() {
+        let c = config_with_pin();
+        let now = Instant::now();
+        let mut g = PinGuard::default();
+        for _ in 0..5 {
+            let _ = authorize_config_change_guarded(&c, false, c.mode, Some("0000"), &mut g, now);
+        }
+        assert_eq!(g.check(now), Err(Duration::from_secs(30)), "guard is locked");
+        assert!(authorize_config_change_guarded(&c, true, c.mode, None, &mut g, now).is_ok(), "ask_on_startup alone is not sensitive");
     }
 }
