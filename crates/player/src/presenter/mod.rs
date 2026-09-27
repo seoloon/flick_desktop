@@ -38,6 +38,14 @@ pub enum HostWindow {
     Other,
 }
 
+// SAFETY: `ns_view` is a value carried across threads (e.g. into
+// `PlayerConfig`/`Player`), never dereferenced by `HostWindow` itself —
+// only the macOS presenter that owns it dereferences it, and always via
+// `UiDispatch` on the AppKit main thread (see `LayerPresenter`'s own
+// `unsafe impl Send`/`Sync` for the same justification one level down).
+unsafe impl Send for HostWindow {}
+unsafe impl Sync for HostWindow {}
+
 /// Runs a closure on the UI (window-owning) thread. Supplied by the shell.
 pub type UiDispatch = Arc<dyn Fn(Box<dyn FnOnce() + Send>) + Send + Sync>;
 
