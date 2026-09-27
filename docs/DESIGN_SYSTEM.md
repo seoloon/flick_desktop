@@ -77,6 +77,10 @@ deviennent opaques, sans `backdrop-filter` (GPU faibles, écrans 4K).
 | `CompactRows` | Mêmes lignes de réglages en taille réduite | menu du lecteur (amplification du volume) |
 | `Switch` | Interrupteur autonome (activer / désactiver un serveur) | pouce sur ressort, focus = anneau blanc |
 | `TvDialog` | Ajout de serveur | Radix (animate-ui) + frontière de focus ; Retour ferme |
+| `BackButton` | Retour (fiche, grille de bibliothèque) | bouton `icon` en verre ; Home si l'historique de l'app est vide |
+| `ProfileAvatar` | Avatar rond d'un profil | image serveur (proxy `oneshot-img`) ou initiales sur dégradé de sa couleur ; `layoutId` : vole du sélecteur à la sidebar |
+| `AccountPills` | Provenance des comptes d'un profil | pleine = connecté, pointillés = à connecter, estompée « hors ligne » = serveur injoignable, estompée « off » = serveur désactivé |
+| `PinPad` | PIN à 4 chiffres | touches focalisables + chiffres/Retour arrière clavier pris en priorité via `onKey` (ui/src/nav/input.ts) ; Échap / B annulent ; secousse si faux ; décompte si verrouillé |
 | `TextField`, `Notice`, `Spinner`, `EmptyState`, `Panel`, `Facts`, `Pill` | Formulaires, états, faits | `Pill` n'affiche que ce que les métadonnées disent |
 
 Les primitives shadcn (`components/ui/`) et animate-ui
@@ -146,6 +150,12 @@ propre opacité, jamais celle d'un parent. Sous un parent translucide,
 Chromium ne floute que l'intérieur de ce parent, c'est-à-dire rien : le flou
 n'apparaît qu'à la fin du fondu. Les transitions d'écran et les en-têtes
 glissent donc sans fondre, et les panneaux en verre fondent eux-mêmes.
+
+## Profils
+
+**Profils** : la couleur d'un profil ne teinte que son avatar et la lumière
+ambiante du sélecteur ; l'interface reste monochrome. Focus d'une tuile ×1,1 +
+anneau blanc, autres tuiles à 55 %.
 
 ## Lecteur
 

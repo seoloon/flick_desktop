@@ -335,7 +335,7 @@ MediaItem ─► provider.playback_info(profil client) ─► CapabilityManager.
 | `oneshot-capabilities` | Sondes OS (Windows complet ; macOS/Linux « inconnu » honnête) | Code `windows`/`objc2` isolé par OS |
 | `oneshot-playback` | `PlaybackDecisionEngine`, `ClientProfile` | Pur et déterministe → testable exhaustivement sans OS ni serveur |
 | `oneshot-player` | Session de lecture, options mpv, présentation, repli audio, progression | Seul crate qui parle à mpv et à la fenêtre |
-| `oneshot-storage` | Réglages, cache métadonnées (SQLite), cache images, secrets (keyring) | Persistance et secrets hors de la logique |
+| `oneshot-storage` | Réglages, profils (`profiles.json`, regroupement, PIN), cache métadonnées (SQLite), cache images, secrets (keyring) | Persistance et secrets hors de la logique |
 | `oneshot-catalog` | Registre des serveurs, agrégation multi-serveurs, dédoublonnage | Seul endroit qui connaît « plusieurs serveurs » |
 | `providers/jellyfin`, `providers/plex` | Clients API → modèle commun | Un provider = un crate, extensible |
 | `app` | Shell Tauri : commandes, protocole images, fenêtres, diagnostics | Colle ; aucune logique métier |
@@ -349,7 +349,8 @@ MediaItem ─► provider.playback_info(profil client) ─► CapabilityManager.
   routées par `ui/src/nav/input.ts`). Données serveur via TanStack Query,
   état local via Zustand. Le lecteur garde sa position dans une *motion
   value* : la barre de progression avance à la fréquence d'affichage sans
-  re-rendu React. Voir `docs/DESIGN_SYSTEM.md`.
+  re-rendu React. Sélecteur de profils (plein écran hors Shell,
+  `features/profiles`) ; changement rapide depuis la sidebar. Voir `docs/DESIGN_SYSTEM.md`.
 - Types IPC **générés depuis Rust** (`ts-rs`, feature `ts`) dans
   `ui/src/ipc/bindings/` → une seule définition des types (116 types). Seuls
   les petits DTO du shell (`app/src/commands`) sont écrits à la main dans
@@ -484,6 +485,19 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
 
 ## 10. Sécurité
 
+- **Profils** (`profiles.json`) : un profil = un ensemble de connexions +
+  des préférences personnelles ; le profil actif décide des connexions
+  chargées. Le PIN (4 chiffres) est haché en argon2id, jamais stocké ni
+  journalisé en clair ; 5 échecs → 30 s, puis 60 s, puis 5 min (même verrouillage
+  pour les demandes de PIN lors de la désactivation du multi-utilisateurs ou
+  d'un changement de mode). C'est un **verrou d'usage local**, pas une
+  protection contre qui a accès aux fichiers de la session : les tokens, eux,
+  restent dans le trousseau. Le PIN Plex Home n'est jamais stocké : il part à
+  plex.tv à chaque changement. Un membre Plex Home protégé par un PIN Plex ne
+  charge que si plex.tv peut vérifier ce PIN ; si plex.tv ou le token de compte
+  est indisponible, ce compte reste indisponible mais le reste du profil charge.
+  **Limitation (Modes A/C)** : un profil peut utiliser n'importe quelle connexion
+  de la machine ; le PIN verrouille un profil, pas une connexion.
 - **Aucun mot de passe stocké.** Jellyfin : mot de passe envoyé une fois pour
   obtenir un token (ou Quick Connect). Plex : flux PIN, jamais de mot de passe.
 - Tokens dans le **trousseau de l'OS** (`keyring` : Windows Credential Manager,
