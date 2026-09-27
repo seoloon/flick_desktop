@@ -12,6 +12,7 @@ import type { LiveStats } from "./bindings/LiveStats";
 import type { Marker } from "./bindings/Marker";
 import type { MediaItem } from "./bindings/MediaItem";
 import type { Page } from "./bindings/Page";
+import type { PersonDetails } from "./bindings/PersonDetails";
 import type { PlaybackDecision } from "./bindings/PlaybackDecision";
 import type { PlayerCommand } from "./bindings/PlayerCommand";
 import type { PlayerSnapshot } from "./bindings/PlayerSnapshot";
@@ -98,6 +99,14 @@ export const api = {
   markers: (id: ItemRef) => call<Marker[]>("markers", { id }),
   search: (term: string) => call<Aggregated<MediaItem[]>>("search", { term }),
   favorites: () => call<Aggregated<MediaItem[]>>("favorites"),
+
+  // people
+  personDetails: (person: ItemRef, name: string, from: ItemRef | null, language: string) =>
+    call<PersonDetails>("person_details", { person, name, from, language }),
+  personItems: (person: ItemRef, name: string) => call<Aggregated<MediaItem[]>>("person_items", { person, name }),
+  tmdbStatus: () => call<boolean>("tmdb_status"),
+  tmdbSetKey: (key: string) => call<void>("tmdb_set_key", { key }),
+  tmdbRemoveKey: () => call<void>("tmdb_remove_key"),
   setPlayed: (id: ItemRef, played: boolean) => call<void>("set_played", { id, played }),
   setFavorite: (id: ItemRef, favorite: boolean) => call<void>("set_favorite", { id, favorite }),
 

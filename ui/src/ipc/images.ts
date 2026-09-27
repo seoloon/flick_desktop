@@ -18,3 +18,8 @@ export function imageUrl(image: ImageRef | null | undefined, size: ImageSize): s
 export function avatarUrl(profile: string, key: string): string {
   return `${BASE}avatar/${encodeURIComponent(profile)}/${encodeURIComponent(key)}`;
 }
+
+/** A TMDB photo or poster (`path` as TMDB gives it: `/abc.jpg`), proxied by Rust. */
+export function tmdbImageUrl(path: string, size: "w185" | "h632" | "w342"): string {
+  return `${BASE}tmdb/${size}${path}`;
+}
