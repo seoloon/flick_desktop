@@ -16,7 +16,7 @@ import { TabBar } from "./TabBar";
 import { TitleBar } from "./TitleBar";
 
 /** Top-level destinations: Back from their content goes to the navigation. */
-const TOP_LEVEL = ["/", "/libraries", "/search", "/servers", "/settings", "/admin"];
+const TOP_LEVEL = ["/", "/libraries", "/favorites", "/search", "/settings", "/admin"];
 
 const scrollMemory = new Map<string, number>();
 

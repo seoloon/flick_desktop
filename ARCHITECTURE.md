@@ -293,7 +293,7 @@ repli.
 
 ```
 ┌──────────────────────────────── UI (WebView, React + TS strict) ──────────────────────────────────┐
-│  Home · Library · Detail · Search · Player chrome · Settings · Servers · Admin · Debug · MaxiFrame │
+│  Home · Library · Favourites · Detail · Search · Player · Settings/Servers · Profiles · Admin      │
 │  Focus engine (clavier / manette / télécommande)   Design system   Adaptive background             │
 └──────────────▲───────────────────────────── IPC typé (commands + events) ─────────────▲───────────┘
                │ invoke()                                  oneshot-img:// (images)     │ events 4 Hz

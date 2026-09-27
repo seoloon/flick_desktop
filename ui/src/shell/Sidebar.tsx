@@ -19,6 +19,9 @@ export function Sidebar() {
   const items = useNavItems();
   const collapsed = useSidebar((s) => s.collapsed);
   const active = items.find((i) => i.active);
+  // Settings sits at the bottom with the window controls, below Flick Frame.
+  const main = items.filter((i) => i.id !== "settings");
+  const settings = items.find((i) => i.id === "settings");
   return (
     <aside className="fixed inset-y-0 left-0 z-30 w-[var(--sidebar-w)] p-3 transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]">
       <FocusGroup
@@ -31,7 +34,7 @@ export function Sidebar() {
         <Brand />
         <SidebarProfile />
         <nav aria-label="Main" className="flex flex-col gap-0.5">
-          {items.map((item) => (
+          {main.map((item) => (
             <SidebarItem key={item.id} item={item} />
           ))}
         </nav>
@@ -43,6 +46,7 @@ export function Sidebar() {
             onClick={toggleSidebar}
           />
           <SidebarButton id="frame" label="Flick Frame" icon={<Maximize2 />} onClick={() => void toggleFrame()} />
+          {settings && <SidebarItem item={settings} />}
         </div>
       </FocusGroup>
     </aside>

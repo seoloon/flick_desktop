@@ -7,7 +7,7 @@ import { Button } from "@/components/tv/Button";
 import { ProviderLogo } from "@/components/tv/ServerBadge";
 import { Switch } from "@/components/tv/Switch";
 import { Notice, Spinner } from "@/components/tv/Feedback";
-import { Page, PageHeader, Pill } from "@/components/tv/Page";
+import { Pill } from "@/components/tv/Page";
 import { TextField } from "@/components/tv/TextField";
 import { TvDialog } from "@/components/tv/TvDialog";
 import { api, asError } from "@/ipc/api";
@@ -15,7 +15,7 @@ import type { PlexServerChoice, ProbeResult, ServerEntry } from "@/ipc/app-types
 import type { ServerStatus } from "@/ipc/bindings/ServerStatus";
 import { enter, focusSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
+import { FocusGroup, useTv } from "@/nav/Focusable";
 import { serversQuery } from "@/shell/navItems";
 
 function StatusPill({ status }: { status: ServerStatus | undefined }) {
@@ -276,7 +276,9 @@ function ServerCard({ entry, status, onRemove, onToggle, index }: { entry: Serve
   );
 }
 
-export function Servers() {
+/** Servers of the active profile, with add / turn off / remove. Lives in
+ * Settings › Servers. */
+export function ServerManager() {
   const queryClient = useQueryClient();
   const servers = useQuery(serversQuery);
   const [adding, setAdding] = useState<null | "jellyfin" | "plex">(null);
@@ -291,6 +293,7 @@ export function Servers() {
     void queryClient.invalidateQueries({ queryKey: ["libraries"] });
     void queryClient.invalidateQueries({ queryKey: ["home"] });
     void queryClient.invalidateQueries({ queryKey: ["search"] });
+    void queryClient.invalidateQueries({ queryKey: ["favorites"] });
   };
   // Optimistic: the card flips at once; the catalogue follows once Rust has
   // connected or dropped the server.
@@ -307,49 +310,39 @@ export function Servers() {
   };
 
   return (
-    <Screen ready={!!servers.data}>
-      <Page>
-        <PageHeader
-          title="Servers"
-          lead="Every server you add joins one library. Titles found on several servers appear once and play from the best source."
-          actions={
-            <FocusGroup className="flex gap-3">
-              <Button variant="primary" icon={Plus} onClick={() => setAdding("jellyfin")}>
-                Add Jellyfin Server
-              </Button>
-              <Button icon={Plus} onClick={() => setAdding("plex")}>
-                Add Plex Account
-              </Button>
-            </FocusGroup>
-          }
-        />
-        {!servers.data ? (
-          <Spinner />
-        ) : servers.data.length === 0 ? (
-          <p className="text-lg text-muted-foreground">No servers yet.</p>
-        ) : (
-          <FocusGroup className="flex max-w-4xl flex-col gap-4">
-            {servers.data.map((s, i) => (
-              <ServerCard
-                key={s.server.id}
-                index={i}
-                entry={s}
-                status={statusOf(s.server.id)}
-                onToggle={(enabled) => toggle(s.server.id, enabled)}
-                onRemove={() =>
-                  void api.serverRemove(s.server.id).then(refresh, (e) => toast.error(asError(e).message))
-                }
-              />
-            ))}
-          </FocusGroup>
-        )}
-      </Page>
+    <>
+      <FocusGroup className="flex flex-wrap gap-3">
+        <Button variant="primary" icon={Plus} onClick={() => setAdding("jellyfin")}>
+          Add Jellyfin Server
+        </Button>
+        <Button icon={Plus} onClick={() => setAdding("plex")}>
+          Add Plex Account
+        </Button>
+      </FocusGroup>
+      {!servers.data ? (
+        <Spinner />
+      ) : servers.data.length === 0 ? (
+        <p className="text-lg text-muted-foreground">No servers yet.</p>
+      ) : (
+        <FocusGroup className="flex flex-col gap-4">
+          {servers.data.map((s, i) => (
+            <ServerCard
+              key={s.server.id}
+              index={i}
+              entry={s}
+              status={statusOf(s.server.id)}
+              onToggle={(enabled) => toggle(s.server.id, enabled)}
+              onRemove={() => void api.serverRemove(s.server.id).then(refresh, (e) => toast.error(asError(e).message))}
+            />
+          ))}
+        </FocusGroup>
+      )}
       <TvDialog open={adding === "jellyfin"} onClose={() => setAdding(null)} title="Add a Jellyfin Server">
         <AddJellyfin onDone={done} />
       </TvDialog>
       <TvDialog open={adding === "plex"} onClose={() => setAdding(null)} title="Add Plex Servers">
         <AddPlex onDone={done} />
       </TvDialog>
-    </Screen>
+    </>
   );
 }

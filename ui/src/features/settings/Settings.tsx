@@ -11,6 +11,7 @@ import { Pill } from "@/components/tv/Page";
 import type { Choice } from "@/components/tv/Segmented";
 import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
 import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
+import { ServerManager } from "@/features/servers/Servers";
 import { api, unwrap } from "@/ipc/api";
 import type { BitstreamFormat } from "@/ipc/bindings/BitstreamFormat";
 import type { CapabilityReport } from "@/ipc/bindings/CapabilityReport";
@@ -34,7 +35,7 @@ const sections = [
   ["hdr", "HDR"],
   ["subtitles", "Subtitles"],
   ["downloads", "Downloads"],
-  ["servers", "Accounts"],
+  ["servers", "Servers"],
   ["profiles", "Profiles"],
   ["network", "Network"],
   ["cache", "Cache"],
@@ -367,9 +368,13 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       return <Notice>Offline downloads are not available in this version. Playback always streams from your servers.</Notice>;
     case "servers":
       return (
-        <SettingsGroup note={<p>Sign-in tokens are stored in the system keychain{about.data && !about.data.credentialStore ? ", which is unavailable: you will need to sign in at each launch" : ""}.</p>}>
-          <LinkRow label="Manage servers" onClick={() => navigate("/servers")} />
-        </SettingsGroup>
+        <>
+          <p className="text-[0.9375rem] leading-relaxed text-muted-foreground">
+            Every server you add joins one library. Titles found on several servers appear once and play from the best source. Sign-in tokens are stored in the system keychain
+            {about.data && !about.data.credentialStore ? ", which is unavailable: you will need to sign in at each launch" : ""}.
+          </p>
+          <ServerManager />
+        </>
       );
     case "profiles":
       return <ProfilesSettings />;
