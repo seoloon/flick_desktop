@@ -363,6 +363,73 @@ impl Default for SubtitleSettings {
     }
 }
 
+/// What belongs to a person rather than to the machine (multi-user
+/// profiles): languages, subtitle look, autoplay and skipping, quality cap,
+/// motion. Everything else (audio output, decoding, network, cache,
+/// controller…) stays shared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PersonalSettings {
+    pub subtitles: SubtitleSettings,
+    pub preferred_audio_languages: Vec<String>,
+    pub autoplay_next: bool,
+    pub autoplay_countdown_secs: u32,
+    pub skip_intro: SkipMode,
+    pub skip_credits: SkipMode,
+    pub max_bitrate: Option<u64>,
+    pub resume: ResumeBehavior,
+    pub accent: String,
+    pub animation_intensity: f32,
+    pub background_intensity: f32,
+}
+
+impl Default for PersonalSettings {
+    fn default() -> Self {
+        Self::from_settings(&Settings::default())
+    }
+}
+
+impl PersonalSettings {
+    pub fn from_settings(s: &Settings) -> Self {
+        Self {
+            subtitles: s.subtitles.clone(),
+            preferred_audio_languages: s.playback.preferred_audio_languages.clone(),
+            autoplay_next: s.playback.autoplay_next,
+            autoplay_countdown_secs: s.playback.autoplay_countdown_secs,
+            skip_intro: s.playback.skip_intro,
+            skip_credits: s.playback.skip_credits,
+            max_bitrate: s.playback.max_bitrate,
+            resume: s.playback.resume,
+            accent: s.appearance.accent.clone(),
+            animation_intensity: s.appearance.animation_intensity,
+            background_intensity: s.appearance.background_intensity,
+        }
+    }
+
+    pub fn apply(&self, s: &mut Settings) {
+        s.subtitles = self.subtitles.clone();
+        s.playback.preferred_audio_languages = self.preferred_audio_languages.clone();
+        s.playback.autoplay_next = self.autoplay_next;
+        s.playback.autoplay_countdown_secs = self.autoplay_countdown_secs;
+        s.playback.skip_intro = self.skip_intro;
+        s.playback.skip_credits = self.skip_credits;
+        s.playback.max_bitrate = self.max_bitrate;
+        s.playback.resume = self.resume;
+        s.appearance.accent = self.accent.clone();
+        s.appearance.animation_intensity = self.animation_intensity;
+        s.appearance.background_intensity = self.background_intensity;
+    }
+}
+
+/// Splits settings edited while a profile is active: the personal part goes
+/// to the profile; the rest becomes the new shared base, which keeps its own
+/// personal values (the defaults new profiles start from).
+pub fn split_settings(effective: &Settings, base: &Settings) -> (Settings, PersonalSettings) {
+    let mut shared = effective.clone();
+    PersonalSettings::from_settings(base).apply(&mut shared);
+    (shared, PersonalSettings::from_settings(effective))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase")]
@@ -521,5 +588,36 @@ mod tests {
         assert_eq!(max_width_for_bitrate(4_000_000), Some(1280));
         assert_eq!(max_width_for_bitrate(2_000_000), Some(854));
         assert_eq!(max_width_for_bitrate(1_000_000), Some(640));
+    }
+
+    #[test]
+    fn split_keeps_personal_fields_out_of_the_shared_base() {
+        let mut base = Settings::default();
+        base.audio.passthrough = true;
+        let mut effective = base.clone();
+        effective.subtitles.scale = 1.4;
+        effective.playback.preferred_audio_languages = vec!["fra".into()];
+        effective.playback.autoplay_next = false;
+        effective.audio.volume = 70; // a machine setting changed while a profile is active
+
+        let (shared, prefs) = split_settings(&effective, &base);
+        assert_eq!(prefs.subtitles.scale, 1.4);
+        assert_eq!(prefs.preferred_audio_languages, vec!["fra".to_string()]);
+        assert!(!prefs.autoplay_next);
+        assert_eq!(shared.audio.volume, 70);
+        assert!(shared.audio.passthrough);
+        assert_eq!(shared.subtitles.scale, base.subtitles.scale, "the base keeps its own defaults");
+
+        let mut merged = shared.clone();
+        prefs.apply(&mut merged);
+        assert_eq!(merged, effective);
+    }
+
+    #[test]
+    fn personal_settings_fill_defaults_from_partial_json() {
+        let p: PersonalSettings = serde_json::from_str(r#"{"autoplayNext":false}"#).unwrap();
+        assert!(!p.autoplay_next);
+        assert_eq!(p.subtitles, SubtitleSettings::default());
+        assert_eq!(p.resume, PlaybackSettings::default().resume);
     }
 }

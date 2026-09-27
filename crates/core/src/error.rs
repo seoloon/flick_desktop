@@ -23,6 +23,10 @@ pub enum Error {
     Storage(String),
     #[error("playback error: {0}")]
     Playback(String),
+    #[error("wrong PIN")]
+    WrongPin,
+    #[error("too many attempts, try again in {0} s")]
+    PinLocked(u64),
     #[error("{0}")]
     Other(String),
 }
@@ -39,6 +43,8 @@ impl Error {
             Self::Invalid(_) => "invalid",
             Self::Storage(_) => "storage",
             Self::Playback(_) => "playback",
+            Self::WrongPin => "wrongPin",
+            Self::PinLocked(_) => "pinLocked",
             Self::Other(_) => "other",
         }
     }
