@@ -44,11 +44,13 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
   const [links, setLinks] = useState<ServerId[]>([]);
   const [pinStep, setPinStep] = useState<PinStep>(null);
   const [orphans, setOrphans] = useState<ServerId[]>([]);
+  const [leaveAfter, setLeaveAfter] = useState(false);
 
   useEffect(() => {
     setUnlock(null);
     setPinStep(null);
     setOrphans([]);
+    setLeaveAfter(false);
     if (card) {
       setName(card.name);
       setColor(card.color);
@@ -107,12 +109,21 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
     try {
       const left = await api.profileDelete(card.id, unlock);
       await refresh();
-      if (isActive) navigate("/profiles");
-      if (left.length) setOrphans(left);
-      else onClose();
+      if (left.length) {
+        setLeaveAfter(isActive);
+        setOrphans(left);
+      } else {
+        onClose();
+        if (isActive) navigate("/profiles");
+      }
     } catch (e) {
       fail(e);
     }
+  };
+
+  const finishDelete = () => {
+    onClose();
+    if (leaveAfter) navigate("/profiles");
   };
 
   const detach = async (connection: ServerId) => {
@@ -190,12 +201,12 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
               onClick={() =>
                 void Promise.all(orphans.map((id) => api.serverRemove(id)))
                   .then(refresh)
-                  .then(onClose, fail)
+                  .then(finishDelete, fail)
               }
             >
               Remove
             </Button>
-            <Button onClick={onClose}>Keep</Button>
+            <Button onClick={finishDelete}>Keep</Button>
           </FocusGroup>
         </>
       ) : (
