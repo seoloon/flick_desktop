@@ -38,8 +38,13 @@ export function lifeLine(d: Pick<PersonDetails, "birth" | "death" | "birthplace"
 
 const norm = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 
-/** TMDB titles the servers do not have (same TMDB id, or same title and year), most voted first. */
-export function alsoKnownFor(credits: KnownFor[], onServers: MediaItem[], limit = 20): KnownFor[] {
+/**
+ * TMDB titles the servers do not have (same TMDB id, or same title and
+ * year), most voted first. Empty until the servers' titles are known, so
+ * cards never vanish under the user as they load.
+ */
+export function alsoKnownFor(credits: KnownFor[], onServers: MediaItem[] | undefined, limit = 20): KnownFor[] {
+  if (!onServers) return [];
   const ids = new Set(onServers.flatMap((i) => (i.externalIds.tmdb ? [i.externalIds.tmdb] : [])));
   const titles = new Set(onServers.map((i) => `${norm(i.title)}|${i.year ?? ""}`));
   return credits

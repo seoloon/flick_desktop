@@ -36,6 +36,10 @@ describe("person helpers", () => {
     expect(alsoKnownFor(Array.from({ length: 30 }, (_, i) => kf(String(i), `T${i}`, 2000, 30 - i)), [])).toHaveLength(20);
   });
 
+  it("waits for the servers' titles before saying what they lack", () => {
+    expect(alsoKnownFor([kf("13", "Forrest Gump", 1994, 900)], undefined)).toEqual([]);
+  });
+
   it("splits the servers' titles into shelves", () => {
     const shelves = personShelves([item("s", "series", null), item("m", "movie", null)]);
     expect(shelves.map((s) => [s.title, s.items.map((i) => i.id)])).toEqual([["Movies", ["m"]], ["TV Shows", ["s"]]]);

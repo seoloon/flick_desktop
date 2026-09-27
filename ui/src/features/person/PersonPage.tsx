@@ -47,7 +47,7 @@ export function PersonPage() {
 
   const d = details.data;
   const onServers = items.data?.data ?? [];
-  const known = d ? alsoKnownFor(d.knownFor, onServers) : [];
+  const known = d ? alsoKnownFor(d.knownFor, items.data?.data ?? (items.isError ? [] : undefined)) : [];
   const src = broken ? undefined : photoUrl(d?.photo);
   const line = d ? lifeLine(d, new Date()) : null;
   const shownName = d?.name ?? name;
