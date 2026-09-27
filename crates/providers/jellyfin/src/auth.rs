@@ -5,7 +5,7 @@ use oneshot_net::reqwest::Client;
 use serde_json::json;
 use url::Url;
 
-use crate::dto::{AuthenticationResult, PublicSystemInfo, QuickConnectResult};
+use crate::dto::{AuthenticationResult, PublicSystemInfo, PublicUserDto, QuickConnectResult};
 
 /// How this installation identifies itself to Jellyfin. `device_id` must be
 /// stable per installation: Jellyfin keys sessions and tokens on it.
@@ -46,6 +46,16 @@ pub struct Session {
     pub server_id: String,
     pub server_name: String,
     pub version: Option<String>,
+}
+
+/// A user listed on the server's sign-in screen.
+#[derive(Debug, Clone)]
+pub struct PublicUser {
+    pub id: String,
+    pub name: String,
+    /// Public picture URL (no token needed).
+    pub avatar: Option<Url>,
+    pub has_password: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +114,30 @@ impl Connector {
             .map_err(oneshot_net::map_err)?;
         let auth: AuthenticationResult = oneshot_net::json(resp).await?;
         self.session(base, auth).await
+    }
+
+    /// Users the server shows on its sign-in screen (no authentication).
+    /// Users hidden from that screen are not listed.
+    pub async fn public_users(&self, base: &Url) -> Result<Vec<PublicUser>> {
+        let resp = self
+            .http
+            .get(oneshot_net::join(base, "Users/Public")?)
+            .header("Authorization", self.identity.header(None))
+            .send()
+            .await
+            .map_err(oneshot_net::map_err)?;
+        let users: Vec<PublicUserDto> = oneshot_net::json(resp).await?;
+        Ok(users
+            .into_iter()
+            .map(|u| {
+                let avatar = u.primary_image_tag.as_deref().and_then(|tag| {
+                    let mut url = oneshot_net::join(base, &format!("Users/{}/Images/Primary", u.id)).ok()?;
+                    url.query_pairs_mut().append_pair("tag", tag).append_pair("maxHeight", "256");
+                    Some(url)
+                });
+                PublicUser { avatar, id: u.id, name: u.name, has_password: u.has_password }
+            })
+            .collect())
     }
 
     /// Starts Quick Connect: show `code` to the user, then poll with `secret`.

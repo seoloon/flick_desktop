@@ -9,6 +9,6 @@ mod playback;
 mod profile;
 mod provider;
 
-pub use auth::{ClientIdentity, Connector, Session};
+pub use auth::{ClientIdentity, Connector, PublicUser, Session};
 pub use profile::device_profile;
 pub use provider::JellyfinProvider;

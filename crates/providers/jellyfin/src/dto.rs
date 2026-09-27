@@ -42,6 +42,17 @@ pub struct UserPolicy {
     pub is_disabled: bool,
 }
 
+/// `GET /Users/Public`: users shown on the server's sign-in screen.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PublicUserDto {
+    pub id: String,
+    pub name: String,
+    pub primary_image_tag: Option<String>,
+    #[serde(default)]
+    pub has_password: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct QueryResult<T> {
