@@ -86,7 +86,7 @@ export function ProfilePicker() {
 
   // Digits 1–9 choose the nth profile.
   useEffect(() => {
-    if (step || !ready) return;
+    if (step || !ready || otherUser || editing) return;
     const onKey = (e: KeyboardEvent) => {
       const n = Number(e.key);
       const card = Number.isInteger(n) && n >= 1 ? cards[n - 1] : undefined;
@@ -96,7 +96,7 @@ export function ProfilePicker() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, ready, cards, choose]);
+  }, [step, ready, cards, choose, otherUser, editing]);
 
   // Back cancels a choice; on the tiles there is nowhere to go back to.
   // Menu (or right click) on a focused tile opens its sheet.
@@ -107,13 +107,13 @@ export function ProfilePicker() {
           setStep((s) => (s && s.stage !== "loading" ? null : s));
           return true;
         }
-        if (a.type === "menu" && !step && focusedCard) {
+        if (a.type === "menu" && !step && !otherUser && !editing && focusedCard) {
           setEditing(focusedCard);
           return true;
         }
         return false;
       }),
-    [step, focusedCard],
+    [step, focusedCard, otherUser, editing],
   );
 
   const advance = (s: Step, card: ProfileCard, patch: Partial<Step> = {}) => setStep({ ...s, ...patch, stage: nextStage(card, s.stage) });
@@ -219,7 +219,12 @@ export function ProfilePicker() {
                   onEdit={() => setEditing(card)}
                 />
               ))}
-              <AddTile label={addTile} index={cards.length} onSelect={() => (data?.mode === "serverUsers" ? setOtherUser(true) : setEditing("new"))} />
+              <AddTile
+                label={addTile}
+                index={cards.length}
+                onFocused={() => setFocused(null)}
+                onSelect={() => (data?.mode === "serverUsers" ? setOtherUser(true) : setEditing("new"))}
+              />
             </FocusGroup>
           )}
           {step && selected && (
@@ -288,8 +293,8 @@ function ProgressRing({ done }: { done: boolean }) {
   );
 }
 
-function AddTile({ label, index, onSelect }: { label: string; index: number; onSelect: () => void }) {
-  const tv = useTv<HTMLButtonElement>({ focusKey: "profile:add", scroll: false });
+function AddTile({ label, index, onSelect, onFocused }: { label: string; index: number; onSelect: () => void; onFocused: () => void }) {
+  const tv = useTv<HTMLButtonElement>({ focusKey: "profile:add", scroll: false, onFocused });
   return (
     <motion.button
       ref={tv.ref}

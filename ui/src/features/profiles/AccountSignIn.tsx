@@ -1,7 +1,7 @@
 // Signing a pending Jellyfin account in, once, during profile selection:
 // password or Quick Connect, or skip it for now.
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/tv/Button";
 import { Notice } from "@/components/tv/Feedback";
 import { ProviderLogo } from "@/components/tv/ServerBadge";
@@ -16,14 +16,20 @@ export function AccountSignIn({ account, onDone }: { account: ProfileAccount; on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quick, setQuick] = useState<{ code: string; secret: string } | null>(null);
+  const alive = useRef(true);
+  useEffect(() => () => {
+    alive.current = false;
+  }, []);
 
   const signIn = async () => {
     setBusy(true);
     setError(null);
     try {
       await api.jellyfinLogin(account.baseUrl, account.userName, password);
+      if (!alive.current) return;
       onDone();
     } catch (e) {
+      if (!alive.current) return;
       setError(asError(e).message);
       setBusy(false);
     }
@@ -32,8 +38,11 @@ export function AccountSignIn({ account, onDone }: { account: ProfileAccount; on
   const startQuick = async () => {
     setError(null);
     try {
-      setQuick(await api.jellyfinQuickConnectStart(account.baseUrl));
+      const q = await api.jellyfinQuickConnectStart(account.baseUrl);
+      if (!alive.current) return;
+      setQuick(q);
     } catch (e) {
+      if (!alive.current) return;
       setError(asError(e).message);
     }
   };
@@ -42,8 +51,14 @@ export function AccountSignIn({ account, onDone }: { account: ProfileAccount; on
     if (!quick) return;
     const t = setInterval(() => {
       api.jellyfinQuickConnectPoll(account.baseUrl, quick.secret).then(
-        (d) => d && onDone(),
-        (e) => setError(asError(e).message),
+        (d) => {
+          if (!alive.current) return;
+          if (d) onDone();
+        },
+        (e) => {
+          if (!alive.current) return;
+          setError(asError(e).message);
+        },
       );
     }, 2000);
     return () => clearInterval(t);
