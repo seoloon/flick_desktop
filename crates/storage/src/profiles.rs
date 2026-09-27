@@ -160,7 +160,9 @@ pub fn card(r: &Resolved, offline: &HashSet<ServerId>) -> ProfileCard {
             .map(|a| {
                 let connection = a.connection.as_ref().map(|d| d.id);
                 let home = a.discovered.as_ref().map(|u| u.server);
-                let state = if connection.or(home).is_some_and(|s| offline.contains(&s)) {
+                let state = if a.connection.as_ref().is_some_and(|d| d.disabled) {
+                    AccountState::Disabled
+                } else if connection.or(home).is_some_and(|s| offline.contains(&s)) {
                     AccountState::Offline
                 } else if connection.is_some() {
                     AccountState::Connected
@@ -309,6 +311,7 @@ mod tests {
         let r = resolve(&mut cfg, &[jf], &defaults);
         assert_eq!(r[0].accounts.len(), 1);
         assert!(connections_of(&r[0]).is_empty());
+        assert_eq!(card(&r[0], &HashSet::new()).accounts[0].state, AccountState::Disabled);
     }
 
     #[test]

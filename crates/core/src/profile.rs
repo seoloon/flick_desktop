@@ -170,6 +170,8 @@ impl Default for ProfilesConfig {
 #[serde(rename_all = "camelCase")]
 pub enum AccountState {
     Connected,
+    /// Signed in here, but the server is turned off (kept, not loaded).
+    Disabled,
     /// Seen on the server, not signed in here yet.
     Pending,
     /// Its server did not answer the last discovery.
