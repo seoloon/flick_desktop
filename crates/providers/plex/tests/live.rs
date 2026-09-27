@@ -193,3 +193,38 @@ async fn watchlist_live() {
         println!("{} — {}", entry.title, entry.guid);
     }
 }
+
+/// Confirms the actor search hubs on a real server:
+/// `ONESHOT_PLEX_URL=… ONESHOT_PLEX_TOKEN=… ONESHOT_PLEX_ACTOR="Tom Hanks" cargo test -p oneshot-plex --test live actor_search_live -- --ignored --nocapture`
+/// Nothing found while the actor is in the library → print the raw
+/// `hubs/search?query=` body and adapt `HubTag`.
+#[tokio::test]
+#[ignore]
+async fn actor_search_live() {
+    let (Ok(url), Ok(token), Ok(actor)) = (std::env::var("ONESHOT_PLEX_URL"), std::env::var("ONESHOT_PLEX_TOKEN"), std::env::var("ONESHOT_PLEX_ACTOR")) else {
+        return;
+    };
+    let identity = PlexIdentity {
+        product: "Flick".into(),
+        version: "0".into(),
+        client_identifier: "flick-live-test".into(),
+        device_name: "live test".into(),
+        platform: "Windows".into(),
+    };
+    let descriptor = ServerDescriptor {
+        id: ServerId::new(),
+        kind: ProviderKind::Plex,
+        name: "live".into(),
+        remote_id: String::new(),
+        base_url: Url::parse(&url).unwrap(),
+        alternate_urls: vec![],
+        version: None,
+        user: UserProfile { id: "1".into(), name: "owner".into(), avatar: None, is_admin: true },
+        disabled: false,
+        home_member: false,
+    };
+    let provider = PlexProvider::new(descriptor, oneshot_net::client(&NetworkSettings::default()).unwrap(), identity, token, true);
+    for item in provider.person_items(&actor, None).await.expect("person items") {
+        println!("{} ({:?})", item.title, item.year);
+    }
+}

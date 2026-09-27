@@ -18,6 +18,20 @@ fn id_from_any<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
     }
 }
 
+fn opt_id_from_any<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Id {
+        N(i64),
+        S(String),
+    }
+    match Option::<Id>::deserialize(d)? {
+        None => Ok(None),
+        Some(Id::N(n)) => Ok(Some(n)),
+        Some(Id::S(s)) => Ok(s.parse().ok()),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Envelope<T> {
     #[serde(rename = "MediaContainer")]
@@ -56,6 +70,17 @@ pub struct Hub {
     pub r#type: Option<String>,
     #[serde(rename = "Metadata", default)]
     pub metadata: Vec<Metadata>,
+    /// Tag hubs (actors, genres…) list their entries as directories.
+    #[serde(rename = "Directory", default)]
+    pub directories: Vec<HubTag>,
+}
+
+/// An entry of a tag hub in search results (an actor).
+#[derive(Debug, Clone, Deserialize)]
+pub struct HubTag {
+    pub tag: Option<String>,
+    #[serde(default, deserialize_with = "opt_id_from_any")]
+    pub id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

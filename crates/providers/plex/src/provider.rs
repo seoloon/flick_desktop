@@ -9,7 +9,8 @@ use oneshot_core::media::{ImageRef, ImageSize, ItemKind, Marker, MediaItem};
 use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
 use oneshot_core::provider::{AdminProvider, Adjacent, MediaProvider};
 use oneshot_core::query::{HomeRow, HomeRowKind, ItemQuery, Page, SortBy, SortOrder};
-use oneshot_core::server::{Library, ProviderKind, ServerDescriptor, ServerStatus};
+use oneshot_core::server::{Library, LibraryKind, ProviderKind, ServerDescriptor, ServerStatus};
+use oneshot_core::text::normalize_name;
 use oneshot_core::{Error, Result};
 use oneshot_net::reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
@@ -42,6 +43,20 @@ impl PlexProvider {
     pub fn with_watchlist(mut self, watchlist: Watchlist) -> Self {
         self.watchlist = Some(watchlist);
         self
+    }
+
+    /// The actor tag id of `name` on this server (its search hubs).
+    async fn actor_id(&self, name: &str) -> Result<Option<i64>> {
+        let c = self.container("hubs/search", &[("query", name.to_owned()), ("limit", "10".into())]).await?;
+        let key = normalize_name(name);
+        let same = |n: &str| normalize_name(n) == key;
+        Ok(c.hubs.iter().filter(|h| h.r#type.as_deref() == Some("actor")).find_map(|h| {
+            h.directories
+                .iter()
+                .find(|d| d.tag.as_deref().is_some_and(same))
+                .and_then(|d| d.id)
+                .or_else(|| h.metadata.iter().find(|m| same(&m.title)).and_then(|m| m.rating_key.parse().ok()))
+        }))
     }
 
     /// This server's copy of a Plex catalogue title, if its libraries have it.
@@ -271,6 +286,22 @@ impl MediaProvider for PlexProvider {
         let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported("favourites (sign in to plex.tv for this account)".into()))?;
         let guid = self.metadata(&id.key).await?.guid.ok_or_else(|| Error::Unsupported("favourites (this title is not in the Plex catalogue)".into()))?;
         w.set(&guid, favorite).await
+    }
+
+    async fn person_items(&self, name: &str, hint: Option<&ItemRef>) -> Result<Vec<MediaItem>> {
+        let own = hint.filter(|h| h.server == self.server()).and_then(|h| h.key.parse::<i64>().ok());
+        let actor = match own {
+            Some(id) => Some(id),
+            None => self.actor_id(name).await?,
+        };
+        let Some(actor) = actor else { return Ok(Vec::new()) };
+        let mut out = Vec::new();
+        for lib in self.libraries().await?.into_iter().filter(|l| matches!(l.kind, LibraryKind::Movies | LibraryKind::Shows)) {
+            let Some(section) = lib.id.key.strip_prefix("section:") else { continue };
+            let c = self.container(&format!("library/sections/{section}/all"), &[("actor", actor.to_string())]).await?;
+            out.extend(self.items(&c.metadata));
+        }
+        Ok(out)
     }
 
     /// Watchlist titles this server has, in Watchlist order (titles it
