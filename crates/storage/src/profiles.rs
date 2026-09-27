@@ -1,13 +1,199 @@
 //! Profiles: who can be picked, resolved from `profiles.json` and the stored
 //! connections. Pure (no I/O), so every rule is unit-tested here.
 
+use std::collections::HashSet;
+
+use oneshot_core::ServerId;
+use oneshot_core::profile::{
+    AccountState, AvatarStyle, DiscoveredUser, Origin, Profile, ProfileAccount, ProfileCard, ProfileId, ProfileMode, ProfilesConfig,
+};
+use oneshot_core::server::{ProviderKind, ServerDescriptor};
+use oneshot_core::settings::PersonalSettings;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
+use url::Url;
+
+use crate::images::avatar_cache_key;
 
 /// Grouping key for a person's name: case, accents and spacing ignored.
 pub fn normalize_name(name: &str) -> String {
     let folded: String = name.nfkd().filter(|c| !is_combining_mark(*c)).collect::<String>().to_lowercase();
     folded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Profile colours: saturated enough to glow, light enough for white initials.
+pub const PROFILE_COLORS: [&str; 8] = ["#5e8bff", "#ff6b6b", "#3ecf8e", "#ffb547", "#b07cff", "#ff7ac6", "#35c6d6", "#a3a3a3"];
+
+#[derive(Debug, Clone)]
+pub struct ResolvedAccount {
+    pub kind: ProviderKind,
+    pub server_name: String,
+    pub base_url: Url,
+    pub user_name: String,
+    pub avatar: Option<Url>,
+    /// Signed in here.
+    pub connection: Option<ServerDescriptor>,
+    /// Seen by discovery (a pending account, or a Plex Home member).
+    pub discovered: Option<DiscoveredUser>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Resolved {
+    pub profile: Profile,
+    pub accounts: Vec<ResolvedAccount>,
+}
+
+fn color_for(key: &str) -> String {
+    let h = key.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
+    PROFILE_COLORS[(h % PROFILE_COLORS.len() as u32) as usize].to_owned()
+}
+
+/// `d` is the connection of discovered user `u` (same physical server, same user).
+fn same_user(d: &ServerDescriptor, servers: &[ServerDescriptor], u: &DiscoveredUser) -> bool {
+    let Some(home) = servers.iter().find(|s| s.id == u.server) else { return false };
+    d.kind == u.kind && d.remote_id == home.remote_id && d.user.id == u.remote_user_id
+}
+
+fn connected(d: &ServerDescriptor, servers: &[ServerDescriptor], discovered: &[DiscoveredUser]) -> ResolvedAccount {
+    let seen = discovered.iter().find(|u| same_user(d, servers, u));
+    ResolvedAccount {
+        kind: d.kind,
+        server_name: d.name.clone(),
+        base_url: d.base_url.clone(),
+        user_name: d.user.name.clone(),
+        avatar: d.user.avatar.clone().or_else(|| seen.and_then(|u| u.avatar.clone())),
+        connection: Some(d.clone()),
+        discovered: seen.cloned(),
+    }
+}
+
+/// The profiles of the current mode. In mode B, groups that have no profile
+/// yet get one (appended to `config.profiles`; the caller saves).
+pub fn resolve(config: &mut ProfilesConfig, servers: &[ServerDescriptor], defaults: &dyn Fn() -> PersonalSettings) -> Vec<Resolved> {
+    match config.mode {
+        ProfileMode::ServerUsers => derive(config, servers, defaults),
+        ProfileMode::Local | ProfileMode::Linked => config
+            .profiles
+            .iter()
+            .filter(|p| p.origin == Origin::Manual)
+            .map(|p| Resolved {
+                profile: p.clone(),
+                accounts: p
+                    .connections
+                    .iter()
+                    .filter_map(|id| servers.iter().find(|s| s.id == *id))
+                    .map(|d| connected(d, servers, &config.discovered))
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn derive(config: &mut ProfilesConfig, servers: &[ServerDescriptor], defaults: &dyn Fn() -> PersonalSettings) -> Vec<Resolved> {
+    let detached: HashSet<ServerId> = config.profiles.iter().flat_map(|p| p.detached.iter().copied()).collect();
+    // (key, display name, accounts), in order of first appearance.
+    let mut groups: Vec<(String, String, Vec<ResolvedAccount>)> = Vec::new();
+    let mut add = |key: String, name: &str, account: ResolvedAccount| match groups.iter_mut().find(|g| g.0 == key) {
+        Some(g) => g.2.push(account),
+        None => groups.push((key, name.to_owned(), vec![account])),
+    };
+    for d in servers {
+        let key = if detached.contains(&d.id) { format!("detached:{}", d.id) } else { normalize_name(&d.user.name) };
+        add(key, &d.user.name, connected(d, servers, &config.discovered));
+    }
+    for u in &config.discovered {
+        if servers.iter().any(|d| same_user(d, servers, u)) {
+            continue;
+        }
+        let Some(home) = servers.iter().find(|s| s.id == u.server) else { continue };
+        let account = ResolvedAccount {
+            kind: u.kind,
+            server_name: home.name.clone(),
+            base_url: home.base_url.clone(),
+            user_name: u.name.clone(),
+            avatar: u.avatar.clone(),
+            connection: None,
+            discovered: Some(u.clone()),
+        };
+        add(normalize_name(&u.name), &u.name, account);
+    }
+    groups
+        .into_iter()
+        .map(|(key, name, accounts)| {
+            let origin = Origin::Derived { key: key.clone() };
+            let profile = match config.profiles.iter().find(|p| p.origin == origin) {
+                Some(p) => p.clone(),
+                None => {
+                    let p = Profile::new(name, color_for(&key), origin, defaults());
+                    config.profiles.push(p.clone());
+                    p
+                }
+            };
+            Resolved { profile, accounts }
+        })
+        .collect()
+}
+
+/// What the catalogue loads for this profile.
+pub fn connections_of(r: &Resolved) -> Vec<ServerId> {
+    r.accounts.iter().filter_map(|a| a.connection.as_ref()).filter(|d| !d.disabled).map(|d| d.id).collect()
+}
+
+pub fn avatar_of(r: &Resolved) -> Option<Url> {
+    match r.profile.avatar {
+        AvatarStyle::Initials => None,
+        AvatarStyle::Server => r.accounts.iter().find_map(|a| a.avatar.clone()),
+    }
+}
+
+pub fn card(r: &Resolved, offline: &HashSet<ServerId>) -> ProfileCard {
+    ProfileCard {
+        id: r.profile.id,
+        name: r.profile.name.clone(),
+        color: r.profile.color.clone(),
+        avatar_key: avatar_of(r).map(|u| avatar_cache_key(&u)[..12].to_owned()),
+        locked: r.profile.pin.is_some(),
+        hidden: r.profile.hidden,
+        accounts: r
+            .accounts
+            .iter()
+            .map(|a| {
+                let connection = a.connection.as_ref().map(|d| d.id);
+                let home = a.discovered.as_ref().map(|u| u.server);
+                let state = if connection.or(home).is_some_and(|s| offline.contains(&s)) {
+                    AccountState::Offline
+                } else if connection.is_some() {
+                    AccountState::Connected
+                } else {
+                    AccountState::Pending
+                };
+                ProfileAccount {
+                    kind: a.kind,
+                    server_name: a.server_name.clone(),
+                    user_name: a.user_name.clone(),
+                    state,
+                    connection,
+                    base_url: a.base_url.clone(),
+                    needs_password: connection.is_none() && a.discovered.as_ref().is_some_and(|u| u.has_password),
+                    plex_pin: a.discovered.as_ref().is_some_and(|u| u.protected),
+                }
+            })
+            .collect(),
+    }
+}
+
+/// When multi-user is switched on, the profile that already holds what is
+/// loaded (so nobody is thrown out of what they were watching). Never a
+/// locked or hidden profile.
+pub fn best_match(resolved: &[Resolved], loaded: &std::collections::HashSet<ServerId>) -> Option<ProfileId> {
+    let mut best: Option<(usize, ProfileId)> = None;
+    for r in resolved.iter().filter(|r| r.profile.pin.is_none() && !r.profile.hidden) {
+        let n = connections_of(r).iter().filter(|id| loaded.contains(id)).count();
+        if n > 0 && best.is_none_or(|(m, _)| n > m) {
+            best = Some((n, r.profile.id));
+        }
+    }
+    best.map(|(_, id)| id)
 }
 
 #[cfg(test)]
@@ -21,5 +207,162 @@ mod tests {
         assert_eq!(normalize_name("Antoïne"), "antoine");
         assert_eq!(normalize_name("Élodie   Martin"), "elodie martin");
         assert_ne!(normalize_name("Léa"), normalize_name("Leo"));
+    }
+
+    use std::collections::HashSet;
+
+    use oneshot_core::profile::{AccountState, DiscoveredUser, Origin, Profile, ProfileMode, ProfilesConfig};
+    use oneshot_core::server::{ProviderKind, ServerDescriptor, UserProfile};
+    use oneshot_core::settings::PersonalSettings;
+    use oneshot_core::ServerId;
+    use url::Url;
+
+    fn conn(kind: ProviderKind, remote: &str, user_id: &str, user: &str) -> ServerDescriptor {
+        ServerDescriptor {
+            id: ServerId::new(),
+            kind,
+            name: format!("{remote} server"),
+            remote_id: remote.into(),
+            base_url: Url::parse(&format!("http://{remote}.local/")).unwrap(),
+            alternate_urls: vec![],
+            version: None,
+            user: UserProfile { id: user_id.into(), name: user.into(), avatar: None, is_admin: false },
+            disabled: false,
+        }
+    }
+
+    fn seen(on: &ServerDescriptor, user_id: &str, name: &str) -> DiscoveredUser {
+        DiscoveredUser { server: on.id, kind: on.kind, remote_user_id: user_id.into(), switch_id: None, name: name.into(), avatar: None, has_password: true, protected: false }
+    }
+
+    fn defaults() -> PersonalSettings {
+        PersonalSettings::default()
+    }
+
+    #[test]
+    fn groups_connections_by_normalised_name() {
+        let jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let px = conn(ProviderKind::Plex, "px", "11", "antoine ");
+        let lea = conn(ProviderKind::Jellyfin, "jf", "j2", "Léa");
+        let mut cfg = ProfilesConfig::default();
+        let r = resolve(&mut cfg, &[jf.clone(), px.clone(), lea.clone()], &defaults);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].profile.name, "Antoine");
+        assert_eq!(connections_of(&r[0]), vec![jf.id, px.id]);
+        assert_eq!(connections_of(&r[1]), vec![lea.id]);
+    }
+
+    #[test]
+    fn derived_profiles_are_created_once_with_stable_ids() {
+        let jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let mut cfg = ProfilesConfig::default();
+        let first = resolve(&mut cfg, std::slice::from_ref(&jf), &defaults);
+        let again = resolve(&mut cfg, std::slice::from_ref(&jf), &defaults);
+        assert_eq!(cfg.profiles.len(), 1);
+        assert_eq!(first[0].profile.id, again[0].profile.id);
+        assert_eq!(cfg.profiles[0].origin, Origin::Derived { key: "antoine".into() });
+    }
+
+    #[test]
+    fn discovered_users_become_pending_accounts_without_duplicating_connected_ones() {
+        let jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let mut cfg = ProfilesConfig { discovered: vec![seen(&jf, "j1", "Antoine"), seen(&jf, "j9", "Kid")], ..Default::default() };
+        let r = resolve(&mut cfg, std::slice::from_ref(&jf), &defaults);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].accounts.len(), 1, "Antoine is not listed twice");
+        let kid = card(&r[1], &HashSet::new());
+        assert_eq!(kid.name, "Kid");
+        assert_eq!(kid.accounts[0].state, AccountState::Pending);
+        assert!(kid.accounts[0].needs_password);
+        assert!(connections_of(&r[1]).is_empty());
+    }
+
+    #[test]
+    fn other_users_connection_is_not_in_active_profile() {
+        let me = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let kid = conn(ProviderKind::Jellyfin, "jf", "j9", "Kid");
+        let mut cfg = ProfilesConfig::default();
+        let r = resolve(&mut cfg, &[me.clone(), kid.clone()], &defaults);
+        let mine = r.iter().find(|p| p.profile.name == "Antoine").unwrap();
+        assert_eq!(connections_of(mine), vec![me.id]);
+    }
+
+    #[test]
+    fn detached_connection_forms_its_own_profile() {
+        let a = conn(ProviderKind::Jellyfin, "jf", "j1", "Alex");
+        let b = conn(ProviderKind::Plex, "px", "11", "alex");
+        let mut cfg = ProfilesConfig::default();
+        let before = resolve(&mut cfg, &[a.clone(), b.clone()], &defaults);
+        assert_eq!(before.len(), 1);
+        cfg.profiles[0].detached.push(b.id);
+        let after = resolve(&mut cfg, &[a.clone(), b.clone()], &defaults);
+        assert_eq!(after.len(), 2);
+        assert_eq!(connections_of(&after[0]), vec![a.id]);
+        assert_eq!(connections_of(&after[1]), vec![b.id]);
+    }
+
+    #[test]
+    fn disabled_connections_are_listed_but_not_loaded() {
+        let mut jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        jf.disabled = true;
+        let mut cfg = ProfilesConfig::default();
+        let r = resolve(&mut cfg, &[jf], &defaults);
+        assert_eq!(r[0].accounts.len(), 1);
+        assert!(connections_of(&r[0]).is_empty());
+    }
+
+    #[test]
+    fn manual_modes_list_their_own_connections_only() {
+        let a = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let b = conn(ProviderKind::Plex, "px", "11", "Antoine");
+        let mut p = Profile::new("Salon", "#5e8bff", Origin::Manual, defaults());
+        p.connections = vec![b.id, ServerId::new() /* removed since */];
+        let mut cfg = ProfilesConfig { mode: ProfileMode::Linked, profiles: vec![p], ..Default::default() };
+        let r = resolve(&mut cfg, &[a, b.clone()], &defaults);
+        assert_eq!(r.len(), 1);
+        assert_eq!(connections_of(&r[0]), vec![b.id]);
+    }
+
+    #[test]
+    fn offline_and_protected_accounts_show_on_cards() {
+        let px = conn(ProviderKind::Plex, "px", "11", "Antoine");
+        let mut member = seen(&px, "12", "Léa");
+        member.protected = true;
+        member.has_password = false;
+        let mut cfg = ProfilesConfig { discovered: vec![member], ..Default::default() };
+        let r = resolve(&mut cfg, std::slice::from_ref(&px), &defaults);
+        let offline: HashSet<ServerId> = [px.id].into();
+        assert_eq!(card(&r[0], &offline).accounts[0].state, AccountState::Offline);
+        let lea = card(&r[1], &HashSet::new());
+        assert!(lea.accounts[0].plex_pin);
+        assert!(!lea.accounts[0].needs_password);
+    }
+
+    #[test]
+    fn best_match_picks_the_profile_holding_the_loaded_connections() {
+        let a = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let b = conn(ProviderKind::Plex, "px", "11", "Antoine");
+        let k = conn(ProviderKind::Jellyfin, "jf", "j9", "Kid");
+        let mut cfg = ProfilesConfig::default();
+        let r = resolve(&mut cfg, &[a.clone(), b.clone(), k.clone()], &defaults);
+        let loaded: HashSet<ServerId> = [a.id, b.id, k.id].into();
+        assert_eq!(best_match(&r, &loaded), Some(r[0].profile.id));
+        let mut locked = r.clone();
+        locked[0].profile.pin = Some("hash".into());
+        assert_eq!(best_match(&locked, &loaded), Some(r[1].profile.id), "a locked profile is never entered silently");
+        assert_eq!(best_match(&r, &HashSet::new()), None);
+    }
+
+    #[test]
+    fn avatar_keys_follow_the_picture() {
+        let mut jf = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        jf.user.avatar = Some(Url::parse("https://plex.tv/users/a/avatar").unwrap());
+        let mut cfg = ProfilesConfig::default();
+        let r = resolve(&mut cfg, std::slice::from_ref(&jf), &defaults);
+        let key = card(&r[0], &HashSet::new()).avatar_key.unwrap();
+        assert_eq!(key.len(), 12);
+        cfg.profiles[0].avatar = oneshot_core::profile::AvatarStyle::Initials;
+        let r = resolve(&mut cfg, &[jf], &defaults);
+        assert_eq!(card(&r[0], &HashSet::new()).avatar_key, None);
     }
 }

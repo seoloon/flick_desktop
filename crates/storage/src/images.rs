@@ -29,6 +29,14 @@ pub fn cache_key(image: &ImageRef, size: ImageSize) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Cache key for a profile picture fetched from a public URL.
+pub fn avatar_cache_key(url: &url::Url) -> String {
+    let mut h = Sha256::new();
+    h.update(b"avatar\0");
+    h.update(url.as_str().as_bytes());
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
 impl ImageCache {
     pub fn new(dir: PathBuf, max_bytes: u64) -> Result<Self> {
         std::fs::create_dir_all(&dir).map_err(|e| Error::Storage(e.to_string()))?;
