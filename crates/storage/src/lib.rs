@@ -8,6 +8,7 @@
 
 pub mod cache;
 pub mod images;
+pub mod pin;
 pub mod profiles;
 pub mod secrets;
 
