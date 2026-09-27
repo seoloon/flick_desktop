@@ -50,7 +50,7 @@ impl PlexProvider {
         let c = self.container("hubs/search", &[("query", name.to_owned()), ("limit", "10".into())]).await?;
         let key = normalize_name(name);
         let same = |n: &str| normalize_name(n) == key;
-        Ok(c.hubs.iter().filter(|h| h.r#type.as_deref() == Some("actor")).find_map(|h| {
+        Ok(c.hubs.iter().filter(|h| is_people_hub(h)).find_map(|h| {
             h.directories
                 .iter()
                 .find(|d| d.tag.as_deref().is_some_and(same))
@@ -117,6 +117,15 @@ impl PlexProvider {
             .next()
             .ok_or_else(|| Error::NotFound(format!("plex item {key}")))
     }
+}
+
+/// Library filters that take a person's tag id.
+const PERSON_FILTERS: [&str; 3] = ["actor", "director", "writer"];
+
+/// A search hub listing people, however the server labels it.
+fn is_people_hub(h: &crate::dto::Hub) -> bool {
+    let people = |s: &str| matches!(s, "actor" | "director" | "writer" | "person" | "people");
+    h.r#type.as_deref().is_some_and(people) || h.hub_identifier.as_deref().is_some_and(|id| id.split('.').any(people))
 }
 
 fn sort(s: SortBy, o: SortOrder) -> String {
@@ -295,11 +304,21 @@ impl MediaProvider for PlexProvider {
             None => self.actor_id(name).await?,
         };
         let Some(actor) = actor else { return Ok(Vec::new()) };
-        let mut out = Vec::new();
+        let mut out: Vec<MediaItem> = Vec::new();
         for lib in self.libraries().await?.into_iter().filter(|l| matches!(l.kind, LibraryKind::Movies | LibraryKind::Shows)) {
             let Some(section) = lib.id.key.strip_prefix("section:") else { continue };
-            let c = self.container(&format!("library/sections/{section}/all"), &[("actor", actor.to_string())]).await?;
-            out.extend(self.items(&c.metadata));
+            // Actors, directors and writers are separate tags: a person
+            // opened from the crew is found under their own filter.
+            for filter in PERSON_FILTERS {
+                let c = self
+                    .container(&format!("library/sections/{section}/all"), &[(filter, actor.to_string()), ("includeGuids", "1".into())])
+                    .await?;
+                for item in self.items(&c.metadata) {
+                    if !out.iter().any(|o| o.id == item.id) {
+                        out.push(item);
+                    }
+                }
+            }
         }
         Ok(out)
     }

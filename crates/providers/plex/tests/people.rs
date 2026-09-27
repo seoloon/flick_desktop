@@ -3,7 +3,7 @@ use oneshot_core::server::{ProviderKind, ServerDescriptor, UserProfile};
 use oneshot_core::{ItemRef, ServerId};
 use oneshot_plex::{PlexIdentity, PlexProvider};
 use url::Url;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn provider(server: &MockServer) -> PlexProvider {
@@ -42,6 +42,7 @@ async fn mount_sections(server: &MockServer, actor: &str) {
     Mock::given(method("GET"))
         .and(path("/library/sections/1/all"))
         .and(query_param("actor", actor))
+        .and(query_param("includeGuids", "1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "Metadata": [
             { "ratingKey": "10", "type": "movie", "title": "Forrest Gump" } ] } })))
         .mount(server)
@@ -49,8 +50,15 @@ async fn mount_sections(server: &MockServer, actor: &str) {
     Mock::given(method("GET"))
         .and(path("/library/sections/2/all"))
         .and(query_param("actor", actor))
+        .and(query_param("includeGuids", "1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "Metadata": [
             { "ratingKey": "20", "type": "show", "title": "Band of Brothers" } ] } })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("^/library/sections/[12]/all$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "size": 0 } })))
+        .with_priority(10)
         .mount(server)
         .await;
     Mock::given(method("GET"))
@@ -111,3 +119,35 @@ async fn nobody_of_that_name_means_no_titles() {
         .await;
     assert!(provider(&server).person_items("Tom Hanks", None).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_director_of_this_server_finds_the_titles_they_directed() {
+    let server = MockServer::start().await;
+    mount_sections(&server, "0").await;
+    Mock::given(method("GET"))
+        .and(path("/library/sections/1/all"))
+        .and(query_param("director", "77"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "Metadata": [
+            { "ratingKey": "30", "type": "movie", "title": "That Thing You Do!" } ] } })))
+        .mount(&server)
+        .await;
+    let p = provider(&server);
+    let hint = ItemRef::new(p.descriptor().id, "77");
+    let keys: Vec<String> = p.person_items("Tom Hanks", Some(&hint)).await.unwrap().into_iter().map(|i| i.id.key).collect();
+    assert_eq!(keys, ["30"]);
+}
+
+#[tokio::test]
+async fn a_people_hub_labelled_otherwise_is_still_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hubs/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "MediaContainer": { "Hub": [
+            { "type": "person", "hubIdentifier": "people", "title": "People", "Directory": [ { "tag": "Tom Hanks", "id": 4242 } ] }
+        ] } })))
+        .mount(&server)
+        .await;
+    mount_sections(&server, "4242").await;
+    assert_eq!(provider(&server).person_items("Tom Hanks", None).await.unwrap().len(), 2);
+}
+
