@@ -117,8 +117,10 @@ composants `tv/` les habillent pour la télécommande.
   image. Repliée, sa largeur centre exactement les icônes, qui ne bougent pas.
 - **Flick Frame** : barre d'onglets tvOS en haut, qui s'efface quand on
   descend dans le contenu et revient quand le focus remonte. Police racine
-  `clamp(18px, 1.25vw, 40px)` (tout est en rem), plein écran, curseur masqué
-  après 2,5 s.
+  `clamp(15.3px, 1.0625vw, 34px)` (85 % du premier réglage) (tout est en rem), plein écran, curseur masqué
+  après 2,5 s. L'entrée joue l'intro Flick (`lib/intro.ts`) et bascule
+  dessous, pour que le plein écran et la nouvelle mise en page ne se voient
+  pas à moitié faits. L'intro ne se passe pas.
 
 ### Barre de titre (`shell/TitleBar.tsx`)
 

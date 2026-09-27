@@ -553,7 +553,7 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
 - **Focus engine** unique (clavier, manette via Gamepad API, télécommande =
   flèches/Enter/Back) : navigation spatiale par géométrie, mémoire de focus par
   rangée. Le mode normal l'utilise aussi (accessibilité clavier).
-- **Flick Frame** : même données, layouts dédiés (échelle ×1,5–2, safe area TV,
+- **Flick Frame** : même données, layouts dédiés (échelle ≈ ×1,3 en 1080p à ×2 en 4K, safe area TV,
   focus très visible, transitions plus cinématiques), plein écran, curseur
   masqué.
 - **Fond adaptatif** : palette extraite côté Rust depuis l'image `Tiny` (k-means

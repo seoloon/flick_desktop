@@ -1,6 +1,6 @@
 // Launch animation over the app, which starts underneath and loads while it
-// plays. It fades out when it ends; a click, a key or a controller button
-// skips it, and that input never reaches the app below.
+// plays (at start-up, and when switching to Flick Frame). It always plays
+// to the end, then fades out; input during it never reaches the app below.
 import { Player, type PlayerRef } from "@remotion/player";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -23,8 +23,14 @@ export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIn
   const ref = useRef<PlayerRef>(null);
   const [skipped] = useState(() => skip || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   // The composition takes the window's size: everything scales with its height,
-  // so there is no letterboxing whatever the aspect ratio.
-  const [size] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  // so there is no letterboxing whatever the aspect ratio. It follows the
+  // window, which goes fullscreen underneath when Flick Frame opens.
+  const [size, setSize] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  useEffect(() => {
+    const resize = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const [leaving, setLeaving] = useState(false);
   const done = useRef(onDone);
   done.current = onDone;
@@ -38,15 +44,10 @@ export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIn
     const leave = () => setLeaving(true);
     const player = ref.current;
     player?.addEventListener("ended", leave);
-    // Keys first (before they become actions), then controller actions.
-    const offKey = onKey(() => {
-      leave();
-      return true;
-    });
-    const offAction = onAction(() => {
-      leave();
-      return true;
-    });
+    // Not skippable: keys (before they become actions) and controller
+    // actions are swallowed so nothing moves underneath.
+    const offKey = onKey(() => true);
+    const offAction = onAction(() => true);
     return () => {
       player?.removeEventListener("ended", leave);
       offKey();
@@ -58,7 +59,7 @@ export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIn
   return (
     <AnimatePresence onExitComplete={() => done.current()}>
       {!leaving && (
-        <motion.div key="intro" exit={{ opacity: 0 }} transition={FADE} onPointerDown={() => setLeaving(true)} className="fixed inset-0 z-[9999] cursor-default">
+        <motion.div key="intro" exit={{ opacity: 0 }} transition={FADE} className="fixed inset-0 z-[9999] cursor-default">
           <Player
             ref={ref}
             component={FlickIntro}

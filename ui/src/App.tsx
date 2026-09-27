@@ -8,6 +8,7 @@ import { Debug } from "@/features/debug/Debug";
 import { Detail } from "@/features/detail/Detail";
 import { Favorites } from "@/features/favorites/Favorites";
 import { LaunchIntro } from "@/features/intro/LaunchIntro";
+import { useIntro } from "@/lib/intro";
 import { PersonPage } from "@/features/person/PersonPage";
 import { Home } from "@/features/home/Home";
 import { Libraries } from "@/features/library/Libraries";
@@ -47,8 +48,10 @@ function GlobalActions() {
 
 export function App() {
   const intensity = useSettings()?.appearance.animationIntensity ?? 1;
-  // Once per launch; the app starts underneath and loads while it plays.
-  const [intro, setIntro] = useState(true);
+  // At launch, and each time playIntro() asks (entering Flick Frame); the app
+  // runs underneath and loads while it plays.
+  const run = useIntro((s) => s.run);
+  const [shown, setShown] = useState(-1);
   return (
     <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion={intensity === 0 ? "always" : "user"}>
@@ -78,7 +81,7 @@ export function App() {
           </LayoutGroup>
         </BrowserRouter>
         <Toaster position="bottom-center" />
-        {intro && <LaunchIntro skip={intensity === 0} onDone={() => setIntro(false)} />}
+        {shown !== run && <LaunchIntro key={run} skip={intensity === 0} onDone={() => setShown(run)} />}
       </MotionConfig>
     </QueryClientProvider>
   );

@@ -130,9 +130,9 @@
     text-rendering: optimizeLegibility;
   }
   /* Flick Frame: everything is in rem, so scaling the root scales the UI for
-     viewing from the sofa. */
+     viewing from the sofa (85 % of the first tuning: 18px–40px, 1.25vw). */
   html.frame {
-    font-size: clamp(18px, 1.25vw, 40px);
+    font-size: clamp(15.3px, 1.0625vw, 34px);
   }
   body {
     /* The window is transparent: the native video layer lives *behind* the
