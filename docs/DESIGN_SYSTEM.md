@@ -81,6 +81,7 @@ deviennent opaques, sans `backdrop-filter` (GPU faibles, écrans 4K).
 | `ProfileAvatar` | Avatar rond d'un profil | image serveur (proxy `oneshot-img`) ou initiales sur dégradé de sa couleur ; `layoutId` : vole du sélecteur à la sidebar |
 | `AccountPills` | Provenance des comptes d'un profil | pleine = connecté, pointillés = à connecter, estompée « hors ligne » = serveur injoignable, estompée « off » = serveur désactivé |
 | `PinPad` | PIN à 4 chiffres | touches focalisables + chiffres/Retour arrière clavier pris en priorité via `onKey` (ui/src/nav/input.ts) ; Échap / B annulent ; secousse si faux ; décompte si verrouillé |
+| `KnownForCard` | Titre de la filmographie TMDB absent des serveurs (page personne) | affiche TMDB via `oneshot-img`, focalisable, sans action ; même format que les affiches |
 | `TextField`, `Notice`, `Spinner`, `EmptyState`, `Panel`, `Facts`, `Pill` | Formulaires, états, faits | `Pill` n'affiche que ce que les métadonnées disent |
 
 Les primitives shadcn (`components/ui/`) et animate-ui

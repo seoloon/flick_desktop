@@ -16,6 +16,7 @@ import { Segmented } from "@/components/tv/Segmented";
 import { Shelf } from "@/components/tv/Shelf";
 import { api, asError } from "@/ipc/api";
 import type { Credit } from "@/ipc/bindings/Credit";
+import type { ItemRef } from "@/ipc/bindings/ItemRef";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { imageUrl } from "@/ipc/images";
 import { ambientFor } from "@/lib/ambient";
@@ -23,6 +24,7 @@ import { audioCodecLabel, badges, bitrate, channelsLabel, remaining, resolutionL
 import { enter, focusSpring } from "@/lib/motion";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
 import { ServerBadge } from "@/components/tv/ServerBadge";
+import { personPath } from "@/lib/person";
 import { useSources } from "@/lib/servers";
 import { isPlayable, playPath } from "../player/route";
 
@@ -127,7 +129,7 @@ export function Detail() {
       <div className="relative flex flex-col gap-4 pb-20">
         {item.kind === "series" && <Seasons series={item} />}
         {(item.kind === "season" || item.kind === "collection" || item.kind === "playlist") && <Children item={item} />}
-        {item.credits.length > 0 && <Cast credits={item.credits.slice(0, 30)} />}
+        {item.credits.length > 0 && <Cast credits={item.credits.slice(0, 30)} from={item.id} />}
         {similar.data && similar.data.length > 0 && <Shelf id="similar" title="More Like This" items={similar.data} shape="poster" />}
         <TechInfo item={item} />
       </div>
@@ -175,20 +177,21 @@ function Children({ item }: { item: MediaItem }) {
   return <Shelf id="children" title={season ? "Episodes" : "Titles"} items={children.data} shape={season ? "thumb" : "poster"} />;
 }
 
-function Cast({ credits }: { credits: Credit[] }) {
+function Cast({ credits, from }: { credits: Credit[]; from: ItemRef }) {
   return (
     <section className="flex flex-col">
       <h2 className="px-[var(--gutter)] text-[1.3125rem] font-semibold">Cast &amp; Crew</h2>
       <FocusGroup focusKey="cast" fade="x" className="[--fade-size:var(--gutter)] no-scrollbar flex gap-6 overflow-x-auto px-[var(--gutter)] pt-5 pb-8">
         {credits.map((c, i) => (
-          <Person key={`${c.name}-${i}`} credit={c} />
+          <Person key={`${c.name}-${i}`} credit={c} from={from} />
         ))}
       </FocusGroup>
     </section>
   );
 }
 
-function Person({ credit }: { credit: Credit }) {
+function Person({ credit, from }: { credit: Credit; from: ItemRef }) {
+  const navigate = useNavigate();
   const tv = useTv<HTMLButtonElement>();
   const src = imageUrl(credit.image, "tiny");
   return (
@@ -198,7 +201,8 @@ function Person({ credit }: { credit: Credit }) {
       {...tv.props}
       animate={{ scale: tv.showFocus ? 1.1 : 1 }}
       transition={focusSpring}
-      className="flex w-28 shrink-0 cursor-default flex-col items-center gap-2.5 text-center scroll-mx-[var(--gutter)]"
+      onClick={() => navigate(personPath(credit, from))}
+      className="flex w-28 shrink-0 cursor-pointer flex-col items-center gap-2.5 text-center scroll-mx-[var(--gutter)]"
     >
       <span className="relative size-24 overflow-hidden rounded-full bg-white/[0.08] shadow-[0_12px_30px_-14px_rgb(0_0_0/0.8)] ring-1 ring-white/10">
         {src ? (

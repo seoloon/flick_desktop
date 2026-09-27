@@ -8,6 +8,7 @@ import { Debug } from "@/features/debug/Debug";
 import { Detail } from "@/features/detail/Detail";
 import { Favorites } from "@/features/favorites/Favorites";
 import { LaunchIntro } from "@/features/intro/LaunchIntro";
+import { PersonPage } from "@/features/person/PersonPage";
 import { Home } from "@/features/home/Home";
 import { Libraries } from "@/features/library/Libraries";
 import { LibraryGrid } from "@/features/library/LibraryGrid";
@@ -68,6 +69,7 @@ export function App() {
                 {/* Servers moved into Settings; old links keep working. */}
                 <Route path="/servers" element={<Navigate to="/settings?s=servers" replace />} />
                 <Route path="/favorites" element={<Favorites />} />
+                <Route path="/person/:ref" element={<PersonPage />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/debug" element={<Debug />} />
