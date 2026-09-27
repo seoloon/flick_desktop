@@ -322,7 +322,7 @@ pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Opti
     state.check_pin(id, pin.as_deref())?;
     if let Some(next) = &edit.connections {
         // Bound first: no `profiles` guard may be held while `check_pin` runs.
-        let owners = locked_owners(&state.profiles.read().profiles, id, next);
+        let owners = profiles::locked_owners(&state.profiles.read().profiles, id, next);
         for owner in owners {
             state.check_pin(owner, owner_pin.as_deref())?;
         }
@@ -352,18 +352,6 @@ pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Opti
         state.restore_servers();
     }
     Ok(())
-}
-
-/// Other PIN-protected manual profiles using a connection that `next` adds
-/// to profile `id`.
-fn locked_owners(all: &[Profile], id: ProfileId, next: &[ServerId]) -> Vec<ProfileId> {
-    let current: &[ServerId] = all.iter().find(|p| p.id == id).map_or(&[], |p| &p.connections);
-    let added: Vec<&ServerId> = next.iter().filter(|c| !current.contains(c)).collect();
-    all.iter()
-        .filter(|p| p.id != id && p.origin == Origin::Manual && p.pin.is_some())
-        .filter(|p| added.iter().any(|c| p.connections.contains(c)))
-        .map(|p| p.id)
-        .collect()
 }
 
 #[tauri::command]
@@ -417,29 +405,4 @@ pub fn profile_delete(state: St<'_>, id: ProfileId, pin: Option<String>) -> Resu
         state.restore_servers();
     }
     Ok(removed.connections.into_iter().filter(|c| !used.contains(c)).collect())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn manual(name: &str, connections: &[ServerId], pin: bool) -> Profile {
-        let mut p = Profile::new(name, "#5e8bff", Origin::Manual, PersonalSettings::default());
-        p.connections = connections.to_vec();
-        p.pin = pin.then(|| "hash".to_owned());
-        p
-    }
-
-    #[test]
-    fn linking_a_locked_profiles_connection_names_its_owner() {
-        let (shared, parents, open) = (ServerId::new(), ServerId::new(), ServerId::new());
-        let kid = manual("Kid", &[shared], false);
-        let parent = manual("Parent", &[shared, parents], true);
-        let guest = manual("Guest", &[open], false);
-        let all = [kid.clone(), parent.clone(), guest];
-        assert!(locked_owners(&all, kid.id, &[shared]).is_empty(), "already linked: no new PIN");
-        assert!(locked_owners(&all, kid.id, &[shared, open]).is_empty(), "an open profile's connection is free");
-        assert_eq!(locked_owners(&all, kid.id, &[shared, parents]), vec![parent.id]);
-        assert!(locked_owners(&all, parent.id, &[shared, parents, open]).is_empty(), "a profile never guards itself");
-    }
 }

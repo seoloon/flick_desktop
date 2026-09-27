@@ -259,7 +259,9 @@ impl AppState {
         }
     }
 
-    /// Modes A/C: a connection added while a profile is active belongs to it.
+    /// Modes A/C: a connection added while a profile is active belongs to it,
+    /// unless another PIN-protected profile already uses it (linking that one
+    /// asks the owner's PIN, from the profile sheet).
     fn attach_to_active(&self, id: ServerId) -> Result<()> {
         let (enabled, mode) = {
             let cfg = self.profiles.read();
@@ -267,11 +269,19 @@ impl AppState {
         };
         let active = *self.active_profile.read();
         match active {
-            Some(pid) if enabled && mode != ProfileMode::ServerUsers => self.update_profile(pid, |p| {
-                if p.origin == Origin::Manual && !p.connections.contains(&id) {
-                    p.connections.push(id);
+            Some(pid) if enabled && mode != ProfileMode::ServerUsers => {
+                // Bound first: `update_profile` takes the `profiles` write guard.
+                let owned = !profiles::locked_owners(&self.profiles.read().profiles, pid, &[id]).is_empty();
+                if owned {
+                    tracing::info!(target: "provider", server = %id, "connection belongs to a protected profile; link it from the profile sheet");
+                    return Ok(());
                 }
-            }),
+                self.update_profile(pid, |p| {
+                    if p.origin == Origin::Manual && !p.connections.contains(&id) {
+                        p.connections.push(id);
+                    }
+                })
+            }
             _ => Ok(()),
         }
     }
@@ -291,8 +301,7 @@ impl AppState {
         {
             let mut servers = self.servers.write();
             if let Some(existing) = servers.iter().find(|s| s.kind == d.kind && s.remote_id == d.remote_id && s.user.id == d.user.id) {
-                d.id = existing.id;
-                d.disabled = existing.disabled;
+                d = d.merged_with(existing);
             }
             secrets::store_token(d.id, token)?;
             servers.retain(|s| s.id != d.id);

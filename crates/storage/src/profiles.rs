@@ -223,6 +223,18 @@ pub fn loadable(
         .collect()
 }
 
+/// Other PIN-protected manual profiles using a connection that `next` adds
+/// to profile `id`: linking it needs their PIN (modes A/C).
+pub fn locked_owners(all: &[Profile], id: ProfileId, next: &[ServerId]) -> Vec<ProfileId> {
+    let current: &[ServerId] = all.iter().find(|p| p.id == id).map_or(&[], |p| &p.connections);
+    let added: Vec<&ServerId> = next.iter().filter(|c| !current.contains(c)).collect();
+    all.iter()
+        .filter(|p| p.id != id && p.origin == Origin::Manual && p.pin.is_some())
+        .filter(|p| added.iter().any(|c| p.connections.contains(c)))
+        .map(|p| p.id)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,5 +458,35 @@ mod tests {
         let all: HashSet<ServerId> = [jf.id, kid.id].into();
         assert!(loadable(&servers, &discovered, None, &all, false).is_empty());
         assert!(loadable(&servers, &discovered, Some(&all), &all, true).is_empty());
+    }
+
+    fn manual(name: &str, connections: &[ServerId], pin: bool) -> Profile {
+        let mut p = Profile::new(name, "#5e8bff", Origin::Manual, defaults());
+        p.connections = connections.to_vec();
+        p.pin = pin.then(|| "hash".to_owned());
+        p
+    }
+
+    #[test]
+    fn linking_a_locked_profiles_connection_names_its_owner() {
+        let (shared, parents, open) = (ServerId::new(), ServerId::new(), ServerId::new());
+        let kid = manual("Kid", &[shared], false);
+        let parent = manual("Parent", &[shared, parents], true);
+        let guest = manual("Guest", &[open], false);
+        let all = [kid.clone(), parent.clone(), guest];
+        assert!(locked_owners(&all, kid.id, &[shared]).is_empty(), "already linked: no new PIN");
+        assert!(locked_owners(&all, kid.id, &[shared, open]).is_empty(), "an open profile's connection is free");
+        assert_eq!(locked_owners(&all, kid.id, &[shared, parents]), vec![parent.id]);
+        assert!(locked_owners(&all, parent.id, &[shared, parents, open]).is_empty(), "a profile never guards itself");
+    }
+
+    #[test]
+    fn attaching_a_connection_to_the_active_profile_respects_locked_owners() {
+        let parents = ServerId::new();
+        let kid = manual("Kid", &[], false);
+        let parent = manual("Parent", &[parents], true);
+        let all = [kid.clone(), parent.clone()];
+        assert_eq!(locked_owners(&all, kid.id, &[parents]), vec![parent.id], "a locked profile's connection is owned");
+        assert!(locked_owners(&all, kid.id, &[ServerId::new()]).is_empty(), "a brand-new connection is free");
     }
 }
