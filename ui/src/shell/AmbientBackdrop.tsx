@@ -28,8 +28,9 @@ function BlurredArt({ src }: { src: string }) {
 export function AmbientBackdrop() {
   const image = useAmbient((s) => s.image);
   const palette = useAmbient((s) => s.palette);
+  const url = useAmbient((s) => s.url);
   // A small rendition is plenty once blurred, and cheap to decode.
-  const src = imageUrl(image, "card");
+  const src = url ?? imageUrl(image, "card");
   const [c1, c2] = palette?.colors ?? [];
 
   return (

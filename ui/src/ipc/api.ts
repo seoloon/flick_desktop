@@ -103,6 +103,7 @@ export const api = {
   // people
   personDetails: (person: ItemRef, name: string, from: ItemRef | null, language: string) =>
     call<PersonDetails>("person_details", { person, name, from, language }),
+  personServer: (person: ItemRef, name: string) => call<PersonDetails>("person_server", { person, name }),
   personItems: (person: ItemRef, name: string) => call<Aggregated<MediaItem[]>>("person_items", { person, name }),
   tmdbStatus: () => call<boolean>("tmdb_status"),
   tmdbSetKey: (key: string) => call<void>("tmdb_set_key", { key }),
@@ -127,6 +128,7 @@ export const api = {
   setFullscreen: (fullscreen: boolean) => call<void>("set_fullscreen", { fullscreen }),
   windowPip: (enter: boolean) => call<void>("window_pip", { enter }),
   palette: (item: ItemRef, kind: ImageKind, tag: string) => call<Palette>("palette", { item, kind, tag }),
+  tmdbPalette: (path: string) => call<Palette>("tmdb_palette", { path }),
   cacheClear: () => call<void>("cache_clear"),
 
   // admin

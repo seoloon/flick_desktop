@@ -39,16 +39,17 @@ export function lifeLine(d: Pick<PersonDetails, "birth" | "death" | "birthplace"
 const norm = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 
 /**
- * TMDB titles the servers do not have (same TMDB id, or same title and
+ * TMDB titles the servers do not have (same kind and TMDB id, or same title and
  * year), most voted first. Empty until the servers' titles are known, so
  * cards never vanish under the user as they load.
  */
 export function alsoKnownFor(credits: KnownFor[], onServers: MediaItem[] | undefined, limit = 20): KnownFor[] {
   if (!onServers) return [];
-  const ids = new Set(onServers.flatMap((i) => (i.externalIds.tmdb ? [i.externalIds.tmdb] : [])));
+  // TMDB numbers movies and series separately: the kind is part of the id.
+  const ids = new Set(onServers.flatMap((i) => (i.externalIds.tmdb ? [`${i.kind}:${i.externalIds.tmdb}`] : [])));
   const titles = new Set(onServers.map((i) => `${norm(i.title)}|${i.year ?? ""}`));
   return credits
-    .filter((c) => !ids.has(c.tmdbId) && !titles.has(`${norm(c.title)}|${c.year ?? ""}`))
+    .filter((c) => !ids.has(`${c.kind}:${c.tmdbId}`) && !titles.has(`${norm(c.title)}|${c.year ?? ""}`))
     .sort((a, b) => b.voteCount - a.voteCount)
     .slice(0, limit);
 }

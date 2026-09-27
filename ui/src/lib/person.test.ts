@@ -36,6 +36,11 @@ describe("person helpers", () => {
     expect(alsoKnownFor(Array.from({ length: 30 }, (_, i) => kf(String(i), `T${i}`, 2000, 30 - i)), [])).toHaveLength(20);
   });
 
+  it("does not confuse a movie and a series sharing a TMDB id", () => {
+    const show = { ...kf("1399", "Game of Thrones", 2011, 900), kind: "series" } as KnownFor;
+    expect(alsoKnownFor([show], [item("m", "movie", "1399", "Some Movie", 1999)]).map((c) => c.title)).toEqual(["Game of Thrones"]);
+  });
+
   it("waits for the servers' titles before saying what they lack", () => {
     expect(alsoKnownFor([kf("13", "Forrest Gump", 1994, 900)], undefined)).toEqual([]);
   });

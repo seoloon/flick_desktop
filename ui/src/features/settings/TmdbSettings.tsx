@@ -8,6 +8,7 @@ import { Button } from "@/components/tv/Button";
 import { Notice } from "@/components/tv/Feedback";
 import { InfoRow, SettingsGroup } from "@/components/tv/SettingsList";
 import { TextField } from "@/components/tv/TextField";
+import { TmdbLogo } from "@/components/tv/TmdbLogo";
 import { api, asError } from "@/ipc/api";
 import { FocusGroup } from "@/nav/Focusable";
 
@@ -15,10 +16,7 @@ import { FocusGroup } from "@/nav/Focusable";
 function Attribution() {
   return (
     <div className="flex flex-col gap-2">
-      {/* The official logo is not bundled: its name, set like a wordmark, in white. */}
-      <span aria-label="TMDB" className="font-heading text-lg leading-none font-black tracking-tight text-white">
-        TMDB
-      </span>
+      <TmdbLogo />
       <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
     </div>
   );

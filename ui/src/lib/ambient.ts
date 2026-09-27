@@ -15,9 +15,11 @@ type AmbientState = {
   palette: Palette | null;
   /** The item the user is looking at (focus/hover). */
   item: MediaItem | null;
+  /** A picture that is not artwork (a person's photo); wins over `image`. */
+  url: string | null;
 };
 
-export const useAmbient = create<AmbientState>(() => ({ image: null, palette: null, item: null }));
+export const useAmbient = create<AmbientState>(() => ({ image: null, palette: null, item: null, url: null }));
 
 const cache = new Map<string, Palette>();
 let timer: number | undefined;
@@ -26,7 +28,11 @@ let wanted = "";
 const key = (img: ImageRef) => `${img.item}|${img.tag}`;
 
 function apply(image: ImageRef, p: Palette | null) {
-  useAmbient.setState({ image, palette: p });
+  useAmbient.setState({ image, palette: p, url: null });
+  tint(p);
+}
+
+function tint(p: Palette | null) {
   if (!p) return;
   const root = document.documentElement.style;
   root.setProperty("--ambient-base", p.base);
@@ -40,7 +46,7 @@ export function artworkFor(item: MediaItem | null | undefined): ImageRef | null 
 /** Makes `item` the ambience. Cheap to call on every focus change. */
 export function ambientFor(item: MediaItem | null | undefined) {
   if (!item) return;
-  if (useAmbient.getState().item?.id !== item.id) useAmbient.setState({ item });
+  if (useAmbient.getState().item?.id !== item.id) useAmbient.setState({ item, url: null });
   const img = artworkFor(item);
   if (!img) return;
   const k = key(img);
@@ -68,7 +74,7 @@ export function ambientColor(color: string) {
   wanted = "";
   window.clearTimeout(timer);
   const base = `color-mix(in srgb, ${color} 12%, black)`;
-  useAmbient.setState({ image: null, item: null, palette: { colors: [color, color], base, accent: color } });
+  useAmbient.setState({ image: null, item: null, url: null, palette: { colors: [color, color], base, accent: color } });
   const root = document.documentElement.style;
   root.setProperty("--ambient-base", base);
   root.setProperty("--ambient-accent", color);
@@ -78,5 +84,23 @@ export function ambientColor(color: string) {
 export function ambientReset() {
   wanted = "";
   window.clearTimeout(timer);
-  useAmbient.setState({ image: null, palette: null, item: null });
+  useAmbient.setState({ image: null, palette: null, item: null, url: null });
+}
+
+/** A person's photo as the ambience; `palette` computes its colours in Rust. */
+export function ambientPhoto(url: string, palette: () => Promise<Palette>) {
+  if (url === wanted) return;
+  wanted = url;
+  window.clearTimeout(timer);
+  useAmbient.setState({ image: null, item: null, url, palette: cache.get(url) ?? null });
+  if (cache.has(url)) return tint(cache.get(url)!);
+  palette().then(
+    (p) => {
+      cache.set(url, p);
+      if (wanted !== url) return;
+      useAmbient.setState({ palette: p });
+      tint(p);
+    },
+    () => undefined, // the photo still shows, untinted
+  );
 }
