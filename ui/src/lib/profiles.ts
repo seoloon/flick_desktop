@@ -35,7 +35,9 @@ export async function switchProfile(id: ProfileId, opts: { pin?: string; plexPin
     // Never show one frame of the previous profile's data.
     queryClient.clear();
     ambientReset();
-    await loadSettings();
+    // The new profile list first: the sidebar's avatar row must exist when
+    // the chosen avatar lands, so it flies there directly.
+    await Promise.all([loadSettings(), queryClient.fetchQuery(profilesQuery)]);
     useProfileSwitch.setState({ phase: "entering" });
     return outcome;
   } catch (e) {

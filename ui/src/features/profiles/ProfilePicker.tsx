@@ -33,7 +33,9 @@ import { ProfileTile } from "./ProfileTile";
 
 const INTRO_MS = 700;
 
-type Step = { id: ProfileId; stage: PickStage; pin?: string; plexPin?: string; pending: ProfileAccount[]; signIn: number; plexWrong?: boolean };
+// The chosen card is kept here: a switch clears the query cache, and the
+// avatar must not leave the centre while the profile list reloads.
+type Step = { id: ProfileId; card: ProfileCard; stage: PickStage; pin?: string; plexPin?: string; pending: ProfileAccount[]; signIn: number; plexWrong?: boolean };
 
 export function ProfilePicker() {
   const navigate = useNavigate();
@@ -48,7 +50,7 @@ export function ProfilePicker() {
 
   const data = query.data;
   const cards = visibleProfiles(data?.profiles ?? []);
-  const selected = step ? cards.find((c) => c.id === step.id) : undefined;
+  const selected = step?.card;
   const focusedCard = cards.find((c) => c.id === focused);
   const ready = !intro && !!data;
 
@@ -74,7 +76,7 @@ export function ProfilePicker() {
 
   const choose = useCallback((card: ProfileCard) => {
     setProgress(0);
-    setStep({ id: card.id, stage: nextStage(card, null), pending: pendingSignIns(card), signIn: 0 });
+    setStep({ id: card.id, card, stage: nextStage(card, null), pending: pendingSignIns(card), signIn: 0 });
   }, []);
 
   // ?pick=<id>: arriving from the sidebar for a profile that needs typing.

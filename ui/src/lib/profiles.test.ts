@@ -3,7 +3,10 @@ import type { ProfileAccount } from "@/ipc/bindings/ProfileAccount";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
 
 vi.mock("@/ipc/api", () => ({
-  api: { profileSwitch: vi.fn(async () => ({ failed: [] })) },
+  api: {
+    profileSwitch: vi.fn(async () => ({ failed: [] })),
+    profilesState: vi.fn(async () => ({ enabled: true, mode: "serverUsers", askOnStartup: true, active: "p2", profiles: [], anyLocked: false })),
+  },
   asError: (e: { kind?: string; message?: string }) => ({ kind: e?.kind ?? "other", message: String(e?.message ?? e) }),
 }));
 vi.mock("@/lib/settings", () => ({ loadSettings: vi.fn(async () => null) }));
@@ -76,6 +79,11 @@ describe("switchProfile", () => {
     expect(queryClient.getQueryData(["home"])).toBeUndefined();
     expect(queryClient.getQueryData(["item", "x"])).toBeUndefined();
     expect(useProfileSwitch.getState().phase).toBe("entering");
+  });
+
+  it("has the new profile list ready, so the sidebar can receive the avatar", async () => {
+    await switchProfile("p2", {});
+    expect(queryClient.getQueryData<{ active: string }>(["profiles"])?.active).toBe("p2");
   });
 
   it("goes back to idle when the switch fails", async () => {
