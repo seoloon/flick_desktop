@@ -200,6 +200,7 @@ fn main() {
             commands::catalog::adjacent,
             commands::catalog::markers,
             commands::catalog::search,
+            commands::catalog::favorites,
             commands::catalog::set_played,
             commands::catalog::set_favorite,
             commands::playback::play,

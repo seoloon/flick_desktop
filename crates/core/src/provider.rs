@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::ids::ItemRef;
 use crate::media::{ImageRef, ImageSize, ItemKind, Marker, MediaItem};
 use crate::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
-use crate::query::{HomeRow, ItemQuery, Page};
+use crate::query::{HomeRow, ItemFilter, ItemQuery, Page, SortBy, SortOrder};
 use crate::server::{Library, ProviderKind, ServerDescriptor, ServerStatus};
 
 /// Previous/next items around an episode, for autoplay and player buttons.
@@ -45,6 +45,22 @@ pub trait MediaProvider: Send + Sync + std::fmt::Debug {
 
     async fn set_played(&self, id: &ItemRef, played: bool) -> Result<()>;
     async fn set_favorite(&self, id: &ItemRef, favorite: bool) -> Result<()>;
+
+    /// The signed-in user's favourites across the whole server, newest
+    /// first. Default: the favourites filter of `items`, so a server whose
+    /// `items` refuses that filter reports `Unsupported`.
+    async fn favorites(&self, limit: u32) -> Result<Vec<MediaItem>> {
+        let query = ItemQuery {
+            parent: None,
+            kinds: vec![ItemKind::Movie, ItemKind::Series, ItemKind::Episode, ItemKind::Collection],
+            filter: ItemFilter { favorites_only: true, ..ItemFilter::default() },
+            sort: SortBy::DateAdded,
+            order: SortOrder::Descending,
+            start: 0,
+            limit,
+        };
+        Ok(self.items(&query).await?.items)
+    }
 
     async fn playback_info(&self, id: &ItemRef, profile: &ClientProfile) -> Result<PlaybackInfo>;
     async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget>;

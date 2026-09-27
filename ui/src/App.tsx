@@ -1,11 +1,12 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { LayoutGroup, MotionConfig } from "motion/react";
 import { useEffect } from "react";
-import { BrowserRouter, Route, Routes, useNavigate, useSearchParams } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { Admin } from "@/features/admin/Admin";
 import { Debug } from "@/features/debug/Debug";
 import { Detail } from "@/features/detail/Detail";
+import { Favorites } from "@/features/favorites/Favorites";
 import { Home } from "@/features/home/Home";
 import { Libraries } from "@/features/library/Libraries";
 import { LibraryGrid } from "@/features/library/LibraryGrid";
@@ -13,7 +14,6 @@ import { PlayerView } from "@/features/player/PlayerView";
 import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { ProfilePicker } from "@/features/profiles/ProfilePicker";
 import { Search } from "@/features/search/Search";
-import { Servers } from "@/features/servers/Servers";
 import { Settings } from "@/features/settings/Settings";
 import { toggleFrame } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
@@ -62,7 +62,9 @@ export function App() {
                 <Route path="/library/:id" element={<LibraryGrid />} />
                 <Route path="/item/:id" element={<Detail />} />
                 <Route path="/search" element={<Search />} />
-                <Route path="/servers" element={<Servers />} />
+                {/* Servers moved into Settings; old links keep working. */}
+                <Route path="/servers" element={<Navigate to="/settings?s=servers" replace />} />
+                <Route path="/favorites" element={<Favorites />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/debug" element={<Debug />} />

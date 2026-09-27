@@ -160,6 +160,22 @@ impl Catalog {
         Aggregated { data: dedupe(all), issues }
     }
 
+    /// Favourites of every server that has them; the same title on several
+    /// servers is merged. A server without favourites (Plex) is left out
+    /// quietly: it is not unavailable.
+    pub async fn favorites(&self, limit: u32) -> Aggregated<Vec<MediaItem>> {
+        let (results, issues) = self
+            .fan_out(|p| async move {
+                match p.favorites(limit).await {
+                    Err(Error::Unsupported(_)) => Ok(Vec::new()),
+                    other => other,
+                }
+            })
+            .await;
+        let all: Vec<MediaItem> = results.into_iter().flat_map(|(_, items)| items).collect();
+        Aggregated { data: dedupe(all), issues }
+    }
+
     pub async fn items(&self, query: &ItemQuery) -> Result<Page<MediaItem>> {
         let parent = query.parent.as_ref().ok_or_else(|| Error::Invalid("a library or parent is required".into()))?;
         self.provider(parent.server)?.items(query).await
@@ -226,9 +242,10 @@ mod tests {
 
     use super::*;
 
-    /// A live connection that never answers: a hit proves the cache served it.
+    /// A live connection that never answers (a hit proves the cache served
+    /// it), except for its favourites when it has any (`None` = no support).
     #[derive(Debug)]
-    struct Silent(ServerDescriptor);
+    struct Silent(ServerDescriptor, Option<Vec<MediaItem>>);
 
     #[async_trait::async_trait]
     impl MediaProvider for Silent {
@@ -289,6 +306,9 @@ mod tests {
         fn auth_headers(&self) -> Vec<(String, String)> {
             Vec::new()
         }
+        async fn favorites(&self, _: u32) -> Result<Vec<MediaItem>> {
+            self.1.clone().ok_or_else(|| Error::Unsupported("test".into()))
+        }
     }
 
     fn descriptor() -> ServerDescriptor {
@@ -317,8 +337,23 @@ mod tests {
         assert!(catalog.item(&id).await.is_err(), "another profile's connection: nothing served");
         assert!(catalog.cached_item(&id).is_none());
 
-        catalog.add(Arc::new(Silent(d)));
+        catalog.add(Arc::new(Silent(d, None)));
         assert_eq!(catalog.item(&id).await.unwrap().title, "Cached");
         assert_eq!(catalog.cached_item(&id).unwrap().title, "Cached");
+    }
+
+    #[tokio::test]
+    async fn favourites_merge_servers_and_skip_those_without() {
+        let catalog = Catalog::new(Arc::new(MetadataCache::in_memory().unwrap()), 3600);
+        let jf = descriptor();
+        let mut px = descriptor();
+        px.kind = ProviderKind::Plex;
+        let fav = MediaItem::new(ItemRef { server: jf.id, key: "1".into() }, ItemKind::Movie, "Fav");
+        catalog.add(Arc::new(Silent(jf, Some(vec![fav]))));
+        catalog.add(Arc::new(Silent(px, None)));
+
+        let r = catalog.favorites(100).await;
+        assert_eq!(r.data.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["Fav"]);
+        assert!(r.issues.is_empty(), "a server without favourites is not an error");
     }
 }

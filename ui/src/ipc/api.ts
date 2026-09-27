@@ -97,6 +97,7 @@ export const api = {
   adjacent: (id: ItemRef) => call<Adjacent>("adjacent", { id }),
   markers: (id: ItemRef) => call<Marker[]>("markers", { id }),
   search: (term: string) => call<Aggregated<MediaItem[]>>("search", { term }),
+  favorites: () => call<Aggregated<MediaItem[]>>("favorites"),
   setPlayed: (id: ItemRef, played: boolean) => call<void>("set_played", { id, played }),
   setFavorite: (id: ItemRef, favorite: boolean) => call<void>("set_favorite", { id, favorite }),
 

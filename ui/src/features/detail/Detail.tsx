@@ -52,6 +52,7 @@ export function Detail() {
       else await api.setFavorite(item.id, !item.user.favorite);
       queryClient.setQueryData(["item", id], next);
       void queryClient.invalidateQueries({ queryKey: ["home"] });
+      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
     } catch (e) {
       toast.error(asError(e).message);
     }

@@ -65,6 +65,12 @@ pub async fn search(state: St<'_>, term: String) -> Result<Aggregated<Vec<MediaI
     Ok(state.catalog.search(&term, 40).await)
 }
 
+/// The active profile's favourites on every server that has them.
+#[tauri::command]
+pub async fn favorites(state: St<'_>) -> Result<Aggregated<Vec<MediaItem>>> {
+    Ok(state.catalog.favorites(200).await)
+}
+
 #[tauri::command]
 pub async fn set_played(state: St<'_>, id: ItemRef, played: bool) -> Result<()> {
     state.catalog.set_played(&id, played).await
