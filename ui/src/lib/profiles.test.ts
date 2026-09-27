@@ -10,7 +10,7 @@ vi.mock("@/lib/settings", () => ({ loadSettings: vi.fn(async () => null) }));
 vi.mock("@/lib/ambient", () => ({ ambientReset: vi.fn() }));
 
 import { queryClient } from "./queryClient";
-import { accountTitle, initials, needsPlexPin, nextStage, pendingSignIns, pinError, switchProfile, useProfileSwitch, visibleProfiles } from "./profiles";
+import { accountTitle, anyPickable, initials, needsPlexPin, nextStage, pendingSignIns, pinError, switchProfile, useProfileSwitch, visibleProfiles } from "./profiles";
 
 const account = (over: Partial<ProfileAccount> = {}): ProfileAccount => ({
   kind: "jellyfin",
@@ -34,6 +34,11 @@ describe("profile helpers", () => {
 
   it("hides hidden profiles", () => {
     expect(visibleProfiles([card(), card({ id: "p2", hidden: true })]).map((c) => c.id)).toEqual(["p1"]);
+  });
+
+  it("offers the picker only when a visible profile has an account", () => {
+    expect(anyPickable([card({ accounts: [] }), card({ id: "p2", hidden: true })])).toBe(false);
+    expect(anyPickable([card({ accounts: [] }), card({ id: "p2" })])).toBe(true);
   });
 
   it("finds what must be typed before entering", () => {

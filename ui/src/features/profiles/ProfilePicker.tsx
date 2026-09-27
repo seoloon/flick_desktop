@@ -9,6 +9,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { Button } from "@/components/tv/Button";
 import { FlickMark } from "@/components/tv/FlickMark";
 import { type PinResult, PinPad } from "@/components/tv/PinPad";
 import { ProfileAvatar } from "@/components/tv/ProfileAvatar";
@@ -245,6 +246,12 @@ export function ProfilePicker() {
                 {step.stage === "plex-pin" && (
                   <PinPanel key="plex-pin">
                     <PinPad title="Plex PIN" hint={step.plexWrong ? "Wrong Plex PIN. Try again." : "This Plex Home member is protected by Plex."} onSubmit={onPlexPin} onCancel={() => setStep(null)} />
+                    {/* Without the Plex PIN the member's servers stay unavailable; the rest loads. */}
+                    <div className="mt-4 flex justify-center">
+                      <Button size="sm" variant="ghost" onClick={() => advance(step, selected, { plexPin: undefined, plexWrong: false })}>
+                        Skip
+                      </Button>
+                    </div>
                   </PinPanel>
                 )}
                 {step.stage === "sign-in" && step.pending[step.signIn] && <AccountSignIn key={`sign-in-${step.signIn}`} account={step.pending[step.signIn]!} onDone={onSignedIn} />}

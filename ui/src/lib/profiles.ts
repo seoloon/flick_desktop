@@ -63,6 +63,8 @@ export function avatarGradient(color: string): string {
 }
 
 export const visibleProfiles = (cards: ProfileCard[]) => cards.filter((c) => !c.hidden);
+/** Whether "Who’s watching?" has anyone to offer: a visible profile with an account. */
+export const anyPickable = (cards: ProfileCard[]) => visibleProfiles(cards).some((c) => c.accounts.length > 0);
 export const needsPlexPin = (card: ProfileCard) => card.accounts.some((a) => a.plexPin);
 export const pendingSignIns = (card: ProfileCard) => card.accounts.filter((a) => a.state === "pending" && a.kind === "jellyfin" && a.needsPassword);
 

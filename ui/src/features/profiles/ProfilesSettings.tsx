@@ -44,6 +44,8 @@ export function ProfilesSettings() {
       queryClient.setQueryData(profilesQuery.queryKey, s);
       await loadSettings();
       void queryClient.invalidateQueries();
+      // On, but nobody holds what was loaded: someone has to be picked.
+      if (s.enabled && !s.active) navigate("/profiles");
       return "ok";
     } catch (e) {
       const p = pinError(e);

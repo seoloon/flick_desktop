@@ -1,6 +1,7 @@
 // A profile's sheet: name, colour, picture, PIN, accounts, delete/hide.
 // A protected profile is unlocked with its PIN first; that PIN then
-// authorises every change in the sheet (Rust checks it again).
+// authorises every change in the sheet (Rust checks it again). Linking an
+// account another protected profile uses asks for that profile's PIN.
 import { useQuery } from "@tanstack/react-query";
 import { Check } from "lucide-react";
 import { motion } from "motion/react";
@@ -17,8 +18,10 @@ import { Switch } from "@/components/tv/Switch";
 import { TextField } from "@/components/tv/TextField";
 import { TvDialog } from "@/components/tv/TvDialog";
 import { api, asError } from "@/ipc/api";
+import type { ProfileEdit } from "@/ipc/app-types";
 import type { AvatarStyle } from "@/ipc/bindings/AvatarStyle";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
+import type { ProfileId } from "@/ipc/bindings/ProfileId";
 import type { ServerId } from "@/ipc/bindings/ServerId";
 import { focusSpring } from "@/lib/motion";
 import { allServersQuery, PROFILE_COLORS, pinError, profilesQuery } from "@/lib/profiles";
@@ -41,16 +44,24 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
   const [name, setName] = useState("");
   const [color, setColor] = useState(PROFILE_COLORS[0]!);
   const [avatar, setAvatar] = useState<AvatarStyle>("server");
+  // Only a changed picture is sent: a missing one must not flip to Initials.
+  const [avatarTouched, setAvatarTouched] = useState(false);
   const [links, setLinks] = useState<ServerId[]>([]);
   const [pinStep, setPinStep] = useState<PinStep>(null);
   const [orphans, setOrphans] = useState<ServerId[]>([]);
   const [leaveAfter, setLeaveAfter] = useState(false);
+  // A new profile already created, so a retried save never creates it twice.
+  const [created, setCreated] = useState<ProfileId | null>(null);
+  const [ownerRetry, setOwnerRetry] = useState<((pin: string) => Promise<PinResult>) | null>(null);
 
   useEffect(() => {
     setUnlock(null);
     setPinStep(null);
     setOrphans([]);
     setLeaveAfter(false);
+    setAvatarTouched(false);
+    setCreated(null);
+    setOwnerRetry(null);
     if (card) {
       setName(card.name);
       setColor(card.color);
@@ -78,16 +89,42 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
     navigate(path);
   };
 
+  /** Saves `edit`; a PIN refusal (the profile itself is unlocked) means an
+   * account belongs to a protected profile: ask for its PIN and retry. */
+  const update = async (id: ProfileId, edit: ProfileEdit, ownerPin: string | null = null): Promise<PinResult> => {
+    try {
+      await api.profileUpdate(id, edit, unlock, ownerPin);
+    } catch (e) {
+      const p = pinError(e);
+      if (p && ownerPin === null) {
+        setOwnerRetry(() => (typed: string) => update(id, edit, typed));
+        return "ok";
+      }
+      if (p) return p;
+      setOwnerRetry(null);
+      fail(e);
+      return "ok";
+    }
+    setOwnerRetry(null);
+    await refresh();
+    onClose();
+    return "ok";
+  };
+
   const save = async () => {
     try {
       if (!card) {
-        const id = await api.profileCreate(name, color);
-        if (mode === "linked" && links.length) await api.profileUpdate(id, { name: null, color: null, avatar: null, connections: links, hidden: null }, null);
+        const id = created ?? (await api.profileCreate(name, color));
+        setCreated(id);
+        if (mode === "linked" && links.length) {
+          await update(id, { name: null, color: null, avatar: null, connections: links, hidden: null });
+        } else {
+          await refresh();
+          onClose();
+        }
       } else {
-        await api.profileUpdate(card.id, { name, color, avatar, connections: mode === "linked" ? links : null, hidden: null }, unlock);
+        await update(card.id, { name, color, avatar: avatarTouched ? avatar : null, connections: mode === "linked" ? links : null, hidden: null });
       }
-      await refresh();
-      onClose();
     } catch (e) {
       fail(e);
     }
@@ -96,7 +133,7 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
   const setHidden = async (hidden: boolean) => {
     if (!card) return;
     try {
-      await api.profileUpdate(card.id, { name: null, color: null, avatar: null, connections: null, hidden }, unlock);
+      await api.profileUpdate(card.id, { name: null, color: null, avatar: null, connections: null, hidden }, unlock, null);
       await refresh();
       onClose();
     } catch (e) {
@@ -188,6 +225,16 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
     <TvDialog open onClose={onClose} title={title}>
       {locked ? (
         <PinPad title="Enter PIN" hint="This profile is protected." onSubmit={onUnlock} onCancel={onClose} />
+      ) : ownerRetry ? (
+        <PinPad
+          title="Enter PIN"
+          hint="This account belongs to a protected profile."
+          onSubmit={ownerRetry}
+          onCancel={() => {
+            setOwnerRetry(null);
+            if (created) void refresh();
+          }}
+        />
       ) : pinStep ? (
         <PinPad key={pinStep.stage} title={pinStep.stage === "new" ? "Choose a PIN" : "Confirm the PIN"} hint="4 digits." onSubmit={onNewPin} onCancel={() => setPinStep(null)} />
       ) : orphans.length ? (
@@ -232,7 +279,10 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
                 { value: "server", label: "From server" },
                 { value: "initials", label: "Initials" },
               ]}
-              onChange={setAvatar}
+              onChange={(v) => {
+                setAvatar(v);
+                setAvatarTouched(true);
+              }}
             />
           ) : null}
 

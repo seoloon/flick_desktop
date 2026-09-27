@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { profilesQuery, visibleProfiles } from "@/lib/profiles";
+import { anyPickable, profilesQuery } from "@/lib/profiles";
 
 export function ProfileGate() {
   const navigate = useNavigate();
@@ -13,7 +13,7 @@ export function ProfileGate() {
   useEffect(() => {
     if (!data || done.current) return;
     done.current = true;
-    if (data.enabled && !data.active && visibleProfiles(data.profiles).length > 0 && pathname !== "/profiles") navigate("/profiles", { replace: true });
+    if (data.enabled && !data.active && anyPickable(data.profiles) && pathname !== "/profiles") navigate("/profiles", { replace: true });
   }, [data, pathname, navigate]);
   return null;
 }

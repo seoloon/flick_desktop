@@ -129,7 +129,7 @@ export function Settings() {
       <div className="grid grid-cols-[15rem_minmax(0,1fr)] gap-10 px-[var(--gutter)] pt-[var(--page-top)] pb-24">
         <aside className="sticky top-[var(--page-top)] flex max-h-[calc(100vh-var(--page-top)-2rem)] flex-col gap-4 self-start">
           <h1 className="px-4 text-[2.75rem] leading-none font-bold tracking-tight">{personal ? "Your Preferences" : "Settings"}</h1>
-          {personal && <p className="px-4 text-sm text-white/55">Saved for the current profile only.</p>}
+          {personal && <p className="px-4 text-sm text-white/55">Saved for the current profile only. Some rows here are shared by everyone on this computer.</p>}
           <FocusGroup focusKey={NAV} preferredChildFocusKey={`settings:${section}`} fade="y" className="[--fade-size:1.5rem] no-scrollbar -mx-2 flex flex-col gap-0.5 overflow-y-auto px-2 py-2">
             {shown.map(([id, label]) => (
               <SectionButton key={id} id={id} label={label} active={section === id} onSelect={() => setParams(personal ? { s: id, personal: "1" } : { s: id }, { replace: true })} />

@@ -65,7 +65,8 @@ export const api = {
   profileCheckPin: (id: ProfileId, pin: string) => call<void>("profile_check_pin", { id, pin }),
   profileSwitch: (id: ProfileId, pin: string | null, plexPin: string | null) => call<SwitchOutcome>("profile_switch", { id, pin, plexPin }),
   profileCreate: (name: string, color: string) => call<ProfileId>("profile_create", { name, color }),
-  profileUpdate: (id: ProfileId, edit: ProfileEdit, pin: string | null) => call<void>("profile_update", { id, edit, pin }),
+  /** `ownerPin`: linking a connection another protected profile uses needs its PIN. */
+  profileUpdate: (id: ProfileId, edit: ProfileEdit, pin: string | null, ownerPin: string | null) => call<void>("profile_update", { id, edit, pin, ownerPin }),
   profileSetPin: (id: ProfileId, current: string | null, next: string | null) => call<void>("profile_set_pin", { id, current, next }),
   profileDetach: (id: ProfileId, connection: ServerId, pin: string | null) => call<void>("profile_detach", { id, connection, pin }),
   profileDelete: (id: ProfileId, pin: string | null) => call<ServerId[]>("profile_delete", { id, pin }),
