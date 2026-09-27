@@ -3,27 +3,24 @@
 // draws chrome and forwards intents to Rust.
 //
 // Remote model (tvOS): the scrubber has focus by default, left/right skip
-// 10 s, Enter pauses, Up opens the Info panel, Down reaches the buttons. With
+// 10 s, Enter pauses, Up opens the settings menu, Down reaches the buttons. With
 // the controls hidden, any key reveals them; left/right also skip at once.
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
-  Info,
-  Languages,
   Maximize,
   Minimize,
   Pause,
   Play,
   RotateCcw,
   RotateCw,
+  Settings,
   SkipBack,
   SkipForward,
-  Subtitles,
   Volume2,
   VolumeX,
-  type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, motion, type MotionValue, useMotionValueEvent, useTransform } from "motion/react";
+import { AnimatePresence, motion, type MotionValue, useMotionValue, useMotionValueEvent, useSpring, useTransform } from "motion/react";
 import { type CSSProperties, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { SlidingNumber } from "@/components/animate-ui/primitives/texts/sliding-number";
@@ -37,14 +34,14 @@ import { onPlayerEvent } from "@/ipc/events";
 import { imageUrl } from "@/ipc/images";
 import { clock, episodeLabel } from "@/lib/format";
 import { focusSpring } from "@/lib/motion";
-import { toggleFrame, useMode } from "@/lib/mode";
+import { useMode } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { onAction } from "@/nav/input";
 import { focusKey } from "@/nav/spatial";
 import { TitleBar } from "@/shell/TitleBar";
-import { type PanelTab, PlayerPanel } from "./PlayerPanel";
+import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
 import { createPlayerStore, type PlayerStore } from "./store";
 
@@ -76,13 +73,19 @@ function Clock({ value, remainingOf, className }: { value: MotionValue<number>; 
   );
 }
 
-function Timeline({ store, markers, onSeek, onScrub }: { store: PlayerStore; markers: Marker[]; onSeek: (ms: number) => void; onScrub: (ms: number | null) => void }) {
+function Timeline({ store, markers, scrub, onSeek, onScrub }: { store: PlayerStore; markers: Marker[]; scrub: number | null; onSeek: (ms: number) => void; onScrub: (ms: number | null) => void }) {
   const duration = store.state((s) => s.duration);
   const buffered = store.state((s) => s.buffered);
   const chapters = store.state((s) => s.chapters);
   const tv = useTv<HTMLDivElement>({ focusKey: TIMELINE_KEY, scroll: false });
   const pct = (ms: number) => (duration ? `${Math.min(100, (ms / duration) * 100)}%` : "0%");
-  const fill = useTransform(store.position, (p) => pct(p));
+  // The bar shows the playhead, or the pointer while scrubbing, through a
+  // stiff spring: seeks glide instead of teleporting, playback looks the same.
+  const target = useMotionValue(store.position.get());
+  useMotionValueEvent(store.position, "change", (p) => scrub === null && target.set(p));
+  useEffect(() => target.set(scrub ?? store.position.get()), [scrub, target, store.position]);
+  const smooth = useSpring(target, { stiffness: 380, damping: 42 });
+  const fill = useTransform(smooth, (p) => pct(p));
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -145,24 +148,53 @@ function VolumeControl({ store }: { store: PlayerStore }) {
   const volume = store.state((s) => s.volume);
   const muted = store.state((s) => s.muted);
   const tv = useTv<HTMLDivElement>({ scroll: false });
+  // The bar follows the hand at once; mpv catches up behind it. The draft is
+  // dropped once changes stop and the engine has reported the new value.
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? (muted ? 0 : volume);
+  const fill = useSpring(shown, { stiffness: 520, damping: 44 });
+  useEffect(() => fill.set(shown), [fill, shown]);
+  const width = useTransform(fill, (v) => `${v}%`);
+  const pending = useRef<number | null>(null);
+  const release = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(release.current), []);
+
+  const change = (v: number) => {
+    const next = Math.max(0, Math.min(100, Math.round(v)));
+    setDraft(next);
+    if (pending.current === null) {
+      requestAnimationFrame(() => {
+        const value = pending.current;
+        pending.current = null;
+        if (value === null) return;
+        if (muted && value > 0) cmd({ type: "setMute", muted: false });
+        cmd({ type: "setVolume", volume: value });
+      });
+    }
+    pending.current = next;
+    window.clearTimeout(release.current);
+    release.current = window.setTimeout(() => setDraft(null), 700);
+  };
+
   useEffect(() => {
     if (!tv.focused) return;
     return onAction((a) => {
       if (a.type !== "move" || (a.dir !== "left" && a.dir !== "right")) return false;
-      cmd({ type: "setVolume", volume: Math.max(0, Math.min(100, volume + (a.dir === "left" ? -5 : 5))) });
+      change(shown + (a.dir === "left" ? -5 : 5));
       return true;
     });
-  }, [tv.focused, volume]);
-  const shown = muted ? 0 : volume;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tv.focused, shown]);
+
   const drag = (e: PointerEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
     const at = (x: number) => {
       const r = el.getBoundingClientRect();
-      return Math.round(Math.min(1, Math.max(0, (x - r.left) / r.width)) * 100);
+      return Math.min(1, Math.max(0, (x - r.left - 12) / (r.width - 24))) * 100;
     };
-    cmd({ type: "setVolume", volume: at(e.clientX) });
-    const move = (ev: globalThis.PointerEvent) => cmd({ type: "setVolume", volume: at(ev.clientX) });
+    change(at(e.clientX));
+    const move = (ev: globalThis.PointerEvent) => change(at(ev.clientX));
     const up = () => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
@@ -172,7 +204,7 @@ function VolumeControl({ store }: { store: PlayerStore }) {
   };
   return (
     <div className="flex items-center gap-1">
-      <Button variant="ghost" size="icon-sm" icon={muted || volume === 0 ? VolumeX : Volume2} label={muted ? "Unmute" : "Mute"} onClick={() => cmd({ type: "setMute", muted: !muted })} />
+      <Button variant="ghost" size="icon-sm" icon={shown === 0 ? VolumeX : Volume2} label={muted ? "Unmute" : "Mute"} onClick={() => cmd({ type: "setMute", muted: !muted })} />
       <motion.div
         ref={tv.ref}
         {...tv.props}
@@ -183,13 +215,20 @@ function VolumeControl({ store }: { store: PlayerStore }) {
         aria-valuemax={100}
         aria-valuenow={shown}
         onPointerDown={drag}
-        animate={{ scale: tv.showFocus ? 1.08 : 1 }}
+        initial="rest"
+        whileHover="hover"
+        animate={tv.showFocus ? "focus" : "rest"}
+        variants={{ rest: { scale: 1 }, hover: { scale: 1 }, focus: { scale: 1.08 } }}
         transition={focusSpring}
-        className={cn("flex h-9 w-24 cursor-pointer items-center rounded-full px-3 transition-colors", tv.showFocus && "bg-white")}
+        className={cn("group/vol flex h-9 w-24 cursor-pointer items-center rounded-full px-3 transition-colors duration-200", tv.showFocus && "bg-white")}
       >
-        <span className={cn("h-1 w-full overflow-hidden rounded-full", tv.showFocus ? "bg-black/15" : "bg-white/25")}>
-          <span className={cn("block h-full rounded-full", tv.showFocus ? "bg-black" : "bg-white")} style={{ width: `${shown}%` }} />
-        </span>
+        <motion.span
+          variants={{ rest: { height: 4 }, hover: { height: 6 }, focus: { height: 6 } }}
+          transition={focusSpring}
+          className={cn("block w-full overflow-hidden rounded-full", tv.showFocus ? "bg-black/15" : "bg-white/25")}
+        >
+          <motion.span className={cn("block h-full rounded-full", tv.showFocus ? "bg-black" : "bg-white")} style={{ width }} />
+        </motion.span>
       </motion.div>
     </div>
   );
@@ -235,11 +274,6 @@ function NextUp({ next, countdown, onPlay, onDismiss }: { next: MediaItem; count
   );
 }
 
-function PanelButton({ tab, icon, label, panel, setPanel }: { tab: PanelTab; icon: LucideIcon; label: string; panel: PanelTab | null; setPanel: (t: PanelTab | null) => void }) {
-  const open = panel === tab;
-  return <Button variant="ghost" size="icon-sm" icon={icon} label={label} onClick={() => setPanel(open ? null : tab)} className={open ? "bg-white/20 text-white" : undefined} />;
-}
-
 export function PlayerView({ itemId, startMs }: { itemId: string; startMs: number }) {
   const navigate = useNavigate();
   const settings = useSettings();
@@ -256,25 +290,44 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const adjacent = useQuery({ queryKey: ["adjacent", itemId], queryFn: () => api.adjacent(itemId).catch(() => null) });
 
   const [chrome, setChrome] = useState(true);
-  const [panel, setPanel] = useState<PanelTab | null>(null);
+  const [menu, setMenu] = useState(false);
+  const menuActions: MenuActions = useRef(null);
+  // Window fullscreen for this playback only; Flick Frame stays what the user chose.
+  const [fullscreen, setFullscreen] = useState(false);
+  const fullscreenRef = useRef(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [nextDismissed, setNextDismissed] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const hideTimer = useRef<number | undefined>(undefined);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
-  const panelRef = useRef(panel);
-  panelRef.current = panel;
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
 
   const poke = useCallback(() => {
     setChrome(true);
     window.clearTimeout(hideTimer.current);
     hideTimer.current = window.setTimeout(() => {
-      if (phaseRef.current === "playing" && !panelRef.current) setChrome(false);
+      if (phaseRef.current === "playing" && !menuRef.current) setChrome(false);
     }, HIDE_AFTER);
   }, []);
 
   const leave = useCallback(() => navigate(-1), [navigate]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (useMode.getState().frame) return; // Flick Frame is already fullscreen
+    const next = !fullscreenRef.current;
+    fullscreenRef.current = next;
+    setFullscreen(next);
+    void api.setFullscreen(next).catch(() => undefined);
+  }, []);
+  // Leaving the player gives the window back as it was.
+  useEffect(
+    () => () => {
+      if (fullscreenRef.current && !useMode.getState().frame) void api.setFullscreen(false).catch(() => undefined);
+    },
+    [],
+  );
 
   // Session lifecycle.
   useEffect(() => {
@@ -363,9 +416,10 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     return onAction((a) => {
       const wasHidden = !chrome;
       poke();
-      if (panel) {
+      if (menu) {
+        if (menuActions.current?.(a)) return true;
         if (a.type === "back") {
-          setPanel(null);
+          setMenu(false);
           requestAnimationFrame(() => focusKey(TIMELINE_KEY));
           return true;
         }
@@ -390,7 +444,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             return true;
           }
           if (onTimeline && a.dir === "up") {
-            setPanel("info");
+            setMenu(true);
             return true;
           }
           return false;
@@ -408,12 +462,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           return false;
       }
     });
-  }, [chrome, panel, poke, seekBy, leave]);
+  }, [chrome, menu, poke, seekBy, leave]);
 
   const it = item.data;
   const title = it?.episode ? (it.episode.seriesTitle ?? it.title) : (it?.title ?? "");
   const subtitle = it?.episode ? `${episodeLabel(it)} · ${it.title}` : it?.year ? String(it.year) : "";
-  const visible = chrome || phase !== "playing" || !!panel;
+  const visible = chrome || phase !== "playing" || menu;
   const scrubbing = scrub !== null;
 
   return (
@@ -421,6 +475,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
       className={cn("fixed inset-0 overflow-hidden text-white select-none", !visible && "cursor-none")}
       style={{ "--bar-h": "8.5rem" } as CSSProperties}
       onClick={poke}
+      onDoubleClick={(e) => e.target === e.currentTarget && toggleFullscreen()}
     >
       {/* Before the first frame, the artwork stands in for the video. */}
       <AnimatePresence>
@@ -497,7 +552,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         )}
       </AnimatePresence>
 
-      <TitleBar hidden={!visible} />
+      {!fullscreen && <TitleBar hidden={!visible} />}
 
       {/* Bottom bar: a quiet title, the scrubber between its times, then the
           transport centred with volume on the left and options on the right. */}
@@ -507,7 +562,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         transition={{ type: "spring", stiffness: 300, damping: 34 }}
         style={{ pointerEvents: visible ? "auto" : "none" }}
       >
-        <AnimatePresence>{panel && <PlayerPanel key="panel" tab={panel} onTab={setPanel} store={store} />}</AnimatePresence>
+        <AnimatePresence>{menu && <PlayerMenu key="menu" store={store} actions={menuActions} />}</AnimatePresence>
 
         <div className="flex min-w-0 items-baseline gap-2 drop-shadow-[0_1px_8px_rgb(0_0_0/0.6)]">
           <span className="truncate text-[0.9375rem] font-semibold">{title}</span>
@@ -516,7 +571,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
 
         <FocusGroup focusKey="player-timeline-row" className="flex items-center gap-3 text-xs font-medium text-white/70">
           {scrubbing ? <span className="w-14 tabular-nums">{clock(scrub)}</span> : <Clock value={store.position} className="w-14" />}
-          <Timeline store={store} markers={markers.data ?? []} onSeek={seekTo} onScrub={setScrub} />
+          <Timeline store={store} markers={markers.data ?? []} scrub={scrub} onSeek={seekTo} onScrub={setScrub} />
           <span className="w-14 text-right">{duration > 0 && <Clock value={store.position} remainingOf={duration} />}</span>
         </FocusGroup>
 
@@ -534,10 +589,17 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             {next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
           </div>
           <div className="flex items-center justify-end gap-1">
-            <PanelButton tab="info" icon={Info} label="Playback information" panel={panel} setPanel={setPanel} />
-            <PanelButton tab="audio" icon={Languages} label="Audio" panel={panel} setPanel={setPanel} />
-            <PanelButton tab="sub" icon={Subtitles} label="Subtitles" panel={panel} setPanel={setPanel} />
-            <Button variant="ghost" size="icon-sm" icon={frame ? Minimize : Maximize} label={frame ? "Exit full screen" : "Full screen"} onClick={() => void toggleFrame()} />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              icon={Settings}
+              label="Audio, subtitles and playback info"
+              onClick={() => setMenu((m) => !m)}
+              className={cn("[&_svg]:transition-transform [&_svg]:duration-500 [&_svg]:ease-apple", menu && "bg-white/20 text-white [&_svg]:rotate-90")}
+            />
+            {!frame && (
+              <Button variant="ghost" size="icon-sm" icon={fullscreen ? Minimize : Maximize} label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen} />
+            )}
           </div>
         </FocusGroup>
       </motion.footer>

@@ -10,6 +10,7 @@ import type { PlayerEvent } from "@/ipc/bindings/PlayerEvent";
 import type { Track } from "@/ipc/bindings/Track";
 
 const MAX_AHEAD_MS = 1000;
+const STALE_MS = 500;
 
 export type PlayerState = {
   phase: Phase;
@@ -59,10 +60,14 @@ export function createPlayerStore() {
 
   function apply(e: PlayerEvent) {
     switch (e.type) {
-      case "state":
-        basePos = e.positionMs;
+      case "state": {
+        // State events also come from volume/mute changes, carrying a
+        // position up to 250 ms old: while playing, never step back for that.
+        const shown = position.get();
+        const staleBackstep = e.phase === "playing" && state.getState().phase === "playing" && e.positionMs < shown && shown - e.positionMs < STALE_MS;
+        basePos = staleBackstep ? shown : e.positionMs;
         baseAt = performance.now();
-        position.set(e.positionMs);
+        position.set(basePos);
         state.setState((s) => ({
           phase: e.phase,
           started: s.started || e.phase === "playing",
@@ -72,6 +77,7 @@ export function createPlayerStore() {
           muted: e.muted,
         }));
         break;
+      }
       case "tracks":
         state.setState({ tracks: e.tracks });
         break;

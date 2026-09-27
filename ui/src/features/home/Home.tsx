@@ -9,6 +9,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/tv/Button";
 import { detailPath } from "@/components/tv/Card";
 import { EmptyState, Notice } from "@/components/tv/Feedback";
+import { FlickMark } from "@/components/tv/FlickMark";
 import { HeroBackdrop, MetaLine, TitleArt } from "@/components/tv/Hero";
 import { Shelf } from "@/components/tv/Shelf";
 import { api, asError } from "@/ipc/api";
@@ -187,6 +188,7 @@ export function Home() {
       <Screen>
         <EmptyState
           title="Connect a server to start"
+          icon={<FlickMark className="h-16 w-auto drop-shadow-[0_12px_40px_rgb(255_255_255/0.18)]" />}
           actions={
             <Button variant="primary" size="lg" icon={Plus} autoFocus onClick={() => navigate("/servers")}>
               Add a server

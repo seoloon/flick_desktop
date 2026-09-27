@@ -8,6 +8,7 @@ import { useNavigate } from "react-router";
 import { focusSpring, pillSpring } from "@/lib/motion";
 import { toggleFrame } from "@/lib/mode";
 import { cn } from "@/lib/utils";
+import { FlickMark } from "@/components/tv/FlickMark";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { NAV_KEY } from "@/nav/spatial";
 import { type NavItem, useNavItems } from "./navItems";
@@ -40,12 +41,8 @@ export function Sidebar() {
 function Brand() {
   return (
     <div className="mb-5 flex items-center gap-2.5 px-3 pt-2 in-data-[platform=mac]:pt-9">
-      <span className="grid size-7 place-items-center rounded-lg bg-white text-black">
-        <svg viewBox="0 0 24 24" className="size-4" aria-hidden>
-          <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" />
-        </svg>
-      </span>
-      <span className="font-heading text-[1.0625rem] font-bold tracking-tight">Flick</span>
+      <FlickMark className="h-[1.15rem] w-auto" />
+      <span className="font-heading text-[1.125rem] font-bold tracking-tight">Flick</span>
     </div>
   );
 }

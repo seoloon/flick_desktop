@@ -42,9 +42,10 @@ export function Notice({ tone = "info", children, className }: { tone?: keyof ty
   );
 }
 
-export function EmptyState({ title, children, actions }: { title: string; children?: ReactNode; actions?: ReactNode }) {
+export function EmptyState({ title, children, actions, icon }: { title: string; children?: ReactNode; actions?: ReactNode; icon?: ReactNode }) {
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="flex max-w-xl flex-col items-start gap-4 px-[var(--gutter)] py-24">
+      {icon && <div className="mb-4">{icon}</div>}
       <h1 className="text-4xl font-bold tracking-tight">{title}</h1>
       {children && <div className="text-lg leading-relaxed text-muted-foreground">{children}</div>}
       {actions && <div className="mt-2 flex flex-wrap gap-3">{actions}</div>}

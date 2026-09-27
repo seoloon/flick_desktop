@@ -7,6 +7,7 @@ import { useNavigate } from "react-router";
 import { focusSpring, panelSpring, pillSpring } from "@/lib/motion";
 import { toggleFrame } from "@/lib/mode";
 import { cn } from "@/lib/utils";
+import { FlickMark } from "@/components/tv/FlickMark";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { NAV_KEY } from "@/nav/spatial";
 import { useNavItems } from "./navItems";
@@ -32,6 +33,7 @@ export function TabBar({ scrolled }: { scrolled: boolean }) {
         onFocusWithin={setFocusInside}
         className="glass pointer-events-auto flex items-center gap-1 rounded-full p-1.5"
       >
+        <FlickMark title="Flick" className="mr-2 ml-4 h-5 w-auto text-white/90" />
         {items.map((item) => (
           <Tab key={item.id} id={item.id} label={item.label} icon={ICON_ONLY.has(item.id) ? <item.icon /> : undefined} active={item.active} onClick={() => navigate(item.href)} />
         ))}

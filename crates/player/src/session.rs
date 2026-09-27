@@ -332,7 +332,10 @@ fn handle(inner: &Arc<Mutex<Inner>>, sink: &EventSink, rt: &tokio::runtime::Hand
                 emit_state(i, sink);
             }
             "demuxer-cache-time" => i.snapshot.buffered_ms = ms(&value),
-            "volume" => i.snapshot.volume = value.as_f64().unwrap_or(i.snapshot.volume),
+            "volume" => {
+                i.snapshot.volume = value.as_f64().unwrap_or(i.snapshot.volume);
+                emit_state(i, sink);
+            }
             "mute" => {
                 i.snapshot.muted = value.as_bool().unwrap_or(false);
                 emit_state(i, sink);

@@ -131,9 +131,30 @@ une rangée pas encore défilée n'a pas de fondu à gauche.
 ## Lecteur
 
 Barre du bas : titre, barre de lecture (focus par défaut : gauche/droite
-±10 s, Entrée pause, Haut ouvre le panneau), transport, volume, panneau
-**Info / Audio / Sous-titres** (et Vidéo s'il y a plusieurs pistes). Les
-commandes se masquent après 3,5 s de lecture ; toute touche les rappelle.
+±10 s, Entrée pause, Haut ouvre le menu), volume à gauche, transport au
+centre, réglages et plein écran à droite. Les commandes se masquent après
+3,5 s de lecture ; toute touche les rappelle.
+
+- **Un seul menu de réglages** (`PlayerMenu`, comme le lecteur Apple) : la
+  page racine liste Audio, Sous-titres, Vidéo (si plusieurs pistes) et Infos
+  de lecture avec leur valeur actuelle ; chaque ligne ouvre une page qui
+  glisse, la carte change de hauteur en douceur (`AutoHeight`). Retour ou
+  Gauche revient à la racine, sur la ligne d'origine.
+- **Mouvement** : la barre de lecture et le volume passent par des ressorts
+  (un saut de ±10 s glisse, le volume suit la main puis mpv rattrape).
+- **Plein écran** : celui du lecteur ne concerne que la fenêtre, le temps de
+  la lecture (double-clic sur la vidéo aussi) ; en sortant, la fenêtre revient
+  comme avant. Flick Frame ne s'active que par son bouton, la touche Menu ou le
+  réglage « Start in Flick Frame ».
+
+## Icônes
+
+- **Icône de l'app** : `app/icons/basic/flick-icon.svg` (squircle, métal
+  satiné) ; le jeu complet (`.ico`, `.icns`, PNG) se régénère avec
+  `pnpm tauri icon app/icons/basic/flick-icon.svg -o app/icons`.
+- **Marque** : `app/icons/basic/flick-mark.svg`, plate, reprise dans
+  `components/tv/FlickMark.tsx` en `currentColor` (barre latérale, barre
+  d'onglets de Flick Frame, accueil vide) et en favicon (`ui/public`).
 
 La WebView ne voit pas les pixels vidéo (calque natif dessous) : **pas de
 vrai flou au-dessus de la vidéo**, uniquement des voiles sombres translucides.
