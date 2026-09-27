@@ -74,8 +74,9 @@ pub async fn json<T: DeserializeOwned>(resp: Response) -> Result<T, Error> {
 }
 
 /// Removes credentials from URLs/strings before logging.
+/// PINs are credentials too and must not appear in logs.
 pub fn redact(s: &str) -> String {
-    const KEYS: [&str; 4] = ["api_key=", "X-Plex-Token=", "ApiKey=", "token="];
+    const KEYS: [&str; 5] = ["api_key=", "X-Plex-Token=", "ApiKey=", "token=", "pin="];
     let mut out = s.to_owned();
     for key in KEYS {
         let mut from = 0;
@@ -107,6 +108,12 @@ mod tests {
     fn redacts_tokens() {
         assert_eq!(redact("http://h/a?api_key=SECRET&x=1"), "http://h/a?api_key=***&x=1");
         assert_eq!(redact("u?X-Plex-Token=abc"), "u?X-Plex-Token=***");
+    }
+
+    #[test]
+    fn redacts_pins() {
+        assert_eq!(redact("https://plex.tv/api/v2/home/users/u/switch?pin=1234"), "https://plex.tv/api/v2/home/users/u/switch?pin=***");
+        assert_eq!(redact("x?a=1&pin=0000&b=2"), "x?a=1&pin=***&b=2");
     }
 
     #[test]
