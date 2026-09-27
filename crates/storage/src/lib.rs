@@ -1,6 +1,6 @@
 //! Local persistence.
 //!
-//! * `settings.json`, `servers.json`, `identity.json` — small documents,
+//! * `settings.json`, `servers.json`, `identity.json`, `profiles.json` — small documents,
 //!   written atomically (temp file + rename).
 //! * Tokens — OS keychain only ([`secrets`]). Nothing secret touches disk.
 //! * `cache.sqlite` — metadata cache with TTL ([`cache::MetadataCache`]).
@@ -8,10 +8,12 @@
 
 pub mod cache;
 pub mod images;
+pub mod profiles;
 pub mod secrets;
 
 use std::path::{Path, PathBuf};
 
+use oneshot_core::profile::ProfilesConfig;
 use oneshot_core::server::ServerDescriptor;
 use oneshot_core::settings::Settings;
 use oneshot_core::{Error, Result};
@@ -95,6 +97,24 @@ impl Store {
         write_json(&self.paths.config.join("servers.json"), &servers)
     }
 
+    pub fn profiles(&self) -> ProfilesConfig {
+        let path = self.paths.config.join("profiles.json");
+        match read_json(&path) {
+            Ok(Some(p)) => p,
+            Ok(None) => ProfilesConfig::default(),
+            Err(e) => {
+                // Never crash on a corrupt file: keep a copy, start with multi-user off.
+                tracing::error!(target: "storage", "profiles unreadable, multi-user off: {e}");
+                let _ = std::fs::copy(&path, self.paths.config.join("profiles.corrupt.json"));
+                ProfilesConfig::default()
+            }
+        }
+    }
+
+    pub fn save_profiles(&self, profiles: &ProfilesConfig) -> Result<()> {
+        write_json(&self.paths.config.join("profiles.json"), profiles)
+    }
+
     pub fn identity(&self) -> Result<Identity> {
         let path = self.paths.config.join("identity.json");
         if let Some(id) = read_json::<Identity>(&path)? {
@@ -139,5 +159,36 @@ mod tests {
         std::fs::write(dir.path().join("settings.json"), b"{not json").unwrap();
         assert_eq!(store.settings(), Settings::default());
         assert!(dir.path().join("settings.corrupt.json").exists());
+    }
+
+    fn store() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Store::open(Paths { config: dir.path().join("cfg"), cache: dir.path().join("cache") }).unwrap();
+        (dir, s)
+    }
+
+    #[test]
+    fn absent_profiles_file_means_disabled() {
+        let (_d, s) = store();
+        assert_eq!(s.profiles(), oneshot_core::profile::ProfilesConfig::default());
+        assert!(!s.profiles().enabled);
+    }
+
+    #[test]
+    fn profiles_roundtrip() {
+        let (_d, s) = store();
+        let mut p = s.profiles();
+        p.enabled = true;
+        p.profiles.push(oneshot_core::profile::Profile::new("Léa", "#ff6b6b", Default::default(), Default::default()));
+        s.save_profiles(&p).unwrap();
+        assert_eq!(s.profiles(), p);
+    }
+
+    #[test]
+    fn corrupt_profiles_file_is_kept_aside() {
+        let (_d, s) = store();
+        std::fs::write(s.paths().config.join("profiles.json"), b"{ not json").unwrap();
+        assert!(!s.profiles().enabled);
+        assert!(s.paths().config.join("profiles.corrupt.json").exists());
     }
 }
