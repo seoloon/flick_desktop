@@ -8,6 +8,7 @@ pub mod error;
 pub mod ids;
 pub mod media;
 pub mod playback;
+pub mod profile;
 pub mod provider;
 pub mod query;
 pub mod server;
