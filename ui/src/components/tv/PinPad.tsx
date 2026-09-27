@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { focusSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
-import { onAction } from "@/nav/input";
+import { onAction, onKey } from "@/nav/input";
 
 export type PinResult = "ok" | "wrong" | { locked: number };
 type Props = { title: string; hint?: string; onSubmit: (pin: string) => Promise<PinResult>; onCancel: () => void };
@@ -34,18 +34,20 @@ export function PinPad({ title, hint, onSubmit, onCancel }: Props) {
   const press = (d: string) => !blocked && setPin((p) => (p.length < LENGTH ? p + d : p));
   const erase = () => !blocked && setPin((p) => p.slice(0, -1));
 
-  // Keyboard digits; captured before the app's key routing (Backspace = Back there).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (/^[0-9]$/.test(e.key)) press(e.key);
-      else if (e.key === "Backspace") erase();
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  });
+  // Keyboard digits and Backspace are claimed before the app's key routing,
+  // where Backspace means Back; Escape and B still cancel.
+  const keys = useRef({ press, erase });
+  keys.current = { press, erase };
+  useEffect(
+    () =>
+      onKey((e) => {
+        if (/^[0-9]$/.test(e.key)) keys.current.press(e.key);
+        else if (e.key === "Backspace") keys.current.erase();
+        else return false;
+        return true;
+      }),
+    [],
+  );
 
   useEffect(
     () =>

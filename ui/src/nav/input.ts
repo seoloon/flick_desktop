@@ -41,6 +41,18 @@ export function onAction(h: Handler): () => void {
   };
 }
 
+type KeyHandler = (e: KeyboardEvent) => boolean;
+const keyHandlers: KeyHandler[] = [];
+
+/** Claims raw keys before they become actions (latest wins); return true to consume. For widgets that read typed characters outside text fields, like the PIN pad. */
+export function onKey(h: KeyHandler): () => void {
+  keyHandlers.unshift(h);
+  return () => {
+    const i = keyHandlers.indexOf(h);
+    if (i >= 0) keyHandlers.splice(i, 1);
+  };
+}
+
 let backFallback: () => void = () => history.back();
 export function setBackFallback(fn: () => void) {
   backFallback = fn;
@@ -96,6 +108,11 @@ export function installKeyboard() {
   window.addEventListener(
     "keydown",
     (e) => {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && keyHandlers.some((h) => h(e))) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const action = KEYS[e.key];
       if (!action || e.ctrlKey || e.metaKey || e.altKey) return;
       const active = document.activeElement;
