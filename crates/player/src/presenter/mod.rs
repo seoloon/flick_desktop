@@ -60,6 +60,11 @@ pub trait Presenter: Send + Sync + std::fmt::Debug {
         false
     }
     fn set_visible(&self, _visible: bool) {}
+    /// Called once, right after `mpv_initialize` succeeds. Presenters that
+    /// need the live `Mpv` handle to set something up themselves (rather
+    /// than waiting on an mpv-driven property, like `CompositionPresenter`
+    /// does) use this. Most presenters don't need it.
+    fn on_mpv_ready(&self, _mpv: &Mpv) {}
 }
 
 /// Picks the presenter for this platform and libmpv build.
