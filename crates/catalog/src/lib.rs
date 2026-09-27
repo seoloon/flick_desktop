@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ItemKind, MediaItem};
+use oneshot_core::person::PersonInfo;
 use oneshot_core::provider::{Adjacent, MediaProvider};
 use oneshot_core::query::{HomeRow, ItemQuery, Page};
 use oneshot_core::server::{Library, ServerDescriptor};
@@ -176,6 +177,38 @@ impl Catalog {
         Aggregated { data: dedupe(all), issues }
     }
 
+    /// What the person's own server knows about them (none if it cannot say).
+    pub async fn person(&self, id: &ItemRef) -> Option<PersonInfo> {
+        let provider = self.provider(id.server).ok()?;
+        match provider.person(id).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::debug!(target: "catalog", "person {id}: {e}");
+                None
+            }
+        }
+    }
+
+    /// A person's movies and series on every server; the same title on
+    /// several servers is merged. Servers that cannot search people are
+    /// left out quietly.
+    pub async fn person_items(&self, name: &str, hint: Option<&ItemRef>) -> Aggregated<Vec<MediaItem>> {
+        let (results, issues) = self
+            .fan_out(|p| {
+                let name = name.to_owned();
+                let hint = hint.cloned();
+                async move {
+                    match p.person_items(&name, hint.as_ref()).await {
+                        Err(Error::Unsupported(_)) => Ok(Vec::new()),
+                        other => other,
+                    }
+                }
+            })
+            .await;
+        let all: Vec<MediaItem> = results.into_iter().flat_map(|(_, items)| items).collect();
+        Aggregated { data: dedupe(all), issues }
+    }
+
     pub async fn items(&self, query: &ItemQuery) -> Result<Page<MediaItem>> {
         let parent = query.parent.as_ref().ok_or_else(|| Error::Invalid("a library or parent is required".into()))?;
         self.provider(parent.server)?.items(query).await
@@ -309,6 +342,9 @@ mod tests {
         async fn favorites(&self, _: u32) -> Result<Vec<MediaItem>> {
             self.1.clone().ok_or_else(|| Error::Unsupported("test".into()))
         }
+        async fn person_items(&self, _: &str, _: Option<&ItemRef>) -> Result<Vec<MediaItem>> {
+            self.1.clone().ok_or_else(|| Error::Unsupported("test".into()))
+        }
     }
 
     fn descriptor() -> ServerDescriptor {
@@ -355,5 +391,18 @@ mod tests {
         let r = catalog.favorites(100).await;
         assert_eq!(r.data.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["Fav"]);
         assert!(r.issues.is_empty(), "a server without favourites is not an error");
+    }
+
+    #[tokio::test]
+    async fn person_items_merge_servers_and_skip_those_without() {
+        let catalog = Catalog::new(Arc::new(MetadataCache::in_memory().unwrap()), 3600);
+        let jf = descriptor();
+        let px = descriptor();
+        let movie = MediaItem::new(ItemRef { server: jf.id, key: "1".into() }, ItemKind::Movie, "Forrest Gump");
+        catalog.add(Arc::new(Silent(jf, Some(vec![movie]))));
+        catalog.add(Arc::new(Silent(px, None)));
+        let r = catalog.person_items("Tom Hanks", None).await;
+        assert_eq!(r.data.len(), 1);
+        assert!(r.issues.is_empty(), "a server that cannot search people is not an error");
     }
 }
