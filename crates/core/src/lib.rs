@@ -7,6 +7,7 @@ pub mod capabilities;
 pub mod error;
 pub mod ids;
 pub mod media;
+pub mod person;
 pub mod playback;
 pub mod profile;
 pub mod provider;
@@ -14,6 +15,7 @@ pub mod query;
 pub mod server;
 pub mod settings;
 pub mod stream;
+pub mod text;
 
 pub use error::{Error, Result};
 pub use ids::{ItemRef, ServerId};

@@ -62,6 +62,17 @@ pub trait MediaProvider: Send + Sync + std::fmt::Debug {
         Ok(self.items(&query).await?.items)
     }
 
+    /// What this server knows about a person of its own.
+    async fn person(&self, _id: &ItemRef) -> Result<crate::person::PersonInfo> {
+        Err(crate::Error::Unsupported("person details".into()))
+    }
+
+    /// Movies and series featuring a person, found by `hint` when it is a
+    /// person of this server, else by name.
+    async fn person_items(&self, _name: &str, _hint: Option<&ItemRef>) -> Result<Vec<MediaItem>> {
+        Err(crate::Error::Unsupported("person search".into()))
+    }
+
     async fn playback_info(&self, id: &ItemRef, profile: &ClientProfile) -> Result<PlaybackInfo>;
     async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget>;
     async fn report(&self, report: &PlaybackReport) -> Result<()>;

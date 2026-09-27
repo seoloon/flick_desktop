@@ -9,17 +9,11 @@ use oneshot_core::profile::{
 };
 use oneshot_core::server::{ProviderKind, ServerDescriptor};
 use oneshot_core::settings::PersonalSettings;
-use unicode_normalization::UnicodeNormalization;
-use unicode_normalization::char::is_combining_mark;
 use url::Url;
 
 use crate::images::avatar_cache_key;
 
-/// Grouping key for a person's name: case, accents and spacing ignored.
-pub fn normalize_name(name: &str) -> String {
-    let folded: String = name.nfkd().filter(|c| !is_combining_mark(*c)).collect::<String>().to_lowercase();
-    folded.split_whitespace().collect::<Vec<_>>().join(" ")
-}
+pub use oneshot_core::text::normalize_name;
 
 /// Profile colours: saturated enough to glow, light enough for white initials.
 pub const PROFILE_COLORS: [&str; 8] = ["#5e8bff", "#ff6b6b", "#3ecf8e", "#ffb547", "#b07cff", "#ff7ac6", "#35c6d6", "#a3a3a3"];

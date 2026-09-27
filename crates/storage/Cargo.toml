@@ -18,7 +18,6 @@ argon2 = "0.5"
 keyring = { version = "4", features = ["v1"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 sha2 = "0.10"
-unicode-normalization = "0.1"
 url.workspace = true
 
 [dev-dependencies]
