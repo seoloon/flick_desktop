@@ -1,0 +1,287 @@
+//! `MediaProvider` for one Plex Media Server connection.
+
+use std::time::Instant;
+
+use async_trait::async_trait;
+use oneshot_core::ids::ItemRef;
+use oneshot_core::media::{ImageRef, ImageSize, ItemKind, Marker, MediaItem};
+use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
+use oneshot_core::provider::{AdminProvider, Adjacent, MediaProvider};
+use oneshot_core::query::{HomeRow, HomeRowKind, ItemQuery, Page, SortBy, SortOrder};
+use oneshot_core::server::{Library, ProviderKind, ServerDescriptor, ServerStatus};
+use oneshot_core::{Error, Result};
+use oneshot_net::reqwest::{Client, Method, RequestBuilder};
+use serde::de::DeserializeOwned;
+use url::Url;
+
+use crate::auth::PlexIdentity;
+use crate::dto::{Container, Envelope, Metadata};
+use crate::map;
+
+#[derive(Debug)]
+pub struct PlexProvider {
+    pub(crate) descriptor: ServerDescriptor,
+    pub(crate) http: Client,
+    pub(crate) identity: PlexIdentity,
+    /// Server access token (from plex.tv resources), not the account token.
+    pub(crate) token: String,
+    /// Whether the signed-in account owns the server (admin surface).
+    pub(crate) owned: bool,
+}
+
+impl PlexProvider {
+    pub fn new(descriptor: ServerDescriptor, http: Client, identity: PlexIdentity, token: String, owned: bool) -> Self {
+        Self { descriptor, http, identity, token, owned }
+    }
+
+    pub(crate) fn server(&self) -> oneshot_core::ServerId {
+        self.descriptor.id
+    }
+
+    pub(crate) fn url(&self, path: &str) -> Result<Url> {
+        oneshot_net::join(&self.descriptor.base_url, path)
+    }
+
+    pub(crate) fn request(&self, method: Method, path: &str, query: &[(&str, String)]) -> Result<RequestBuilder> {
+        let mut url = self.url(path)?;
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query.iter().map(|(k, v)| (*k, v.as_str())));
+        }
+        Ok(self.identity.apply(self.http.request(method, url), Some(&self.token)))
+    }
+
+    pub(crate) async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, String)]) -> Result<T> {
+        let started = Instant::now();
+        let resp = self.request(Method::GET, path, query)?.send().await.map_err(oneshot_net::map_err)?;
+        tracing::debug!(target: "provider", server = %self.descriptor.name, path, status = resp.status().as_u16(),
+            ms = started.elapsed().as_millis() as u64, "plex GET");
+        oneshot_net::json(resp).await
+    }
+
+    pub(crate) async fn container(&self, path: &str, query: &[(&str, String)]) -> Result<Container> {
+        Ok(self.get::<Envelope<Container>>(path, query).await?.container)
+    }
+
+    pub(crate) async fn send_empty(&self, method: Method, path: &str, query: &[(&str, String)]) -> Result<()> {
+        let resp = self.request(method, path, query)?.send().await.map_err(oneshot_net::map_err)?;
+        oneshot_net::ensure_ok(resp).await.map(drop)
+    }
+
+    pub(crate) fn items(&self, m: &[Metadata]) -> Vec<MediaItem> {
+        m.iter().map(|m| map::item(self.server(), m)).collect()
+    }
+
+    fn check(&self, id: &ItemRef) -> Result<()> {
+        if id.server == self.server() {
+            Ok(())
+        } else {
+            Err(Error::Invalid(format!("item {id} does not belong to {}", self.descriptor.name)))
+        }
+    }
+
+    pub(crate) async fn metadata(&self, key: &str) -> Result<Metadata> {
+        self.container(&format!("library/metadata/{key}"), &[("includeMarkers", "1".into()), ("includeGuids", "1".into())])
+            .await?
+            .metadata
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::NotFound(format!("plex item {key}")))
+    }
+}
+
+fn sort(s: SortBy, o: SortOrder) -> String {
+    let field = match s {
+        SortBy::Title => "titleSort",
+        SortBy::DateAdded => "addedAt",
+        SortBy::ReleaseDate => "originallyAvailableAt",
+        SortBy::Rating => "audienceRating",
+        SortBy::LastPlayed => "lastViewedAt",
+        SortBy::Random => return "random".into(),
+    };
+    format!("{field}:{}", if o == SortOrder::Descending { "desc" } else { "asc" })
+}
+
+fn hub_kind(identifier: Option<&str>) -> HomeRowKind {
+    let id = identifier.unwrap_or_default();
+    if id.ends_with(".continue") || id == "continueWatching" {
+        HomeRowKind::ContinueWatching
+    } else if id.ends_with(".ondeck") {
+        HomeRowKind::NextUp
+    } else if id.ends_with(".recent") || id.contains("recentlyAdded") {
+        HomeRowKind::RecentlyAdded { library: None }
+    } else if id.contains("playlists") {
+        HomeRowKind::Playlists
+    } else {
+        HomeRowKind::Custom { key: id.to_owned() }
+    }
+}
+
+#[async_trait]
+impl MediaProvider for PlexProvider {
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Plex
+    }
+
+    fn descriptor(&self) -> &ServerDescriptor {
+        &self.descriptor
+    }
+
+    async fn status(&self) -> ServerStatus {
+        let started = Instant::now();
+        match self.container("identity", &[]).await {
+            Ok(_) => ServerStatus::Online {
+                latency_ms: started.elapsed().as_millis() as u32,
+                url: self.descriptor.base_url.clone(),
+            },
+            Err(Error::Unauthorized) => ServerStatus::Unauthorized,
+            Err(e) => ServerStatus::Unreachable { error: e.to_string() },
+        }
+    }
+
+    async fn libraries(&self) -> Result<Vec<Library>> {
+        let c = self.container("library/sections", &[]).await?;
+        Ok(c.directories.iter().map(|d| map::library(self.server(), d)).collect())
+    }
+
+    async fn home(&self) -> Result<Vec<HomeRow>> {
+        let c = self.container("hubs", &[("count", "20".into()), ("includeGuids", "1".into())]).await?;
+        Ok(c.hubs
+            .iter()
+            .filter(|h| !h.metadata.is_empty())
+            .map(|h| HomeRow { kind: hub_kind(h.hub_identifier.as_deref()), title: h.title.clone(), items: self.items(&h.metadata) })
+            .collect())
+    }
+
+    async fn items(&self, query: &ItemQuery) -> Result<Page<MediaItem>> {
+        let mut q: Vec<(&str, String)> = vec![
+            ("sort", sort(query.sort, query.order)),
+            ("X-Plex-Container-Start", query.start.to_string()),
+            ("X-Plex-Container-Size", query.limit.to_string()),
+            ("includeGuids", "1".into()),
+        ];
+        if let Some(t) = query.kinds.iter().find_map(|k| map::type_number(*k)) {
+            q.push(("type", t.to_string()));
+        }
+        let f = &query.filter;
+        if f.unplayed_only {
+            q.push(("unwatched", "1".into()));
+        }
+        if !f.years.is_empty() {
+            q.push(("year", f.years.iter().map(i32::to_string).collect::<Vec<_>>().join(",")));
+        }
+        if !f.genres.is_empty() {
+            q.push(("genre", f.genres.join(",")));
+        }
+        if let Some(p) = &f.person {
+            q.push(("actor", p.key.clone()));
+        }
+        if f.favorites_only {
+            return Err(Error::Unsupported("favourites filter (Plex has no favourites)".into()));
+        }
+        let path = match &query.parent {
+            Some(parent) => {
+                self.check(parent)?;
+                match parent.key.strip_prefix("section:") {
+                    Some(section) => format!("library/sections/{section}/all"),
+                    None => format!("library/metadata/{}/children", parent.key),
+                }
+            }
+            None => "library/all".into(),
+        };
+        let c = self.container(&path, &q).await?;
+        Ok(Page { items: self.items(&c.metadata), start: c.offset.unwrap_or(query.start), total: c.total_size.or(c.size) })
+    }
+
+    async fn item(&self, id: &ItemRef) -> Result<MediaItem> {
+        self.check(id)?;
+        Ok(map::item(self.server(), &self.metadata(&id.key).await?))
+    }
+
+    async fn children(&self, id: &ItemRef, kind: ItemKind) -> Result<Vec<MediaItem>> {
+        self.check(id)?;
+        let path = match kind {
+            ItemKind::Collection => format!("library/collections/{}/children", id.key),
+            ItemKind::Playlist => format!("playlists/{}/items", id.key),
+            _ => format!("library/metadata/{}/children", id.key),
+        };
+        Ok(self.items(&self.container(&path, &[("includeGuids", "1".into())]).await?.metadata))
+    }
+
+    async fn search(&self, term: &str, limit: u32) -> Result<Vec<MediaItem>> {
+        let c = self.container("hubs/search", &[("query", term.to_owned()), ("limit", limit.to_string())]).await?;
+        Ok(c.hubs
+            .iter()
+            .filter(|h| matches!(h.r#type.as_deref(), Some("movie" | "show" | "episode" | "collection")))
+            .flat_map(|h| self.items(&h.metadata))
+            .take(limit as usize)
+            .collect())
+    }
+
+    async fn similar(&self, id: &ItemRef, limit: u32) -> Result<Vec<MediaItem>> {
+        self.check(id)?;
+        let c = self.container(&format!("library/metadata/{}/similar", id.key), &[("count", limit.to_string())]).await?;
+        Ok(self.items(&c.metadata))
+    }
+
+    async fn adjacent_episodes(&self, id: &ItemRef) -> Result<Adjacent> {
+        self.check(id)?;
+        let m = self.metadata(&id.key).await?;
+        let Some(show) = m.grandparent_rating_key else { return Ok(Adjacent::default()) };
+        let leaves = self.container(&format!("library/metadata/{show}/allLeaves"), &[]).await?.metadata;
+        let Some(pos) = leaves.iter().position(|l| l.rating_key == id.key) else { return Ok(Adjacent::default()) };
+        let at = |i: Option<usize>| i.and_then(|i| leaves.get(i)).map(|m| map::item(self.server(), m));
+        Ok(Adjacent { previous: at(pos.checked_sub(1)), next: at(Some(pos + 1)) })
+    }
+
+    async fn markers(&self, id: &ItemRef) -> Result<Vec<Marker>> {
+        self.check(id)?;
+        Ok(map::markers(&self.metadata(&id.key).await?))
+    }
+
+    async fn set_played(&self, id: &ItemRef, played: bool) -> Result<()> {
+        self.check(id)?;
+        let path = if played { ":/scrobble" } else { ":/unscrobble" };
+        self.send_empty(Method::GET, path, &[("identifier", "com.plexapp.plugins.library".into()), ("key", id.key.clone())]).await
+    }
+
+    async fn set_favorite(&self, _id: &ItemRef, _favorite: bool) -> Result<()> {
+        Err(Error::Unsupported("favourites (Plex has no favourites for library items)".into()))
+    }
+
+    async fn playback_info(&self, id: &ItemRef, profile: &ClientProfile) -> Result<PlaybackInfo> {
+        self.check(id)?;
+        crate::playback::playback_info(self, id, profile).await
+    }
+
+    async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget> {
+        self.check(&request.item)?;
+        crate::playback::stream(self, request).await
+    }
+
+    async fn report(&self, report: &PlaybackReport) -> Result<()> {
+        crate::playback::report(self, report).await
+    }
+
+    fn image_url(&self, image: &ImageRef, size: ImageSize) -> Result<Url> {
+        let Some(width) = size.max_width() else {
+            // Original: absolute URLs (metadata agents) are used as-is.
+            return Url::parse(&image.tag).or_else(|_| self.url(&image.tag));
+        };
+        let mut url = self.url("photo/:/transcode")?;
+        url.query_pairs_mut()
+            .append_pair("url", &image.tag)
+            .append_pair("width", &width.to_string())
+            .append_pair("height", &(width * 3 / 2).to_string())
+            .append_pair("minSize", "1")
+            .append_pair("upscale", "0");
+        Ok(url)
+    }
+
+    fn auth_headers(&self) -> Vec<(String, String)> {
+        self.identity.headers(&self.token)
+    }
+
+    fn admin(&self) -> Option<&dyn AdminProvider> {
+        self.owned.then_some(self as &dyn AdminProvider)
+    }
+}

@@ -1,0 +1,28 @@
+[package]
+name = "oneshot-catalog"
+description = "Multi-server registry and aggregation (home rows, search, dedup) with metadata caching"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+# Generates TypeScript bindings for IPC types: `cargo test --features ts export_bindings`
+ts = ["dep:ts-rs", "oneshot-core/ts"]
+
+[dependencies]
+ts-rs = { workspace = true, optional = true }
+oneshot-core.workspace = true
+oneshot-storage.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
+
+[lints]
+workspace = true

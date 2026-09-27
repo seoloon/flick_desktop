@@ -1,0 +1,26 @@
+[package]
+name = "oneshot-plex"
+description = "Plex provider: plex.tv PIN auth, resource discovery and PMS client mapped to the Flick domain model"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+oneshot-core.workspace = true
+oneshot-net.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+
+[lints]
+workspace = true

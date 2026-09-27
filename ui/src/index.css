@@ -1,0 +1,275 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter/opsz.css";
+
+/* Dark only: the app is a living-room screen. The `dark` variant stays for
+   shadcn components that ship `dark:` classes. */
+@custom-variant dark (&:where(:root, :root *));
+
+@theme inline {
+  /* SF Pro on Apple systems, bundled Inter (optical sizes) everywhere else. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Variable", system-ui, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Variable", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-glass: var(--glass);
+  --color-glass-strong: var(--glass-strong);
+  --color-hairline: var(--hairline);
+  --color-subtle: var(--subtle);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Monochrome chrome. Colour only ever comes from the artwork: the ambient
+   backdrop and the `--ambient-*` variables set at runtime. */
+:root {
+  color-scheme: dark;
+  --radius: 0.875rem;
+
+  --background: oklch(0.11 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.18 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.2 0 0 / 92%);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.145 0 0);
+  --secondary: oklch(1 0 0 / 10%);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(1 0 0 / 8%);
+  --muted-foreground: oklch(1 0 0 / 58%);
+  --subtle: oklch(1 0 0 / 38%);
+  --accent: oklch(1 0 0 / 12%);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.7 0.17 25);
+  --border: oklch(1 0 0 / 10%);
+  --hairline: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(1 0 0 / 60%);
+
+  /* Glass: translucent white over the blurred artwork. */
+  --glass: oklch(1 0 0 / 7%);
+  --glass-strong: oklch(0.22 0 0 / 72%);
+  --glass-blur: 36px;
+
+  /* Runtime (ambient.ts): artwork palette, luminance-clamped in Rust. */
+  --ambient-base: oklch(0.16 0 0);
+  --ambient-accent: oklch(0.5 0 0);
+  --ambient-strength: 0.6;
+
+  /* Layout (rem-based, so Flick Frame scales it). */
+  --gutter: 3.5rem;
+  --page-top: 4rem;
+  --poster-w: 10.5rem;
+  --thumb-w: 20rem;
+  --card-gap: 1.5rem;
+  --sidebar-w: 15.5rem;
+  /* Screens start right of the sidebar; heroes bleed under it. */
+  --content-left: var(--sidebar-w);
+}
+
+:root[data-density="compact"] {
+  --poster-w: 9rem;
+  --thumb-w: 17rem;
+  --card-gap: 1.125rem;
+}
+
+:root.frame {
+  --gutter: 4.5rem;
+  --page-top: 7rem;
+  --poster-w: 11.5rem;
+  --thumb-w: 21rem;
+  --card-gap: 2rem;
+  --content-left: 0rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  html {
+    @apply font-sans;
+    font-size: 16px;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  /* Flick Frame: everything is in rem, so scaling the root scales the UI for
+     viewing from the sofa. */
+  html.frame {
+    font-size: clamp(18px, 1.25vw, 40px);
+  }
+  body {
+    /* The window is transparent: the native video layer lives *behind* the
+       page. The shell paints its own background; the player leaves it clear. */
+    background: transparent;
+    color: var(--foreground);
+    overflow: hidden;
+    user-select: none;
+    letter-spacing: -0.011em;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.022em;
+  }
+  img {
+    -webkit-user-drag: none;
+  }
+  :focus {
+    outline: none;
+  }
+  /* Remote/keyboard focus is drawn by components (lift, white fill); only
+     plain elements fall back to a ring. */
+  :focus-visible:not([data-tv]) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::-webkit-scrollbar {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 14%);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  html.frame,
+  html.frame * {
+    scrollbar-width: none;
+  }
+  html.frame ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Frosted surface. Settings > Appearance > Frosted panels turns the blur off
+   (large 4K screens on weak GPUs); the surface then gets more opaque. */
+@utility glass {
+  background-color: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.6);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 10%),
+    inset 0 0 0 1px oklch(1 0 0 / 6%);
+  :root[data-blur="false"] & {
+    background-color: oklch(0.2 0 0 / 88%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@utility glass-strong {
+  background-color: var(--glass-strong);
+  -webkit-backdrop-filter: blur(48px) saturate(1.8);
+  backdrop-filter: blur(48px) saturate(1.8);
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 12%),
+    inset 0 0 0 1px oklch(1 0 0 / 8%),
+    0 30px 80px -20px oklch(0 0 0 / 60%);
+  :root[data-blur="false"] & {
+    background-color: oklch(0.18 0 0 / 97%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Horizontal shelves: native scrolling, no visible bar. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Scroll edge fades (nav/useScrollFade.ts). Registered so the fade length
+   animates instead of snapping when an edge appears or goes away. */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@utility scroll-fade-x {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+  transition:
+    --fade-start 0.35s cubic-bezier(0.32, 0.72, 0, 1),
+    --fade-end 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  &[data-fade-start] {
+    --fade-start: var(--fade-size, 2.5rem);
+  }
+  &[data-fade-end] {
+    --fade-end: var(--fade-size, 2.5rem);
+  }
+}
+
+@utility scroll-fade-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+  transition:
+    --fade-start 0.35s cubic-bezier(0.32, 0.72, 0, 1),
+    --fade-end 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  &[data-fade-start] {
+    --fade-start: var(--fade-size, 2rem);
+  }
+  &[data-fade-end] {
+    --fade-end: var(--fade-size, 2rem);
+  }
+}
+
+/* Keeps a lifted, focused card clear of the scroller edges. */
+@utility focus-margin {
+  scroll-margin: 2.5rem 3rem;
+}
+
+@utility text-balance-pretty {
+  text-wrap: pretty;
+}
+
+/* Hide the cursor while a remote or controller drives (Flick Frame). */
+html[data-cursor="hidden"],
+html[data-cursor="hidden"] * {
+  cursor: none !important;
+}

@@ -1,0 +1,25 @@
+[package]
+name = "oneshot-storage"
+description = "Persistence: settings, server registry, OS keychain secrets, metadata and image caches"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+oneshot-core.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+keyring = { version = "4", features = ["v1"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

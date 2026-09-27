@@ -1,0 +1,59 @@
+{
+  "Name": "The Long Night",
+  "ServerId": "f1e2d3",
+  "Id": "ep1",
+  "Type": "Episode",
+  "SortName": "002 - 0005 - The Long Night",
+  "Overview": "Winter arrives.",
+  "PremiereDate": "2019-04-28T00:00:00.0000000Z",
+  "DateCreated": "2024-01-02T10:11:12.0000000Z",
+  "ProductionYear": 2019,
+  "RunTimeTicks": 30000000000,
+  "OfficialRating": "TV-MA",
+  "CommunityRating": 7.5,
+  "IndexNumber": 5,
+  "ParentIndexNumber": 2,
+  "SeriesName": "Example Show",
+  "SeriesId": "series1",
+  "SeasonId": "season2",
+  "SeriesPrimaryImageTag": "stag",
+  "ParentBackdropItemId": "series1",
+  "ParentBackdropImageTags": ["btag"],
+  "ParentLogoItemId": "series1",
+  "ParentLogoImageTag": "ltag",
+  "ImageTags": { "Primary": "ptag" },
+  "BackdropImageTags": [],
+  "ImageBlurHashes": { "Primary": { "ptag": "LEHV6nWB2yk8pyo0adR*.7kCMdnj" } },
+  "Genres": ["Drama", "Fantasy"],
+  "Studios": [{ "Name": "HBO", "Id": "s1" }],
+  "People": [
+    { "Name": "Jane Actor", "Id": "p1", "Role": "Arya", "Type": "Actor", "PrimaryImageTag": "pt1" },
+    { "Name": "John Director", "Id": "p2", "Role": "", "Type": "Director" }
+  ],
+  "ProviderIds": { "Imdb": "tt0000001", "Tvdb": "123" },
+  "UserData": { "PlaybackPositionTicks": 12000000000, "PlayCount": 0, "IsFavorite": true, "Played": false, "LastPlayedDate": "2024-02-01T20:00:00.0000000Z" },
+  "MediaSources": [
+    {
+      "Id": "ms1",
+      "Name": "Example Show S02E05",
+      "Container": "mkv",
+      "Size": 9876543210,
+      "Bitrate": 55000000,
+      "RunTimeTicks": 30000000000,
+      "SupportsDirectPlay": true,
+      "SupportsDirectStream": true,
+      "SupportsTranscoding": true,
+      "MediaStreams": [
+        { "Index": 0, "Type": "Video", "Codec": "hevc", "Profile": "Main 10", "Width": 3840, "Height": 2160, "BitDepth": 10,
+          "RealFrameRate": 23.976, "VideoRangeType": "DOVIWithHDR10", "DvProfile": 8, "DvBlSignalCompatibilityId": 1,
+          "ElPresentFlag": 0, "IsDefault": true },
+        { "Index": 1, "Type": "Audio", "Codec": "truehd", "Profile": "Dolby TrueHD + Dolby Atmos", "Channels": 8,
+          "ChannelLayout": "7.1", "SampleRate": 48000, "Language": "eng", "DisplayTitle": "English - TrueHD Atmos 7.1 - Default", "IsDefault": true },
+        { "Index": 2, "Type": "Audio", "Codec": "dts", "Profile": "DTS-HD MA", "Channels": 6, "Language": "fre", "IsDefault": false },
+        { "Index": 3, "Type": "Subtitle", "Codec": "PGSSUB", "Language": "fre", "IsForced": false },
+        { "Index": 4, "Type": "Subtitle", "Codec": "subrip", "Language": "eng", "IsForced": true, "IsExternal": true,
+          "DeliveryUrl": "/Videos/ep1/ms1/Subtitles/4/0/Stream.srt" }
+      ]
+    }
+  ]
+}

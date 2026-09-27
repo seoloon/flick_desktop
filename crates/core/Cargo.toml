@@ -1,0 +1,24 @@
+[package]
+name = "oneshot-core"
+description = "Provider-agnostic domain model, capability model and provider contracts"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+# Generates TypeScript bindings for IPC types: `cargo test --features ts export_bindings`
+ts = ["dep:ts-rs"]
+
+[dependencies]
+ts-rs = { workspace = true, optional = true }
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

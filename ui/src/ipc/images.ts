@@ -1,0 +1,15 @@
+// Artwork URLs for the `oneshot-img` protocol (served by app/src/images.rs).
+// The reference is opaque; Rust resolves it to an authenticated server URL,
+// so no token ever appears in the DOM.
+import type { ImageRef } from "./bindings/ImageRef";
+import type { ImageSize } from "./bindings/ImageSize";
+
+// WebView2 (Windows) serves custom schemes as http://<scheme>.localhost.
+const WINDOWS_STYLE = /Windows|Android/.test(navigator.userAgent);
+const BASE = WINDOWS_STYLE ? "http://oneshot-img.localhost/" : "oneshot-img://localhost/";
+
+export function imageUrl(image: ImageRef | null | undefined, size: ImageSize): string | undefined {
+  if (!image) return undefined;
+  const enc = encodeURIComponent;
+  return `${BASE}${size}/${image.kind}/${enc(image.item)}/${enc(image.tag)}`;
+}

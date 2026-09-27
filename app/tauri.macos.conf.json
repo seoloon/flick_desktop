@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Flick",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "decorations": true,
+        "center": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 26,
+          "y": 30
+        }
+      }
+    ]
+  }
+}

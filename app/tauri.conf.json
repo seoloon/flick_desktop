@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flick",
+  "identifier": "flick.seoloon.work",
+  "build": {
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --filter oneshot-ui dev",
+    "beforeBuildCommand": "pnpm --filter oneshot-ui build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Flick",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "decorations": false,
+        "center": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "img-src": "'self' data: blob: oneshot-img: http://oneshot-img.localhost",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../third_party/mpv/windows-x64/libmpv-2.dll": "libmpv/libmpv-2.dll"
+    }
+  }
+}

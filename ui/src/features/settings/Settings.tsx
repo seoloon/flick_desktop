@@ -1,0 +1,580 @@
+// Settings: sections on the left, grouped rows on the right (tvOS Settings).
+// Every change is applied at once and saved in the background.
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { SpatialNavigation } from "@noriginmedia/norigin-spatial-navigation";
+import { motion } from "motion/react";
+import { type ReactNode, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
+import { Notice } from "@/components/tv/Feedback";
+import { Pill } from "@/components/tv/Page";
+import type { Choice } from "@/components/tv/Segmented";
+import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
+import { api, unwrap } from "@/ipc/api";
+import type { BitstreamFormat } from "@/ipc/bindings/BitstreamFormat";
+import type { CapabilityReport } from "@/ipc/bindings/CapabilityReport";
+import type { HdrState } from "@/ipc/bindings/HdrState";
+import type { Settings as SettingsModel } from "@/ipc/bindings/Settings";
+import { enter, focusSpring, pillSpring } from "@/lib/motion";
+import { updateSettings, useSettings, useSettingsStore } from "@/lib/settings";
+import { cn } from "@/lib/utils";
+import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
+import { onAction } from "@/nav/input";
+import { focusKey } from "@/nav/spatial";
+
+const sections = [
+  ["general", "General"],
+  ["appearance", "Appearance"],
+  ["playback", "Playback"],
+  ["audio", "Audio"],
+  ["video", "Video"],
+  ["hdr", "HDR"],
+  ["subtitles", "Subtitles"],
+  ["downloads", "Downloads"],
+  ["servers", "Accounts"],
+  ["network", "Network"],
+  ["cache", "Cache"],
+  ["performance", "Performance"],
+  ["keyboard", "Keyboard & Remote"],
+  ["controller", "Game Controller"],
+  ["notifications", "Notifications"],
+  ["privacy", "Privacy"],
+  ["advanced", "Advanced"],
+  ["debug", "Diagnostics"],
+] as const;
+type Section = (typeof sections)[number][0];
+
+const NAV = "settings-nav";
+const CONTENT = "settings-content";
+
+const formatNames: Record<BitstreamFormat, string> = {
+  ac3: "Dolby Digital (AC3)",
+  eac3: "Dolby Digital Plus (E-AC3, incl. Atmos)",
+  dts: "DTS",
+  "dts-hd": "DTS-HD MA / DTS:X",
+  truehd: "Dolby TrueHD (incl. Atmos)",
+};
+
+function hdrText(h: HdrState): string {
+  switch (h.state) {
+    case "active":
+      return `HDR on${h.maxLuminance ? `, peak ${Math.round(h.maxLuminance)} nits` : ""}`;
+    case "supportedButOff":
+      return "HDR capable, but off in the system settings";
+    case "unsupported":
+      return "SDR display";
+    case "unknown":
+      return `Unknown (${h.reason})`;
+  }
+}
+
+const bitrates: Choice<string>[] = [
+  { value: "0", label: "Original" },
+  { value: "120000000", label: "120 Mb/s" },
+  { value: "80000000", label: "80 Mb/s" },
+  { value: "40000000", label: "40 Mb/s" },
+  { value: "20000000", label: "20 Mb/s" },
+  { value: "10000000", label: "10 Mb/s" },
+  { value: "4000000", label: "4 Mb/s" },
+];
+
+const pct = (v: number) => `${Math.round(v * 100)} %`;
+const set = (fn: (s: SettingsModel) => void) => updateSettings(fn);
+
+function SectionButton({ id, label, active, onSelect }: { id: Section; label: string; active: boolean; onSelect: () => void }) {
+  const tv = useTv<HTMLButtonElement>({ focusKey: `settings:${id}` });
+  return (
+    <motion.button
+      ref={tv.ref}
+      type="button"
+      {...tv.props}
+      aria-current={active ? "page" : undefined}
+      onClick={onSelect}
+      animate={{ scale: tv.showFocus ? 1.03 : 1 }}
+      transition={focusSpring}
+      className={cn(
+        "relative flex h-10 w-full shrink-0 cursor-pointer items-center rounded-xl px-4 text-left text-[0.9375rem] font-medium transition-colors scroll-my-20",
+        tv.showFocus ? "text-black" : active ? "text-white" : "text-white/60 hover:bg-white/[0.06] hover:text-white",
+      )}
+    >
+      {active && !tv.showFocus && <motion.span layoutId="settings-active" className="absolute inset-0 rounded-xl bg-white/14" transition={pillSpring} />}
+      {tv.showFocus && <motion.span layoutId="settings-focus" className="absolute inset-0 rounded-xl bg-white shadow-lg" transition={pillSpring} />}
+      <span className="relative">{label}</span>
+    </motion.button>
+  );
+}
+
+export function Settings() {
+  const [params, setParams] = useSearchParams();
+  const section = (params.get("s") as Section | null) ?? "general";
+  const settings = useSettings();
+  const saveError = useSettingsStore((s) => s.saveError);
+  const title = sections.find(([id]) => id === section)?.[1] ?? "Settings";
+
+  // Back from the rows returns to the section list first.
+  useEffect(() => {
+    return onAction((a) => {
+      if (a.type !== "back") return false;
+      const current = SpatialNavigation.getCurrentFocusKey();
+      if (current && SpatialNavigation.isDescendantOf(current, CONTENT)) {
+        focusKey(`settings:${section}`);
+        return true;
+      }
+      return false;
+    });
+  }, [section]);
+
+  return (
+    <Screen ready={!!settings}>
+      <div className="grid grid-cols-[15rem_minmax(0,1fr)] gap-10 px-[var(--gutter)] pt-[var(--page-top)] pb-24">
+        <aside className="sticky top-[var(--page-top)] flex max-h-[calc(100vh-var(--page-top)-2rem)] flex-col gap-4 self-start">
+          <h1 className="px-4 text-[2.75rem] leading-none font-bold tracking-tight">Settings</h1>
+          <FocusGroup focusKey={NAV} preferredChildFocusKey={`settings:${section}`} fade="y" className="[--fade-size:1.5rem] no-scrollbar -mx-2 flex flex-col gap-0.5 overflow-y-auto px-2 py-2">
+            {sections.map(([id, label]) => (
+              <SectionButton key={id} id={id} label={label} active={section === id} onSelect={() => setParams({ s: id }, { replace: true })} />
+            ))}
+          </FocusGroup>
+        </aside>
+        <FocusGroup focusKey={CONTENT} className="flex max-w-3xl min-w-0 flex-col gap-8">
+          <motion.h2 key={`t-${section}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="pt-3 text-2xl font-bold tracking-tight">
+            {title}
+          </motion.h2>
+          {saveError && <Notice tone="error">Settings could not be saved: {saveError}</Notice>}
+          {settings && (
+            <motion.div key={section} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={enter} className="flex flex-col gap-8">
+              <SectionBody section={section} s={settings} />
+            </motion.div>
+          )}
+        </FocusGroup>
+      </div>
+    </Screen>
+  );
+}
+
+function SectionBody({ section, s }: { section: Section; s: SettingsModel }): ReactNode {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api.capabilities(false) });
+  const about = useQuery({ queryKey: ["about"], queryFn: () => api.about() });
+  const reprobe = () =>
+    api.capabilities(true).then(
+      (c) => {
+        queryClient.setQueryData(["capabilities"], c);
+        toast.success("Displays and audio checked again");
+      },
+      () => toast.error("The check failed"),
+    );
+
+  switch (section) {
+    case "general":
+      return (
+        <SettingsGroup>
+          <ToggleRow label="Start in Flick Frame" hint="Open full screen in TV mode." checked={s.general.startInMaxiFrame} onChange={(v) => set((x) => (x.general.startInMaxiFrame = v))} />
+        </SettingsGroup>
+      );
+    case "appearance":
+      return (
+        <SettingsGroup note={<p>The interface stays neutral: colour comes from the artwork you are looking at.</p>}>
+          <SliderRow label="Artwork colour in background" value={s.appearance.backgroundIntensity} min={0} max={1} step={0.05} format={pct} onChange={(v) => set((x) => (x.appearance.backgroundIntensity = v))} />
+          <ToggleRow label="Frosted glass" hint="Blur behind the sidebar and panels." checked={s.appearance.blur} onChange={(v) => set((x) => (x.appearance.blur = v))} />
+          <SelectRow
+            label="Density"
+            value={s.appearance.density}
+            options={[
+              { value: "comfortable", label: "Comfortable" },
+              { value: "compact", label: "Compact" },
+            ]}
+            onChange={(v) => set((x) => (x.appearance.density = v))}
+          />
+        </SettingsGroup>
+      );
+    case "playback":
+      return (
+        <>
+          <SettingsGroup title="Quality">
+            <SelectRow label="Maximum streaming bitrate" hint="Above this, the server transcodes. Original keeps Direct Play." value={String(s.playback.maxBitrate ?? 0)} options={bitrates} onChange={(v) => set((x) => (x.playback.maxBitrate = Number(v) || null))} />
+            <ToggleRow label="Allow Direct Stream" hint="Let the server repackage files it will not send as-is." checked={s.playback.allowDirectStream} onChange={(v) => set((x) => (x.playback.allowDirectStream = v))} />
+            <ToggleRow label="Allow server transcoding" hint="When off, files this device cannot play are refused instead of converted." checked={s.playback.allowTranscode} onChange={(v) => set((x) => (x.playback.allowTranscode = v))} />
+            <SelectRow
+              label="Without a graphics decoder"
+              hint="What to do when this computer would decode a stream on the processor."
+              value={String(s.playback.transcodeWithoutHwdecMinHeight ?? 0)}
+              options={[
+                { value: "0", label: "Decode on the processor" },
+                { value: "2160", label: "Transcode 4K on the server" },
+                { value: "1080", label: "Transcode 1080p+ on the server" },
+              ]}
+              onChange={(v) => set((x) => (x.playback.transcodeWithoutHwdecMinHeight = Number(v) || null))}
+            />
+          </SettingsGroup>
+          <SettingsGroup title="Behaviour">
+            <SelectRow
+              label="Resume"
+              value={s.playback.resume}
+              options={[
+                { value: "ask", label: "Ask" },
+                { value: "resume", label: "Always resume" },
+                { value: "startOver", label: "Always start over" },
+              ]}
+              onChange={(v) => set((x) => (x.playback.resume = v))}
+            />
+            <ToggleRow label="Play next episode automatically" checked={s.playback.autoplayNext} onChange={(v) => set((x) => (x.playback.autoplayNext = v))} />
+            <SliderRow label="Countdown" value={s.playback.autoplayCountdownSecs} min={3} max={30} step={1} format={(v) => `${v} s`} disabled={!s.playback.autoplayNext} onChange={(v) => set((x) => (x.playback.autoplayCountdownSecs = v))} />
+            <SelectRow
+              label="Intros and recaps"
+              hint="Needs markers from the server (Plex, or Jellyfin with a segment plugin)."
+              value={s.playback.skipIntro}
+              options={[
+                { value: "button", label: "Show a skip button" },
+                { value: "auto", label: "Skip automatically" },
+                { value: "off", label: "Never" },
+              ]}
+              onChange={(v) => set((x) => (x.playback.skipIntro = v))}
+            />
+          </SettingsGroup>
+        </>
+      );
+    case "audio":
+      return <AudioSection s={s} caps={caps.data} />;
+    case "video":
+      return (
+        <SettingsGroup
+          title="Decoding"
+          note={
+            caps.data && (
+              <p>
+                Graphics decoders on this computer:{" "}
+                {caps.data.video.hardwareProbeOk ? caps.data.video.hardwareDecoders.map((d) => d.profile).join(", ") || "none" : "not detectable on this platform yet"}
+              </p>
+            )
+          }
+        >
+          <SelectRow
+            label="Hardware decoding"
+            value={s.video.hardwareDecoding}
+            options={[
+              { value: "auto", label: "Automatic" },
+              { value: "off", label: "Off (processor only)" },
+            ]}
+            onChange={(v) => set((x) => (x.video.hardwareDecoding = v))}
+          />
+          <SelectRow
+            label="Deinterlacing"
+            value={s.video.deinterlace}
+            options={[
+              { value: "auto", label: "When flagged" },
+              { value: "on", label: "Always" },
+              { value: "off", label: "Never" },
+            ]}
+            onChange={(v) => set((x) => (x.video.deinterlace = v))}
+          />
+          <SelectRow
+            label="Frame synchronisation"
+            hint="Match to display reduces judder when the refresh rate differs from the film's."
+            value={s.video.frameSync}
+            options={[
+              { value: "audio", label: "Follow audio clock" },
+              { value: "displayResample", label: "Match to display" },
+            ]}
+            onChange={(v) => set((x) => (x.video.frameSync = v))}
+          />
+          <ToggleRow label="Motion smoothing" hint="Requires Match to display. Some viewers dislike the look." checked={s.video.interpolation} disabled={s.video.frameSync !== "displayResample"} onChange={(v) => set((x) => (x.video.interpolation = v))} />
+        </SettingsGroup>
+      );
+    case "hdr":
+      return (
+        <>
+          {caps.data && caps.data.displays.length > 0 && (
+            <SettingsGroup title="Displays">
+              {caps.data.displays.map((d, i) => (
+                <InfoRow key={i} label={d.name}>
+                  <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                    {d.width}×{d.height}
+                    {d.refreshHz ? ` · ${Math.round(d.refreshHz)} Hz` : ""}
+                    <Pill tone={d.hdr.state === "supportedButOff" ? "warn" : "plain"}>{hdrText(d.hdr)}</Pill>
+                  </span>
+                </InfoRow>
+              ))}
+            </SettingsGroup>
+          )}
+          <SettingsGroup
+            title="HDR"
+            note={<p>HDR is sent to the display only when the system itself runs in HDR. Dolby Vision is processed locally and shown as HDR10 or SDR: computers cannot send a Dolby Vision signal to a TV.</p>}
+          >
+            <SelectRow
+              label="HDR output"
+              value={s.video.hdr}
+              options={[
+                { value: "auto", label: "When the display is in HDR" },
+                { value: "forceSdr", label: "Always convert to SDR" },
+              ]}
+              onChange={(v) => set((x) => (x.video.hdr = v))}
+            />
+            <SelectRow
+              label="Tone mapping"
+              hint="How HDR is converted for SDR screens."
+              value={s.video.toneMapping}
+              options={[
+                { value: "auto", label: "Automatic" },
+                { value: "bt2390", label: "BT.2390" },
+                { value: "spline", label: "Spline" },
+                { value: "hable", label: "Hable" },
+                { value: "mobius", label: "Möbius" },
+                { value: "clip", label: "Clip" },
+              ]}
+              onChange={(v) => set((x) => (x.video.toneMapping = v))}
+            />
+            <ToggleRow label="Scene-by-scene brightness analysis" hint="Better tone mapping at a small GPU cost." checked={s.video.hdrPeakDetection} onChange={(v) => set((x) => (x.video.hdrPeakDetection = v))} />
+            <LinkRow label="Check displays and audio again" onClick={() => void reprobe()} />
+          </SettingsGroup>
+        </>
+      );
+    case "subtitles":
+      return (
+        <SettingsGroup>
+          <SelectRow
+            label="Show subtitles"
+            value={s.subtitles.mode}
+            options={[
+              { value: "smart", label: "When audio is in another language" },
+              { value: "always", label: "Always" },
+              { value: "forcedOnly", label: "Only forced (signs, foreign dialogue)" },
+              { value: "off", label: "Off" },
+            ]}
+            onChange={(v) => set((x) => (x.subtitles.mode = v))}
+          />
+          <SelectRow
+            label="Preferred language"
+            value={s.subtitles.languages[0] ?? ""}
+            options={[
+              { value: "", label: "None" },
+              { value: "fr", label: "Français" },
+              { value: "en", label: "English" },
+              { value: "de", label: "Deutsch" },
+              { value: "es", label: "Español" },
+            ]}
+            onChange={(v) => set((x) => (x.subtitles.languages = v ? [v] : []))}
+          />
+          <SliderRow label="Size" value={s.subtitles.scale} min={0.6} max={2} step={0.05} format={pct} onChange={(v) => set((x) => (x.subtitles.scale = v))} />
+          <SelectRow
+            label="Colour"
+            value={s.subtitles.color}
+            options={[
+              { value: "#ffffff", label: "White" },
+              { value: "#ffe066", label: "Yellow" },
+              { value: "#cfe8ff", label: "Pale blue" },
+            ]}
+            onChange={(v) => set((x) => (x.subtitles.color = v))}
+          />
+          <SliderRow label="Background" value={s.subtitles.backgroundOpacity} min={0} max={1} step={0.05} format={(v) => (v === 0 ? "None" : pct(v))} onChange={(v) => set((x) => (x.subtitles.backgroundOpacity = v))} />
+          <SliderRow label="Outline" value={s.subtitles.outline} min={0} max={6} step={0.5} onChange={(v) => set((x) => (x.subtitles.outline = v))} />
+          <SliderRow label="Position" value={s.subtitles.position} min={50} max={100} step={1} format={(v) => `${v} %`} onChange={(v) => set((x) => (x.subtitles.position = v))} />
+          <ToggleRow label="Apply to styled subtitles" hint="Override the look of ASS/SSA subtitles too." checked={s.subtitles.overrideAss} onChange={(v) => set((x) => (x.subtitles.overrideAss = v))} />
+        </SettingsGroup>
+      );
+    case "downloads":
+      return <Notice>Offline downloads are not available in this version. Playback always streams from your servers.</Notice>;
+    case "servers":
+      return (
+        <SettingsGroup note={<p>Sign-in tokens are stored in the system keychain{about.data && !about.data.credentialStore ? ", which is unavailable: you will need to sign in at each launch" : ""}.</p>}>
+          <LinkRow label="Manage servers" onClick={() => navigate("/servers")} />
+        </SettingsGroup>
+      );
+    case "network":
+      return (
+        <>
+          <SettingsGroup>
+            <SliderRow label="Parallel requests per server" value={s.network.concurrentRequests} min={1} max={16} step={1} onChange={(v) => set((x) => (x.network.concurrentRequests = v))} />
+            <SliderRow label="Request timeout" value={s.network.timeoutSecs} min={5} max={60} step={1} format={(v) => `${v} s`} onChange={(v) => set((x) => (x.network.timeoutSecs = v))} />
+            <SliderRow label="Playback buffer" value={s.network.bufferMib} min={32} max={1024} step={16} format={(v) => `${v} MiB`} onChange={(v) => set((x) => (x.network.bufferMib = v))} />
+            <SelectRow
+              label="IP version"
+              value={s.network.ipFamily}
+              options={[
+                { value: "any", label: "Automatic" },
+                { value: "v4Only", label: "IPv4 only" },
+                { value: "v6Only", label: "IPv6 only" },
+              ]}
+              onChange={(v) => set((x) => (x.network.ipFamily = v))}
+            />
+            <ToggleRow
+              label="Accept self-signed certificates"
+              hint="For home servers with their own certificate. Applies to every server while enabled."
+              checked={s.network.allowInvalidCertificates}
+              onChange={(v) => set((x) => (x.network.allowInvalidCertificates = v))}
+            />
+          </SettingsGroup>
+          {s.network.allowInvalidCertificates && <Notice tone="warn">Certificate checks are off. Connections could be intercepted on untrusted networks.</Notice>}
+        </>
+      );
+    case "cache":
+      return (
+        <SettingsGroup note={<p>Your servers stay the source of truth. Cached details refresh after the delay below or when you change something.</p>}>
+          <SliderRow label="Artwork cache" value={s.cache.imageCacheMib} min={128} max={8192} step={128} format={(v) => `${(v / 1024).toFixed(1)} GiB`} onChange={(v) => set((x) => (x.cache.imageCacheMib = v))} />
+          <SliderRow label="Details refresh after" value={s.cache.metadataTtlSecs} min={30} max={3600} step={30} format={(v) => `${Math.round(v / 60)} min`} onChange={(v) => set((x) => (x.cache.metadataTtlSecs = v))} />
+          <LinkRow
+            label="Clear artwork cache"
+            onClick={() =>
+              void api.cacheClear().then(
+                () => toast.success("Artwork cache cleared"),
+                () => toast.error("The cache could not be cleared"),
+              )
+            }
+          />
+        </SettingsGroup>
+      );
+    case "performance":
+      return (
+        <SettingsGroup>
+          <SliderRow label="Animations" hint="0 turns motion off. The system's reduced-motion setting always wins." value={s.appearance.animationIntensity} min={0} max={1} step={0.25} format={pct} onChange={(v) => set((x) => (x.appearance.animationIntensity = v))} />
+          <ToggleRow label="Frosted glass" hint="Blur costs GPU time on large or 4K screens." checked={s.appearance.blur} onChange={(v) => set((x) => (x.appearance.blur = v))} />
+        </SettingsGroup>
+      );
+    case "keyboard":
+      return (
+        <SettingsGroup>
+          <InfoRow label="Arrows">Move between items. In the player, left and right skip 10 s when controls are hidden.</InfoRow>
+          <InfoRow label="Enter">Open or activate</InfoRow>
+          <InfoRow label="Escape / Backspace">Back</InfoRow>
+          <InfoRow label="Space">Play or pause</InfoRow>
+          <InfoRow label="Menu key">Toggle Flick Frame</InfoRow>
+          <InfoRow label="Media keys">Play/pause, fast forward and rewind from remotes that send them.</InfoRow>
+        </SettingsGroup>
+      );
+    case "controller":
+      return (
+        <SettingsGroup note={<p>D-pad or left stick moves, A opens, B goes back, Start plays or pauses, bumpers skip 10 seconds, View toggles Flick Frame.</p>}>
+          <ToggleRow label="Use game controllers" checked={s.controller.enabled} onChange={(v) => set((x) => (x.controller.enabled = v))} />
+          <SliderRow label="Stick dead zone" value={s.controller.deadzone} min={0.1} max={0.8} step={0.05} format={pct} onChange={(v) => set((x) => (x.controller.deadzone = v))} />
+          <ToggleRow label="Swap A and B" hint="Nintendo-style confirm button." checked={s.controller.swapConfirm} onChange={(v) => set((x) => (x.controller.swapConfirm = v))} />
+        </SettingsGroup>
+      );
+    case "notifications":
+      return (
+        <SettingsGroup>
+          <ToggleRow label="Next episode" checked={s.notifications.nextEpisode} onChange={(v) => set((x) => (x.notifications.nextEpisode = v))} />
+          <ToggleRow label="Server offline" checked={s.notifications.serverOffline} onChange={(v) => set((x) => (x.notifications.serverOffline = v))} />
+        </SettingsGroup>
+      );
+    case "privacy":
+      return (
+        <SettingsGroup>
+          <ToggleRow label="Report progress to servers" hint="Needed for resume points and watched status on your other devices." checked={s.privacy.reportProgress} onChange={(v) => set((x) => (x.privacy.reportProgress = v))} />
+        </SettingsGroup>
+      );
+    case "advanced": {
+      const lib = about.data ? unwrap(about.data.libmpv) : null;
+      return (
+        <>
+          {about.data && (
+            <SettingsGroup title="About">
+              <InfoRow label="Version">Flick {about.data.version}</InfoRow>
+              <InfoRow label="libmpv">{lib?.ok ? `${lib.value[0]} (client API ${lib.value[1][0]}.${lib.value[1][1]})` : lib?.error}</InfoRow>
+              <InfoRow label="Display">{about.data.display ?? "—"}</InfoRow>
+              <InfoRow label="Settings">{about.data.configDir}</InfoRow>
+              <InfoRow label="Cache">{about.data.cacheDir}</InfoRow>
+            </SettingsGroup>
+          )}
+          <SettingsGroup title="Playback engine">
+            <SelectRow
+              label="Video presentation"
+              hint="How video is placed under the interface. Applies to the next playback."
+              value={s.advanced.presenter}
+              options={[
+                { value: "auto", label: "Automatic" },
+                { value: "composition", label: "Composition (Windows)" },
+                { value: "childWindow", label: "Child window" },
+                { value: "dedicatedWindow", label: "Separate window" },
+              ]}
+              onChange={(v) => set((x) => (x.advanced.presenter = v))}
+            />
+          </SettingsGroup>
+        </>
+      );
+    }
+    case "debug":
+      return (
+        <SettingsGroup>
+          <SelectRow
+            label="Log detail"
+            value={s.advanced.logLevel}
+            options={[
+              { value: "info", label: "Normal" },
+              { value: "debug", label: "Detailed" },
+              { value: "trace", label: "Everything" },
+            ]}
+            onChange={(v) => set((x) => (x.advanced.logLevel = v))}
+          />
+          <LinkRow label="Open diagnostics" onClick={() => navigate("/debug")} />
+        </SettingsGroup>
+      );
+  }
+}
+
+function AudioSection({ s, caps }: { s: SettingsModel; caps: CapabilityReport | undefined }) {
+  const a = s.audio;
+  const device = caps?.audio.devices.find((d) => d.id === (a.device ?? caps?.audio.defaultDevice));
+  const accepted = (f: BitstreamFormat) => {
+    const p = device?.passthrough;
+    return p?.state === "probed" && p.formats.includes(f);
+  };
+  const devices: Choice<string>[] = [{ value: "", label: "System default" }, ...(caps?.audio.devices ?? []).map((d) => ({ value: d.id, label: d.name }))];
+  return (
+    <>
+      <SettingsGroup title="Output">
+        <SelectRow label="Device" value={a.device ?? ""} options={devices} onChange={(v) => set((x) => (x.audio.device = v || null))} />
+        <SelectRow
+          label="Channels"
+          hint={device ? `The system mixes to ${device.channels} channels (${device.channelLayout ?? "unknown layout"}) on this device.` : undefined}
+          value={a.channels}
+          options={[
+            { value: "auto", label: "Follow system" },
+            { value: "stereo", label: "Stereo" },
+            { value: "surround51", label: "5.1" },
+            { value: "surround71", label: "7.1" },
+          ]}
+          onChange={(v) => set((x) => (x.audio.channels = v))}
+        />
+        <SliderRow label="Volume" value={a.volume} min={0} max={100} step={1} format={(v) => `${v} %`} onChange={(v) => set((x) => (x.audio.volume = v))} />
+        <SelectRow
+          label="Volume levelling"
+          value={a.normalization}
+          options={[
+            { value: "off", label: "Off" },
+            { value: "nightMode", label: "Night mode" },
+            { value: "loudness", label: "Loudness (EBU R128)" },
+          ]}
+          onChange={(v) => set((x) => (x.audio.normalization = v))}
+        />
+        <ToggleRow label="Exclusive mode" hint="Bit-perfect output. Other apps are silent while playing." checked={a.exclusive} onChange={(v) => set((x) => (x.audio.exclusive = v))} />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Passthrough to an AV receiver"
+        note={
+          <p>
+            Sends Dolby and DTS tracks untouched so your receiver decodes them. Atmos and DTS:X are only reproduced this way. Formats your device refused during the last check are marked; the player never forces them, and falls
+            back to decoding if the receiver rejects a stream.
+          </p>
+        }
+      >
+        <ToggleRow label="Enable passthrough" checked={a.passthrough} onChange={(v) => set((x) => (x.audio.passthrough = v))} />
+        {(Object.keys(formatNames) as BitstreamFormat[]).map((f) => (
+          <ToggleRow
+            key={f}
+            label={formatNames[f]}
+            hint={accepted(f) ? "Accepted by this device" : "Not accepted by this device"}
+            checked={a.passthroughFormats.includes(f)}
+            disabled={!a.passthrough}
+            onChange={(on) => set((x) => (x.audio.passthroughFormats = on ? [...x.audio.passthroughFormats, f] : x.audio.passthroughFormats.filter((y) => y !== f)))}
+          />
+        ))}
+        <ToggleRow
+          label="Re-encode surround to Dolby Digital"
+          hint="For optical (S/PDIF) receivers: turns any 5.1/7.1 track into Dolby Digital 5.1. Lossy."
+          checked={a.ac3Reencode}
+          onChange={(v) => set((x) => (x.audio.ac3Reencode = v))}
+        />
+      </SettingsGroup>
+    </>
+  );
+}

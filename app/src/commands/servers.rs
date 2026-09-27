@@ -1,0 +1,194 @@
+//! Server onboarding (Jellyfin password / Quick Connect, Plex PIN) and management.
+
+use std::sync::Arc;
+
+use oneshot_core::server::{ProviderKind, ServerDescriptor, ServerStatus, UserProfile};
+use oneshot_core::{Error, Result, ServerId};
+use oneshot_jellyfin::{Connector, Session};
+use oneshot_plex::{PlexAuth, auth::require_reachable};
+use oneshot_storage::secrets;
+use serde::Serialize;
+use tauri::State;
+use tauri_plugin_opener::OpenerExt;
+use url::Url;
+
+use crate::state::AppState;
+
+type St<'a> = State<'a, Arc<AppState>>;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerEntry {
+    pub server: ServerDescriptor,
+    /// False when the token is missing from the keychain.
+    pub connected: bool,
+}
+
+#[tauri::command]
+pub fn servers_list(state: St<'_>) -> Vec<ServerEntry> {
+    let connected: Vec<ServerId> = state.catalog.providers().iter().map(|p| p.descriptor().id).collect();
+    state
+        .servers
+        .read()
+        .iter()
+        .map(|s| ServerEntry { server: s.clone(), connected: connected.contains(&s.id) })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn server_status(state: St<'_>, id: ServerId) -> Result<ServerStatus> {
+    Ok(state.catalog.provider(id)?.status().await)
+}
+
+#[tauri::command]
+pub fn server_remove(state: St<'_>, id: ServerId) -> Result<()> {
+    state.remove_server(id)
+}
+
+// ------------------------------------------------------------------ Jellyfin
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeResult {
+    pub url: Url,
+    pub name: String,
+    pub version: Option<String>,
+}
+
+#[tauri::command]
+pub async fn jellyfin_probe(state: St<'_>, address: String) -> Result<ProbeResult> {
+    let connector = Connector::new(state.http(), state.jellyfin_identity());
+    let (url, info) = connector.probe(&address).await?;
+    Ok(ProbeResult { url, name: info.server_name.unwrap_or_else(|| "Jellyfin".into()), version: info.version })
+}
+
+fn jellyfin_descriptor(s: &Session) -> ServerDescriptor {
+    ServerDescriptor {
+        id: ServerId::new(),
+        kind: ProviderKind::Jellyfin,
+        name: s.server_name.clone(),
+        remote_id: s.server_id.clone(),
+        base_url: s.base_url.clone(),
+        alternate_urls: vec![],
+        version: s.version.clone(),
+        user: UserProfile { id: s.user_id.clone(), name: s.user_name.clone(), avatar: None, is_admin: s.is_admin },
+    }
+}
+
+#[tauri::command]
+pub async fn jellyfin_login(state: St<'_>, url: Url, username: String, password: String) -> Result<ServerDescriptor> {
+    let connector = Connector::new(state.http(), state.jellyfin_identity());
+    // The password is used once to obtain a token and never stored.
+    let session = connector.login(&url, &username, &password).await?;
+    let d = jellyfin_descriptor(&session);
+    state.register_server(d.clone(), &session.token)?;
+    Ok(d)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickConnect {
+    pub code: String,
+    pub secret: String,
+}
+
+#[tauri::command]
+pub async fn jellyfin_quick_connect_start(state: St<'_>, url: Url) -> Result<QuickConnect> {
+    let r = Connector::new(state.http(), state.jellyfin_identity()).quick_connect_start(&url).await?;
+    Ok(QuickConnect { code: r.code, secret: r.secret })
+}
+
+#[tauri::command]
+pub async fn jellyfin_quick_connect_poll(state: St<'_>, url: Url, secret: String) -> Result<Option<ServerDescriptor>> {
+    let connector = Connector::new(state.http(), state.jellyfin_identity());
+    let Some(session) = connector.quick_connect_poll(&url, &secret).await? else { return Ok(None) };
+    let d = jellyfin_descriptor(&session);
+    state.register_server(d.clone(), &session.token)?;
+    Ok(Some(d))
+}
+
+// ---------------------------------------------------------------------- Plex
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlexPin {
+    pub id: i64,
+    pub code: String,
+    pub auth_url: Url,
+}
+
+/// Creates a PIN and opens the Plex sign-in page in the system browser.
+#[tauri::command]
+pub async fn plex_pin_start(app: tauri::AppHandle, state: St<'_>) -> Result<PlexPin> {
+    let pin = PlexAuth::new(state.http(), state.plex_identity()).start_pin().await?;
+    if let Err(e) = app.opener().open_url(pin.auth_url.as_str(), None::<&str>) {
+        tracing::warn!(target: "provider", "could not open the browser: {e}");
+    }
+    Ok(PlexPin { id: pin.id, code: pin.code, auth_url: pin.auth_url })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlexServerChoice {
+    pub machine_id: String,
+    pub name: String,
+    pub owned: bool,
+    pub version: Option<String>,
+    /// Best reachable address, if any.
+    pub url: Option<Url>,
+}
+
+/// Returns `None` while the user has not approved the PIN yet.
+#[tauri::command]
+pub async fn plex_pin_poll(state: St<'_>, id: i64) -> Result<Option<Vec<PlexServerChoice>>> {
+    let auth = PlexAuth::new(state.http(), state.plex_identity());
+    let Some(account) = auth.poll_pin(id).await? else { return Ok(None) };
+    let servers = auth.discover(&account.token).await?;
+    secrets::store_secret(PLEX_ACCOUNT_KEY, &account.token)?;
+    *state.plex_account.lock() = Some(account.token);
+    Ok(Some(
+        servers
+            .into_iter()
+            .map(|s| PlexServerChoice {
+                url: s.reachable.first().cloned(),
+                machine_id: s.machine_id,
+                name: s.name,
+                owned: s.owned,
+                version: s.version,
+            })
+            .collect(),
+    ))
+}
+
+/// Keychain slot for the plex.tv account token (lets the user add more
+/// servers later without a new PIN).
+const PLEX_ACCOUNT_KEY: &str = "plex-account";
+
+#[tauri::command]
+pub async fn plex_add_servers(state: St<'_>, machine_ids: Vec<String>) -> Result<Vec<ServerDescriptor>> {
+    let token = state
+        .plex_account
+        .lock()
+        .clone()
+        .or_else(|| secrets::load_secret(PLEX_ACCOUNT_KEY).ok().flatten())
+        .ok_or(Error::Unauthorized)?;
+    let auth = PlexAuth::new(state.http(), state.plex_identity());
+    let account = auth.account(&token).await?;
+    let mut added = Vec::new();
+    for server in auth.discover(&token).await?.into_iter().filter(|s| machine_ids.contains(&s.machine_id)) {
+        let base_url = require_reachable(&server)?;
+        let d = ServerDescriptor {
+            id: ServerId::new(),
+            kind: ProviderKind::Plex,
+            name: server.name.clone(),
+            remote_id: server.machine_id.clone(),
+            base_url,
+            alternate_urls: server.reachable.iter().skip(1).cloned().collect(),
+            version: server.version.clone(),
+            user: UserProfile { id: account.user_id.clone(), name: account.username.clone(), avatar: account.avatar.clone(), is_admin: server.owned },
+        };
+        state.register_server(d.clone(), &server.access_token)?;
+        added.push(d);
+    }
+    Ok(added)
+}

@@ -1,0 +1,6 @@
+[env]
+# ts-rs writes generated TypeScript types for the UI here.
+TS_RS_EXPORT_DIR = { value = "ui/src/ipc/bindings", relative = true }
+# serde_json emits u64/i64 as JSON numbers, which JavaScript reads as `number`.
+# Values we exchange (milliseconds, bytes, bitrates) stay far below 2^53.
+TS_RS_LARGE_INT = "number"
