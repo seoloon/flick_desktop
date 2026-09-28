@@ -1,5 +1,5 @@
 [package]
-name = "oneshot-app"
+name = "Flick"
 description = "Flick desktop shell (Tauri): IPC commands, image protocol, window and presenter wiring"
 edition.workspace = true
 rust-version.workspace = true
