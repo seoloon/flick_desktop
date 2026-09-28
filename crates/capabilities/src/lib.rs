@@ -19,6 +19,8 @@ use parking_lot::RwLock;
 
 #[cfg(windows)]
 mod windows;
+#[cfg(target_os = "macos")]
+mod macos;
 
 /// Codecs the bundled FFmpeg (inside libmpv) decodes in software. This is a
 /// property of the engine build, verified at startup against mpv's
@@ -110,10 +112,15 @@ fn probe_platform(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCa
     windows::probe(notes)
 }
 
-/// macOS and Linux probes are not implemented yet. We report "unknown" so the
+#[cfg(target_os = "macos")]
+fn probe_platform(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCapabilities, VideoCapabilities) {
+    macos::probe(notes)
+}
+
+/// Linux probing is not implemented yet. We report "unknown" so the
 /// decision engine stays conservative (no HDR passthrough, no bitstreaming
 /// promises) instead of guessing. See ARCHITECTURE.md §8.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn probe_platform(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCapabilities, VideoCapabilities) {
     notes.push(format!(
         "Display/audio/decoder probing is not implemented on {} yet; capabilities are reported as unknown.",

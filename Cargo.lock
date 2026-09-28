@@ -2806,6 +2806,9 @@ name = "oneshot-capabilities"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "oneshot-core",
  "parking_lot",
  "serde_json",
@@ -2903,6 +2906,11 @@ dependencies = [
 name = "oneshot-player"
 version = "0.1.0"
 dependencies = [
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-quartz-core",
  "oneshot-capabilities",
  "oneshot-core",
  "oneshot-jellyfin",

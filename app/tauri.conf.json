@@ -9,6 +9,7 @@
     "beforeBuildCommand": "pnpm --filter oneshot-ui build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",

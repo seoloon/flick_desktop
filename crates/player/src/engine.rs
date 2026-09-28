@@ -85,6 +85,7 @@ impl Engine {
 
         let (mpv, mut events) = Mpv::create(api, options.iter().map(|(k, v)| (k.as_str(), v.as_str())))?;
         mpv.request_log_messages("warn")?;
+        presenter.on_mpv_ready(&mpv);
         for (i, name) in OBSERVED.iter().chain(presenter.observed()).enumerate() {
             mpv.observe(i as u64 + 1, name)?;
         }

@@ -57,6 +57,11 @@ fn libmpv_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         dirs.push(root.join("third_party/mpv/windows-x64"));
+        if cfg!(target_os = "macos") {
+            // `brew install mpv` (arm64: Homebrew's default prefix; Intel: /usr/local).
+            dirs.push(PathBuf::from("/opt/homebrew/lib"));
+            dirs.push(PathBuf::from("/usr/local/lib"));
+        }
     }
     dirs
 }
@@ -156,6 +161,10 @@ fn host_window(window: &tauri::WebviewWindow) -> HostWindow {
     #[cfg(windows)]
     if let Ok(hwnd) = window.hwnd() {
         return HostWindow::Win32 { hwnd: hwnd.0 as isize };
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(ns_view) = window.ns_view() {
+        return HostWindow::AppKit { ns_view };
     }
     let _ = window;
     HostWindow::Other

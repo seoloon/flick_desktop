@@ -74,6 +74,42 @@ pub struct mpv_event {
     pub data: *mut c_void,
 }
 
+pub enum mpv_render_context {}
+
+pub type mpv_render_param_type = c_int;
+pub const MPV_RENDER_PARAM_INVALID: mpv_render_param_type = 0;
+pub const MPV_RENDER_PARAM_API_TYPE: mpv_render_param_type = 1;
+pub const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: mpv_render_param_type = 2;
+pub const MPV_RENDER_PARAM_OPENGL_FBO: mpv_render_param_type = 3;
+
+/// The value for a `mpv_render_param` whose `type_` is
+/// `MPV_RENDER_PARAM_API_TYPE`: `data` is set to point at this very
+/// null-terminated string constant, telling mpv which render API (here,
+/// OpenGL) to use for the render context being created.
+pub const MPV_RENDER_API_TYPE_OPENGL: &[u8] = b"opengl\0";
+
+#[repr(C)]
+pub struct mpv_render_param {
+    pub type_: mpv_render_param_type,
+    pub data: *mut c_void,
+}
+
+#[repr(C)]
+pub struct mpv_opengl_init_params {
+    pub get_proc_address: unsafe extern "C" fn(ctx: *mut c_void, name: *const c_char) -> *mut c_void,
+    pub get_proc_address_ctx: *mut c_void,
+}
+
+#[repr(C)]
+pub struct mpv_opengl_fbo {
+    pub fbo: c_int,
+    pub w: c_int,
+    pub h: c_int,
+    pub internal_format: c_int,
+}
+
+pub type mpv_render_update_fn = unsafe extern "C" fn(cb_ctx: *mut c_void);
+
 /// Minimum client API we require: 2.2 (mpv 0.38) introduced nothing we need
 /// beyond 2.0, but older builds lack `d3d11-output-mode=composition` and the
 /// modern `target-colorspace-hint` behaviour, which we probe separately.
@@ -128,6 +164,11 @@ mpv_api! {
     mpv_wait_event: fn(*mut mpv_handle, c_double) -> *mut mpv_event;
     mpv_wakeup: fn(*mut mpv_handle);
     mpv_event_to_node: fn(*mut mpv_node, *mut mpv_event) -> c_int;
+    mpv_render_context_create: fn(*mut *mut mpv_render_context, *mut mpv_handle, *mut mpv_render_param) -> c_int;
+    mpv_render_context_render: fn(*mut mpv_render_context, *mut mpv_render_param) -> c_int;
+    mpv_render_context_report_swap: fn(*mut mpv_render_context);
+    mpv_render_context_set_update_callback: fn(*mut mpv_render_context, mpv_render_update_fn, *mut c_void);
+    mpv_render_context_free: fn(*mut mpv_render_context);
 }
 
 /// Platform file names tried when no explicit path is configured.

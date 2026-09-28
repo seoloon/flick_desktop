@@ -22,7 +22,7 @@ oneshot-jellyfin.workspace = true
 oneshot-plex.workspace = true
 oneshot-tmdb.workspace = true
 futures.workspace = true
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 parking_lot.workspace = true

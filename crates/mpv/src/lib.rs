@@ -8,6 +8,7 @@ mod error;
 mod event;
 mod handle;
 mod node;
+mod render;
 pub mod sys;
 
 use std::path::PathBuf;
@@ -17,6 +18,7 @@ pub use error::{Error, Result};
 pub use event::{EndReason, Event};
 pub use handle::{Events, Mpv};
 pub use node::Node;
+pub use render::RenderContext;
 pub use sys::Api;
 
 /// Loads libmpv, trying `explicit` first, then `search_dirs`, then the system

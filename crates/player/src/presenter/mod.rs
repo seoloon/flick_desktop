@@ -11,6 +11,8 @@ use serde::Serialize;
 
 #[cfg(windows)]
 mod windows;
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -20,6 +22,8 @@ pub enum PresenterKind {
     Composition,
     /// Windows/X11: mpv child window inside the app window (`--wid`).
     ChildWindow,
+    /// macOS: mpv's OpenGL render API into a `CAOpenGLLayer` under the WebView.
+    LayerRender,
     /// mpv owns a separate top-level window; player chrome via mpv OSD.
     DedicatedWindow,
 }
@@ -28,8 +32,24 @@ pub enum PresenterKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostWindow {
     Win32 { hwnd: isize },
+    /// macOS: the `NSView*` backing the WebView's content, from Tauri's
+    /// `WebviewWindow::ns_view()`.
+    AppKit { ns_view: *mut std::ffi::c_void },
     Other,
 }
+
+// SAFETY: `ns_view` is a value carried across threads (e.g. into
+// `PlayerConfig`/`Player`), never dereferenced by `HostWindow` itself —
+// only the macOS presenter that owns it dereferences it, and always via
+// `UiDispatch` on the AppKit main thread (see `LayerPresenter`'s own
+// `unsafe impl Send`/`Sync` for the same justification one level down).
+unsafe impl Send for HostWindow {}
+// SAFETY: `ns_view` is a value carried across threads (e.g. into
+// `PlayerConfig`/`Player`), never dereferenced by `HostWindow` itself —
+// only the macOS presenter that owns it dereferences it, and always via
+// `UiDispatch` on the AppKit main thread (see `LayerPresenter`'s own
+// `unsafe impl Send`/`Sync` for the same justification one level down).
+unsafe impl Sync for HostWindow {}
 
 /// Runs a closure on the UI (window-owning) thread. Supplied by the shell.
 pub type UiDispatch = Arc<dyn Fn(Box<dyn FnOnce() + Send>) + Send + Sync>;
@@ -60,6 +80,11 @@ pub trait Presenter: Send + Sync + std::fmt::Debug {
         false
     }
     fn set_visible(&self, _visible: bool) {}
+    /// Called once, right after `mpv_initialize` succeeds. Presenters that
+    /// need the live `Mpv` handle to set something up themselves (rather
+    /// than waiting on an mpv-driven property, like `CompositionPresenter`
+    /// does) use this. Most presenters don't need it.
+    fn on_mpv_ready(&self, _mpv: &Mpv) {}
 }
 
 /// Picks the presenter for this platform and libmpv build.
@@ -74,6 +99,13 @@ pub fn choose(choice: PresenterChoice, host: HostWindow, dispatch: UiDispatch, c
             PresenterChoice::DedicatedWindow => Arc::new(DedicatedWindow),
             _ if use_composition => Arc::new(windows::CompositionPresenter::new(hwnd, dispatch)),
             _ => Arc::new(ChildWindow { wid: hwnd as i64 }),
+        };
+    }
+    #[cfg(target_os = "macos")]
+    if let HostWindow::AppKit { ns_view } = host {
+        return match choice {
+            PresenterChoice::DedicatedWindow => Arc::new(DedicatedWindow),
+            _ => Arc::new(macos::LayerPresenter::new(ns_view, dispatch)),
         };
     }
     let _ = (choice, host, dispatch, composition_supported);
@@ -112,5 +144,30 @@ impl Presenter for DedicatedWindow {
             ("title".into(), "Flick".into()),
             ("osd-level".into(), "1".into()),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn noop_dispatch() -> UiDispatch {
+        Arc::new(|f| f())
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn appkit_host_uses_layer_render_by_default() {
+        let host = HostWindow::AppKit { ns_view: std::ptr::null_mut() };
+        let presenter = choose(oneshot_core::settings::PresenterChoice::Auto, host, noop_dispatch(), false);
+        assert_eq!(presenter.kind(), PresenterKind::LayerRender);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn appkit_host_honours_forced_dedicated_window() {
+        let host = HostWindow::AppKit { ns_view: std::ptr::null_mut() };
+        let presenter = choose(oneshot_core::settings::PresenterChoice::DedicatedWindow, host, noop_dispatch(), false);
+        assert_eq!(presenter.kind(), PresenterKind::DedicatedWindow);
     }
 }

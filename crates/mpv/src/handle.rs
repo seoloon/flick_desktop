@@ -74,11 +74,15 @@ impl Mpv {
         Ok((mpv, Events { inner }))
     }
 
-    fn api(&self) -> &Api {
+    pub(crate) fn api(&self) -> &Api {
         &self.inner.api
     }
 
-    fn raw(&self) -> *mut mpv_handle {
+    pub(crate) fn api_arc(&self) -> Arc<Api> {
+        Arc::clone(&self.inner.api)
+    }
+
+    pub(crate) fn raw(&self) -> *mut mpv_handle {
         self.inner.raw.as_ptr()
     }
 
