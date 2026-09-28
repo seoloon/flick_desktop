@@ -38,6 +38,8 @@ pub type EventSink = Arc<dyn Fn(PlayerEvent) + Send + Sync>;
 pub struct PlayerConfig {
     pub libmpv_path: Option<PathBuf>,
     pub search_dirs: Vec<PathBuf>,
+    /// Fonts shipped with the app (subtitle faces libass cannot find on the system).
+    pub fonts_dir: Option<PathBuf>,
     pub host: HostWindow,
     pub dispatch: UiDispatch,
     pub runtime: tokio::runtime::Handle,
@@ -149,7 +151,11 @@ impl Player {
             presenter::choose(choice, self.config.host, Arc::clone(&self.config.dispatch), composition_supported);
         tracing::info!(target: "player", kind = ?presenter.kind(), "starting mpv engine");
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let engine = Engine::start(api, presenter, &settings.advanced.extra_mpv_options, tx)
+        // Before the user's own options, so an explicit `sub-fonts-dir` wins.
+        let mut extra: Vec<(String, String)> =
+            self.config.fonts_dir.iter().map(|d| ("sub-fonts-dir".to_owned(), d.display().to_string())).collect();
+        extra.extend(settings.advanced.extra_mpv_options.iter().cloned());
+        let engine = Engine::start(api, presenter, &extra, tx)
             .map_err(|e| Error::Playback(format!("mpv init failed: {e}")))?;
         for (name, value) in options::base_properties(settings) {
             if let Err(e) = engine.mpv.set_property(name, value) {

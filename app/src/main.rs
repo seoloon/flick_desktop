@@ -66,6 +66,13 @@ fn libmpv_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     dirs
 }
 
+/// The bundled subtitle fonts: the resource folder, or the sources in dev.
+fn fonts_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let bundled = app.path().resource_dir().ok().map(|r| r.join("fonts"));
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ui/src/assets/fonts");
+    bundled.into_iter().chain(cfg!(debug_assertions).then_some(dev)).find(|d| d.is_dir())
+}
+
 fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let paths = Paths { config: app.path().app_config_dir()?, cache: app.path().app_cache_dir()? };
@@ -86,6 +93,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         PlayerConfig {
             libmpv_path: std::env::var_os("ONESHOT_LIBMPV").map(PathBuf::from),
             search_dirs: libmpv_dirs(&handle),
+            fonts_dir: fonts_dir(&handle),
             host,
             dispatch: Arc::new(move |f| {
                 if let Err(e) = dispatch_handle.run_on_main_thread(f) {

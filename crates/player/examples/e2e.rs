@@ -90,6 +90,7 @@ async fn main() {
         PlayerConfig {
             libmpv_path: None,
             search_dirs: vec!["third_party/mpv/windows-x64".into()],
+            fonts_dir: None,
             host: HostWindow::Other,
             dispatch: Arc::new(|f| f()),
             runtime: tokio::runtime::Handle::current(),

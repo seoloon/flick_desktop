@@ -3,6 +3,50 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter/opsz.css";
 
+/* Bundled for the subtitle font list: mpv reads the same files (sub-fonts-dir),
+   and the settings preview needs them in the WebView. "Inter" is the static
+   face; the app's own UI font is the "Inter Variable" package above. */
+@font-face {
+  font-family: "Poppins";
+  font-weight: 400;
+  src: url("./assets/fonts/Poppins-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Poppins";
+  font-weight: 700;
+  src: url("./assets/fonts/Poppins-Bold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Roboto";
+  font-weight: 400;
+  src: url("./assets/fonts/Roboto-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Roboto";
+  font-weight: 700;
+  src: url("./assets/fonts/Roboto-Bold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Montserrat";
+  font-weight: 400;
+  src: url("./assets/fonts/Montserrat-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Montserrat";
+  font-weight: 700;
+  src: url("./assets/fonts/Montserrat-Bold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Inter";
+  font-weight: 400;
+  src: url("./assets/fonts/Inter-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Inter";
+  font-weight: 700;
+  src: url("./assets/fonts/Inter-Bold.ttf") format("truetype");
+}
+
 /* Dark only: the app is a living-room screen. The `dark` variant stays for
    shadcn components that ship `dark:` classes. */
 @custom-variant dark (&:where(:root, :root *));
