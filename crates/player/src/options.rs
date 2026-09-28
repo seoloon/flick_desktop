@@ -38,7 +38,7 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
         ("demuxer-max-back-bytes", s(format!("{}MiB", (settings.network.buffer_mib / 3).max(16)))),
         ("volume", Node::Double(f64::from(settings.audio.volume))),
         // Streaming-service look for plain-text subtitles: a bold sans, a
-        // thin black edge softened by a slight blur, and a faint drop shadow
+        // thin crisp black edge, and a faint drop shadow
         // instead of a heavy outline. Sizes are relative to a 720p frame.
         ("sub-font", s(subtitle_font(&sub.font_family))),
         ("sub-bold", Node::Flag(sub.bold)),
@@ -47,7 +47,7 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
         ("sub-color", s(sub.color.clone())),
         ("sub-border-color", s("#000000")),
         ("sub-border-size", Node::Double(f64::from(sub.outline))),
-        ("sub-blur", Node::Double(0.3)),
+        ("sub-blur", Node::Double(0.0)),
         ("sub-shadow-offset", Node::Double(1.2)),
         ("sub-shadow-color", s("#8C000000")),
         ("sub-pos", Node::Int64(i64::from(sub.position.min(150)))),
