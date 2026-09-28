@@ -253,8 +253,8 @@ impl Surface {
     /// path (`RenderContext::create_opengl` erroring) without needing a
     /// broken system OpenGL loader — see the `surface_create_*` tests below,
     /// which mirror `oneshot_mpv::render::tests::create_opengl_without_gl_context_fails_cleanly`
-    /// (Task 2) one layer up, at the point `LayerPresenter::on_mpv_ready`
-    /// actually depends on.
+    /// one layer up, at the point `LayerPresenter::on_mpv_ready` actually
+    /// depends on.
     fn create_with_proc_address(
         mpv: &Mpv,
         get_proc_address: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
@@ -826,15 +826,15 @@ mod tests {
     }
 
     /// A `get_proc_address` that resolves nothing — mirrors
-    /// `oneshot_mpv::render::tests::create_opengl_without_gl_context_fails_cleanly`
-    /// (Task 2), one layer up: the same failure, exercised through the
-    /// macOS presenter's own `Surface::create_with_proc_address`, which is
-    /// what `LayerPresenter::on_mpv_ready` (Task 6) actually calls.
+    /// `oneshot_mpv::render::tests::create_opengl_without_gl_context_fails_cleanly`,
+    /// one layer up: the same failure, exercised through the macOS
+    /// presenter's own `Surface::create_with_proc_address`, which is what
+    /// `LayerPresenter::on_mpv_ready` actually calls.
     unsafe extern "C" fn null_get_proc_address(_ctx: *mut c_void, _name: *const c_char) -> *mut c_void {
         std::ptr::null_mut()
     }
 
-    /// Proves the fallback contract Task 9 is about: when mpv's OpenGL
+    /// Proves the fallback-to-`DedicatedWindow` contract: when mpv's OpenGL
     /// render context can't be created (here, forced by a GL loader that
     /// resolves nothing), `Surface::create` returns `Err` instead of
     /// panicking or crashing, and nothing is leaked (`Surface::drop` runs
@@ -853,7 +853,7 @@ mod tests {
 
         assert!(result.is_err(), "render context creation must not silently succeed with no working GL loader");
 
-        // `on_mpv_ready` (Task 6) matches on exactly this `Result` and, on
+        // `on_mpv_ready` matches on exactly this `Result` and, on
         // `Err`, logs and returns before ever calling `attach` — so a
         // failure here never inserts a `LAYERS` entry, leaving
         // `set_viewport`/`set_visible` (which look the id up in `LAYERS`

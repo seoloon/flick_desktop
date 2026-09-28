@@ -82,7 +82,10 @@ pub const MPV_RENDER_PARAM_API_TYPE: mpv_render_param_type = 1;
 pub const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: mpv_render_param_type = 2;
 pub const MPV_RENDER_PARAM_OPENGL_FBO: mpv_render_param_type = 3;
 
-/// `mpv_render_param.data` points at nothing for these two: no payload struct.
+/// The value for a `mpv_render_param` whose `type_` is
+/// `MPV_RENDER_PARAM_API_TYPE`: `data` is set to point at this very
+/// null-terminated string constant, telling mpv which render API (here,
+/// OpenGL) to use for the render context being created.
 pub const MPV_RENDER_API_TYPE_OPENGL: &[u8] = b"opengl\0";
 
 #[repr(C)]

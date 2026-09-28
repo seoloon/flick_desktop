@@ -101,8 +101,9 @@ impl Drop for RenderContext {
     fn drop(&mut self) {
         // SAFETY: `self.raw` was created by `mpv_render_context_create` and
         // this is the only owner. mpv's docs require the associated GL
-        // context to be current when freeing; the presenter (Task 6) makes
-        // its context current before dropping its `RenderContext` field.
+        // context to be current when freeing; the presenter that owns this
+        // `RenderContext` field makes its GL context current before
+        // dropping it.
         unsafe { (self.api.mpv_render_context_free)(self.raw.as_ptr()) };
     }
 }
@@ -121,7 +122,7 @@ mod tests {
     /// null: mpv's render API must fail context creation cleanly instead of
     /// crashing. This is the path a headless CI runner or a GPU-less VM
     /// takes, and what the macOS presenter's fallback-to-`DedicatedWindow`
-    /// logic (Task 9) depends on.
+    /// logic depends on.
     #[test]
     #[ignore = "needs a real libmpv; run with `cargo test -p oneshot-mpv -- --ignored`"]
     fn create_opengl_without_gl_context_fails_cleanly() {
