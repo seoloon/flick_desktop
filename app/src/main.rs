@@ -87,6 +87,8 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
     let images = ImageCache::new(paths.cache.join("images"), u64::from(settings.cache.image_cache_mib) * 1024 * 1024)?;
 
     let window = app.get_webview_window("main").ok_or("main window missing")?;
+    #[cfg(target_os = "macos")]
+    hide_traffic_lights(&window);
     let host = host_window(&window);
     let dispatch_handle = handle.clone();
     let emit_handle = handle.clone();
@@ -164,6 +166,21 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         _ => {}
     });
     Ok(())
+}
+
+/// Hides the native traffic lights: the UI draws its own in the title island.
+/// The window keeps its native shape (corners, shadow, resizing, fullscreen).
+#[cfg(target_os = "macos")]
+fn hide_traffic_lights(window: &tauri::WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+    let Ok(ptr) = window.ns_window() else { return };
+    // SAFETY: Tauri hands out the window's live NSWindow, and this runs on the main thread (setup).
+    let ns_window = unsafe { &*(ptr as *const NSWindow) };
+    for kind in [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton] {
+        if let Some(button) = ns_window.standardWindowButton(kind) {
+            button.setHidden(true);
+        }
+    }
 }
 
 fn host_window(window: &tauri::WebviewWindow) -> HostWindow {

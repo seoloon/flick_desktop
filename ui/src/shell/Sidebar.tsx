@@ -62,7 +62,7 @@ const brandWidths = {
 
 function Brand() {
   return (
-    <div className="mb-5 flex items-center px-3 pt-2 in-data-[platform=mac]:pt-9">
+    <div className="mb-5 flex items-center px-3 pt-2">
       <span
         style={brandWidths}
         className="block w-(--wordmark-w) overflow-hidden transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] [--wordmark-h:1.2rem] in-data-[sidebar=collapsed]:w-(--mark-w)"

@@ -9,6 +9,8 @@ dependencies = [
  "chrono",
  "futures",
  "image",
+ "objc2",
+ "objc2-app-kit",
  "oneshot-capabilities",
  "oneshot-catalog",
  "oneshot-core",
