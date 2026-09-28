@@ -2,6 +2,11 @@
 //! full capability-probing sub-project; this is the minimum `video_target()`
 //! in `crates/player/src/options.rs` needs to signal PQ).
 //! Audio and video decoder probing stay `Unknown`/default here.
+//!
+//! `screens()` below runs off the main thread (`CapabilityManager::refresh()`
+//! runs on a background thread by design) and bypasses `objc2`'s
+//! `MainThreadMarker` guard with a documented `unsafe` rather than requiring
+//! a hop to the main thread — see the `SAFETY` comment on `screens()`.
 
 use oneshot_core::capabilities::{AudioCapabilities, DisplayCapabilities, HdrState, Rect, VideoCapabilities};
 
@@ -26,13 +31,12 @@ fn screens() -> Vec<DisplayCapabilities> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSScreen;
 
-    let Some(mtm) = MainThreadMarker::new() else {
-        // Capability probing runs off the UI thread (see `CapabilityManager`
-        // doc comment); `NSScreen` enumeration needs the main thread. The
-        // caller (`crates/capabilities/src/lib.rs::probe`) is adjusted in
-        // Task 8 to dispatch this specific call onto the main thread.
-        return Vec::new();
-    };
+    // SAFETY: `NSScreen` property reads (`screens`, `frame`, EDR headroom)
+    // are documented by Apple as safe to call from any thread — only
+    // methods that change screen configuration need the main thread.
+    // `CapabilityManager::refresh()` runs off the UI thread by design (see
+    // its doc comment), so we cannot wait for a `MainThreadMarker` here.
+    let mtm = unsafe { MainThreadMarker::new_unchecked() };
     let screens = NSScreen::screens(mtm);
     screens
         .iter()
