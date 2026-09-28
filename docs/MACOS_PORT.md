@@ -2,10 +2,20 @@
 
 > Pour la session Claude Code qui tourne **sur le Mac**. Ce document dit ce qui
 > est décidé, ce qui existe, ce qui manque et où regarder. Il ne remplace pas la
-> conception : commence par `superpowers:brainstorming` (chantier
-> *architectural*), puis spec → plan → exécution, comme pour les fonctionnalités
-> précédentes. Rédigé le 2026-09-27 depuis la machine Windows, sans avoir pu
-> compiler sur macOS : tout ce qui est marqué *à vérifier* n'a jamais tourné.
+> conception : pour un chantier qui n'a pas encore de spec, commence par
+> `superpowers:brainstorming`, puis spec → plan → exécution, comme pour les
+> fonctionnalités précédentes. Rédigé le 2026-09-27 depuis la machine Windows,
+> sans avoir pu compiler sur macOS : tout ce qui est encore marqué *à vérifier*
+> n'a jamais tourné sur une vraie machine.
+>
+> **Mise à jour du 2026-09-28**, depuis le Mac : le chantier 4.1 (présentation
+> vidéo sous la WKWebView) a sa conception, son plan d'implémentation et son
+> code fusionnés dans `master` — voir §4.1 pour l'état exact et ce qui reste.
+> Spec : `docs/superpowers/specs/2026-09-28-macos-video-presenter-design.md`.
+> Plan : `docs/superpowers/plans/2026-09-28-macos-video-presenter.md` (9 tâches,
+> toutes implémentées et revues ; ledger de revue supprimé après fusion, le
+> détail des décisions prises pendant l'exécution est dans l'historique git de
+> la branche fusionnée, commits `d70f824..b144a6a`).
 
 ## 1. Objectif et décisions déjà prises
 
@@ -77,88 +87,182 @@ Conventions du dépôt (voir aussi `ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`) :
 | Profils, PIN (Argon2id), réglages, cache | `crates/storage` | Rust pur. |
 | Secrets (tokens, clé TMDB) | `crates/storage/src/secrets.rs` (`keyring` 4) | Le Trousseau macOS est déjà dans le `Cargo.lock` (`apple-native-keyring-store`). *À vérifier* : une invite d'accès au Trousseau peut apparaître à chaque build ad hoc (signature différente). |
 | Protocole d'images `oneshot-img` | `app/src/images.rs`, `ui/src/ipc/images.ts` | L'UI utilise déjà `oneshot-img://localhost/` hors Windows ; la CSP (`tauri.conf.json`) l'autorise. |
-| Chargement de libmpv | `crates/mpv/src/sys.rs` (noms `libmpv.2.dylib`, `libmpv.dylib`), `app/src/main.rs` `libmpv_dirs` | En debug, seul `third_party/mpv/windows-x64` est cherché : ajouter le chemin Mac (et/ou Homebrew). |
+| Chargement de libmpv | `crates/mpv/src/sys.rs` (noms `libmpv.2.dylib`, `libmpv.dylib`), `app/src/main.rs` `libmpv_dirs` | **Fait** pour le dev : `/opt/homebrew/lib` et `/usr/local/lib` cherchés en debug sur macOS. Reste 4.4 (libmpv universelle livrée en distribution, `third_party/mpv/macos-universal/`). |
 | Décision de lecture | `crates/playback` | Portable ; reste prudente tant que les capacités sont « inconnues ». |
 
 ## 4. Chantiers, du plus lourd au plus léger
 
 ### 4.1 Présenter la vidéo sous la WKWebView (le cœur)
 
-**État** : rien. `crates/player/src/presenter/mod.rs::choose` retombe sur
-`DedicatedWindow` hors Windows (`HostWindow::Other`, voir
-`app/src/main.rs::host_window`) : une fenêtre mpv à part, sans l'UI du lecteur.
+**État : fait et fusionné dans `master`** (commits `d70f824..b144a6a`, plan
+`docs/superpowers/plans/2026-09-28-macos-video-presenter.md`, 9 tâches). Reste
+une validation à l'écran et deux trous connus — voir « Ce qui reste » plus bas.
 
-**Le contrat à respecter** (trait `Presenter`, même fichier) :
-- `init_options()` : options mpv avant `mpv_initialize` ;
-- `observed()` / `on_property()` : propriétés mpv dont le présentateur a besoin ;
-- `set_viewport(mpv, Viewport)` : rectangle vidéo en **pixels physiques**,
-  relatif à la zone client, envoyé par l'UI (`player_viewport` dans
-  `app/src/commands/playback.rs`, `api.playerViewport` côté UI). Le mini
-  lecteur et le PiP en dépendent ;
-- `set_visible(bool)`.
-- `UiDispatch` (fourni par `app/src/main.rs`, `run_on_main_thread`) exécute du
-  code sur le thread UI. AppKit : tout ce qui touche aux vues et couches doit y
-  passer.
+**Décision tranchée** (la question « pistes à trancher » ci-dessous n'est plus
+ouverte) : **option A, `CAOpenGLLayer` via l'API de rendu OpenGL de mpv**,
+comme IINA. L'option B (`CAMetalLayer`) a été écartée après vérification :
+« Jellium Desktop » (`andrewrabert/jellium-desktop`) n'est *pas* un précédent
+valable pour elle — son `CAMetalLayer` n'empile que les surfaces de **CEF**
+(l'UI du navigateur), pas mpv ; son code dit explicitement que mpv y possède
+sa **propre fenêtre séparée** sur macOS, comme la stratégie `DedicatedWindow`
+de Flick sous Linux. L'API de rendu mpv n'a d'ailleurs pas de backend Metal
+natif (seulement OpenGL, logiciel, et un Vulkan encore expérimental non
+mainliné). Le détail de cette vérification est dans la spec, §1 :
+`docs/superpowers/specs/2026-09-28-macos-video-presenter-design.md`.
 
-Référence Windows à lire en entier : `crates/player/src/presenter/windows.rs`
-(swapchain mpv dans un visuel DirectComposition *derrière* la WebView2, qui est
-transparente là où est la vidéo).
+**Ce qui a été construit** :
+- `crates/mpv/src/sys.rs` : liaisons FFI de l'API de rendu mpv
+  (`mpv_render_context_create`, `_render`, `_set_update_callback`,
+  `_report_swap`, `_free`, les structures `mpv_render_param`/
+  `mpv_opengl_init_params`/`mpv_opengl_fbo`).
+- `crates/mpv/src/render.rs` : `RenderContext`, wrapper sûr au-dessus de ces
+  liaisons (`create_opengl`, `render`, `report_swap`, `set_update_callback`,
+  `Drop` qui libère le contexte).
+- `crates/player/src/presenter/mod.rs` : `HostWindow::AppKit { ns_view }`,
+  `PresenterKind::LayerRender`, hook `Presenter::on_mpv_ready` (appelé juste
+  après `mpv_initialize`, c'est lui qui crée le contexte de rendu côté
+  macOS).
+- `crates/player/src/presenter/macos.rs` (nouveau, ~870 lignes) :
+  `LayerPresenter`. Sous-classe `CAOpenGLLayer` via `objc2::define_class!`
+  (choix du pixel format/contexte CGL avec repli 3 niveaux, dessin en
+  appelant `RenderContext::render`/`report_swap`), registre `thread_local!`
+  (`LAYERS`, sur le thread principal) plutôt qu'un champ `self.layer` — évite
+  le piège Send/Sync qu'un champ directement dans `LayerPresenter` aurait
+  posé. Un thread dédié `mpv-display` réveillé par le callback de mise à jour
+  mpv appelle `-display` puis `CATransaction::flush` (le patron d'IINA et du
+  backend `cocoa-cb` de mpv, pas du polling `canDrawInCGLContext:`). Conversion
+  de coordonnées `appkit_rect` : `Viewport` (pixels physiques, haut-gauche)
+  → points AppKit (bas-gauche), avec `backingScaleFactor`. Le flip d'image
+  (mpv rend à l'envers dans le repère CoreAnimation) se fait par une
+  transformation de calque, pas par `MPV_RENDER_PARAM_FLIP_Y` (que
+  `RenderContext` n'expose pas — amélioration future possible côté
+  `crates/mpv`).
+- `crates/capabilities/src/macos/mod.rs` : sonde EDR minimale (`NSScreen`),
+  pas les sondes audio/décodeur complètes (ça reste 4.3). Voir HDR plus bas.
+- `app/src/main.rs` : `host_window()` retourne `HostWindow::AppKit` via
+  `window.ns_view()` de Tauri ; `libmpv_dirs()` cherche `/opt/homebrew/lib`
+  et `/usr/local/lib` en debug sur macOS.
+- `app/tauri.conf.json` : `macOSPrivateApi: true` (dans la config **de base**,
+  pas dans l'overlay `tauri.macos.conf.json` — un overlay ne suffit pas
+  puisque `app/Cargo.toml` active la feature Cargo `macos-private-api` sans
+  condition de plateforme ; la vérification par tauri-build compare
+  fonctionnalité Cargo et config *fusionnée pour la cible*, donc il fallait
+  que le flag soit présent pour toutes les cibles). `app/Cargo.toml` :
+  `tauri = { features = ["macos-private-api"] }`, sans gate `cfg` — vérifié
+  sans danger sur Windows/Linux car la feature ne fait qu'activer du code déjà
+  gaté en interne par `#[cfg(any(not(target_os = "macos"), feature =
+  "macos-private-api"))]` côté tauri/wry.
 
-**Pistes à trancher en conception** (ARCHITECTURE.md §3 et §4.2) :
-- **A. API de rendu libmpv (OpenGL) → `CAOpenGLLayer`** sous la `WKWebView`,
-  EDR (`wantsExtendedDynamicRangeContent`, espace de couleur PQ). C'est
-  l'approche d'IINA ; OpenGL est déprécié mais fonctionne. C'est la stratégie
-  `LayerRender` prévue par ARCHITECTURE.md.
-  - Il faut ajouter l'API de rendu à `crates/mpv` : aucune liaison n'existe
-    (`mpv_render_context_create`, `_render`, `_set_update_callback`,
-    `_report_swap`, `_free`, `get_proc_address` OpenGL).
-  - Il faut un thread ou un callback de rendu, et gérer le contexte CGL.
-- **B. `CAMetalLayer`** : le client Jellyfin Desktop (CEF + mpv, fork Rust
-  « Jellium Desktop ») compose son UI au-dessus d'un `CAMetalLayer` possédé par
-  mpv. Lire leur code avant de choisir : savoir comment ils obtiennent le rendu
-  mpv dans ce layer (Vulkan/MoltenVK ? `--wid` sur une `NSView` ?). Vérifier
-  aussi la doc mpv de la version embarquée sur `--wid` sous macOS :
-  ARCHITECTURE.md affirme qu'il n'existe que pour X11, Win32 et Android.
-  C'est à confirmer, ça a pu changer.
-- Faire un **spike** d'abord : une vidéo SDR sous une WKWebView transparente
-  avec un bloc opaque, un dégradé et un panneau à 45 % d'opacité par-dessus,
-  comme le spike Windows (§4.3). Puis HDR10 sur un écran EDR.
+**HDR — état honnête** : la sonde `crates/capabilities/src/macos/mod.rs`
+détecte la capacité EDR réelle de l'écran (`NSScreen.maximumPotentialExtended…`)
+mais **rétrograde volontairement tout résultat `Active` en `SupportedButOff`**
+avant de le renvoyer. Raison : le `CAOpenGLLayer` actuel a un pixel format CGL
+entier 8 bits, sans espace de couleur PQ posé sur le calque — si la sonde
+annonçait `Active`, le pipeline enverrait `target-trc=pq`/`target-prim=bt.2020`
+à mpv pour un calque qui ne peut pas les afficher correctement (couleurs
+fausses/délavées sur un vrai écran EDR, pas juste « pas de HDR »). Tant que ce
+correctif restera en place, tout contenu HDR sera donc tone-mappé en SDR par
+mpv sur macOS — correct et sûr, mais aucun vrai HDR tant que le calque n'est
+pas géré en couleur (voir « Ce qui reste »).
 
-Points déjà connus :
-- `HostWindow` n'a qu'une variante `Win32` : ajouter une variante AppKit
-  (`window.ns_view()` / `ns_window()` de Tauri).
-- Coordonnées : AppKit compte en points, origine en bas à gauche ; `Viewport`
-  est en pixels physiques depuis le haut à gauche. Tenir compte du
-  `backingScaleFactor`.
-- HDR : sous Windows, mpv ne connaît pas l'écran en mode composition ; c'est
-  `crates/player/src/options.rs` (vers la ligne 160) qui pose
-  `target-colorspace-hint`, `target-trc=pq` et `target-peak` à partir des
-  capacités. Même logique possible avec la luminance EDR de l'écran.
-- `backdrop-filter: blur()` ne floute pas la vidéo (la WebView ne possède pas
-  ces pixels) : attendu, comme sous Windows.
+**Vérifications faites sans écran réel** (revue de code, `cargo check
+--workspace`, `cargo test`, `pnpm test`/`pnpm lint`, tests réels contre
+Homebrew libmpv 0.41 avec `--ignored`) : compilation propre sur les trois
+plateformes (vérifié par lecture directe du code source de
+tauri-build/tauri-utils pour Windows/Linux, faute de pouvoir y compiler ici),
+libmpv se charge, `RenderContext::create_opengl` échoue proprement (repli
+`DedicatedWindow`) mais réussit dans le harnais de test avec un vrai contexte
+GL. **Jamais lancé dans l'app réelle contre une vraie `WKWebView`** — c'est le
+tout premier test à faire, voir « Ce qui reste ».
+
+**Ce qui reste** (dans l'ordre où ça bloque le suivant) :
+
+1. **Lancer l'app et regarder** (`pnpm desktop`). Chercher dans les logs
+   `starting mpv engine kind=LayerRender`. Vérifier que la vidéo apparaît
+   sous l'UI, pas dans une fenêtre à part.
+2. **Spike SDR** : bloc opaque, dégradé, panneau à 45 % d'opacité par-dessus
+   la vidéo (même protocole que le spike Windows, ARCHITECTURE.md §4.3).
+3. **Repli vers `DedicatedWindow` non implémenté** : si
+   `RenderContext::create_opengl` échoue, `on_mpv_ready` se contente de logguer
+   et de ne rien afficher (audio sans vidéo) — il ne bascule pas sur
+   `DedicatedWindow` comme le prévoyait la spec §6. Le corriger demande de
+   faire retourner `Result` à `Presenter::on_mpv_ready`, de faire remonter une
+   erreur distincte depuis `Engine::start`, et de faire réessayer
+   `ensure_engine` avec `DedicatedWindow` — un vrai changement d'architecture,
+   volontairement laissé de côté lors de la revue finale plutôt que précipité
+   dans la dernière vague de correctifs.
+4. **Décalage d'identifiant d'écran pour le HDR multi-écrans** :
+   `crates/capabilities/src/macos/mod.rs::screens()` identifie les écrans par
+   `nsscreen-{i}`, mais `app/src/commands/playback.rs` cherche l'écran de la
+   fenêtre via `current_monitor().name()` (un identifiant différent sous
+   macOS, via `tao`) — ces identifiants ne se correspondent jamais, donc
+   `session.rs` retombe toujours sur `primary_display()` au lieu de l'écran
+   réel de la fenêtre vidéo. Sans fixer ça, un test HDR sur une machine à
+   plusieurs écrans (point 3 de la validation, §5) ne testera rien de réel
+   dès que le point précédent sera réactivé. Fixer en alignant sur le
+   `CGDirectDisplayID` (via `deviceDescription["NSScreenNumber"]`), des deux
+   côtés.
+5. **HDR10 réel sur un écran EDR/XDR** : une fois qu'un vrai calque géré en
+   couleur existe (espace colorimétrique PQ posé sur le `CAOpenGLLayer`,
+   pixel format flottant), retirer la rétrogradation `Active → SupportedButOff`
+   décrite plus haut et valider sur un vrai écran XDR/EDR.
+6. Le reste du protocole de validation (§5 plus bas) : sous-titres, pistes
+   audio, Flick Frame, profils/PIN, favoris — rien de spécifique à ce chantier
+   ne les bloque a priori, mais rien n'a été testé non plus.
+7. Mettre à jour ARCHITECTURE.md §4.2 : faire passer `LayerRender` de 🟡 conçu
+   à ✅ validé une fois les points 1 et 2 confirmés sur machine réelle.
+
+**Repères utiles pour reprendre** :
+- Contrat `Presenter` (trait) dans `crates/player/src/presenter/mod.rs` —
+  inchangé dans sa forme, `on_mpv_ready` est le seul ajout depuis le portage
+  Windows.
+- Référence Windows à relire si besoin de comparaison : `windows.rs` dans le
+  même dossier (swapchain mpv dans un visuel DirectComposition derrière la
+  WebView2).
 - `PresenterChoice` (`crates/core/src/settings.rs`, Réglages › Avancé) :
-  décider comment la nouvelle stratégie y apparaît.
+  `DedicatedWindow` force déjà le repli manuel sur macOS, inchangé.
 
 ### 4.2 Fenêtre transparente
 
-Sans elle, rien ne se voit sous la WebView. macOS exige :
-- `"macOSPrivateApi": true` dans `app.` de `tauri.macos.conf.json` ;
-- la feature Cargo `macos-private-api` de `tauri` dans `app/Cargo.toml`.
+**État : fait**, livré avec 4.1 plutôt qu'en chantier séparé (nécessaire pour
+voir quoi que ce soit sous la WebView, donc pas séparable en pratique).
 
-*À vérifier* : `tauri-build` compare les features Cargo et la config. S'assurer
-que le build Windows passe toujours, par exemple avec une dépendance `tauri`
-ciblée `[target.'cfg(target_os = "macos")'.dependencies]` qui ajoute la
-feature.
+- `"macOSPrivateApi": true` est dans `app/tauri.conf.json` (config **de
+  base**, pas l'overlay `tauri.macos.conf.json` — voir §4.1 pour pourquoi :
+  la feature Cargo est sans condition de plateforme, donc la config doit
+  l'être aussi pour que la vérification de `tauri-build` passe sur toutes
+  les cibles).
+- `app/Cargo.toml` : `tauri = { features = ["macos-private-api"] }`, sans
+  gate `cfg`. Vérifié sans danger sur Windows/Linux (la feature n'active que
+  du code déjà gaté par `#[cfg(any(not(target_os = "macos"), feature =
+  "macos-private-api"))]` côté tauri/wry — donc un no-op ailleurs).
+- Build Windows toujours vert : vérifié par lecture directe du code source
+  de `tauri-build`/`tauri-utils` (pas de build Windows réel possible depuis
+  ce Mac) ; à reconfirmer avec un vrai `pnpm build:win` dès qu'une machine
+  Windows est disponible.
 
 ### 4.3 Sondes de capacités macOS
 
+**État : minimal seulement**, livré avec 4.1 pour débloquer le HDR (voir §4.1)
+— pas le chantier complet.
+
+`crates/capabilities/src/macos/mod.rs` existe mais ne couvre que l'écran
+(`NSScreen`, capacité EDR) : `hdr_state_from_edr_headroom` (pure, testée) et
+`screens()` (lit `NSScreen` hors du thread principal via un
+`MainThreadMarker::new_unchecked()` documenté — les lectures de propriétés
+`NSScreen` ne sont pas garanties thread-safe par Apple mais le sont en
+pratique, `CapabilityManager::refresh()` tournant sur un thread d'arrière-plan
+par conception). Le résultat HDR est actuellement toujours rétrogradé en
+`SupportedButOff` avant de sortir de `probe()` — voir §4.1, HDR.
+
+Audio et décodeurs restent non sondés (`AudioCapabilities::default()`,
+`VideoCapabilities::default()`, avec une note explicative pour rester honnête).
 `crates/capabilities/src/windows/` (≈ 600 lignes : `display.rs`, `audio.rs`,
-`video.rs`) n'a pas d'équivalent. Hors Windows, `probe_platform` renvoie
-« inconnu » (`crates/capabilities/src/lib.rs`), donc pas de HDR, pas de
-promesses audio. Modèle à remplir : `crates/core/src/capabilities.rs`
-(`DisplayCapabilities`, `AudioCapabilities`, `VideoCapabilities`, `HdrState`).
-Règle d'honnêteté : une sonde qui ne peut pas s'exécuter renvoie `Unknown` avec
-une raison, jamais une valeur optimiste.
+`video.rs`) reste le modèle à suivre pour le reste du chantier. Modèle à
+remplir : `crates/core/src/capabilities.rs` (`DisplayCapabilities`,
+`AudioCapabilities`, `VideoCapabilities`, `HdrState`). Règle d'honnêteté
+(déjà respectée par le code existant, à garder) : une sonde qui ne peut pas
+s'exécuter renvoie `Unknown` avec une raison, jamais une valeur optimiste.
 
 À couvrir (via `objc2` / frameworks, isolé dans un module `macos/` comme
 prévu par ARCHITECTURE.md §7.1) :
