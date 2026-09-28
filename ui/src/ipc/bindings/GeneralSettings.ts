@@ -4,4 +4,8 @@ export type GeneralSettings = {
 /**
  * BCP-47 UI language; `None` follows the OS.
  */
-language: string | null, startInMaxiFrame: boolean, };
+language: string | null, startInMaxiFrame: boolean, 
+/**
+ * Look for a new release at launch and offer to install it.
+ */
+checkForUpdates: boolean, };

@@ -26,13 +26,21 @@ pub struct Settings {
     pub advanced: AdvancedSettings,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralSettings {
     /// BCP-47 UI language; `None` follows the OS.
     pub language: Option<String>,
     pub start_in_maxi_frame: bool,
+    /// Look for a new release at launch and offer to install it.
+    pub check_for_updates: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self { language: None, start_in_maxi_frame: false, check_for_updates: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

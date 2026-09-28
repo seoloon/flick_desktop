@@ -1,5 +1,5 @@
 // Typed IPC surface. Every call maps 1:1 to a `#[tauri::command]` in app/src/commands.
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Adjacent } from "./bindings/Adjacent";
 import type { Aggregated } from "./bindings/Aggregated";
 import type { CapabilityReport } from "./bindings/CapabilityReport";
@@ -40,6 +40,8 @@ import type {
   ServerEntry,
   ProfileEdit,
   SwitchOutcome,
+  InstallProgress,
+  UpdateInfo,
 } from "./app-types";
 
 /** Normalises a command rejection into `AppError`. */
@@ -130,6 +132,16 @@ export const api = {
   palette: (item: ItemRef, kind: ImageKind, tag: string) => call<Palette>("palette", { item, kind, tag }),
   tmdbPalette: (path: string) => call<Palette>("tmdb_palette", { path }),
   cacheClear: () => call<void>("cache_clear"),
+
+  // updates
+  /** `null`: this is the latest version. */
+  updateCheck: () => call<UpdateInfo | null>("update_check"),
+  /** Downloads, installs and restarts; on success the app goes away. */
+  updateInstall: (onProgress: (p: InstallProgress) => void) => {
+    const channel = new Channel<InstallProgress>();
+    channel.onmessage = onProgress;
+    return call<void>("update_install", { onProgress: channel });
+  },
 
   // admin
   adminOverview: (server: ServerId) => call<AdminOverview>("admin_overview", { server }),

@@ -18,6 +18,7 @@ import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { ProfilePicker } from "@/features/profiles/ProfilePicker";
 import { Search } from "@/features/search/Search";
 import { Settings } from "@/features/settings/Settings";
+import { UpdatePrompt } from "@/features/updates/UpdatePrompt";
 import { toggleFrame } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
 import { goBack } from "@/lib/history";
@@ -58,6 +59,7 @@ export function App() {
         <BrowserRouter>
           <GlobalActions />
           <ProfileGate />
+          <UpdatePrompt launchReady={shown >= 0} />
           {/* One layout group: a profile's avatar flies from the picker to the sidebar. */}
           <LayoutGroup>
             <Routes>

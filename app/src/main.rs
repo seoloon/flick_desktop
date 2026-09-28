@@ -175,6 +175,8 @@ fn main() {
     let log_reload = init_tracing(&diag);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(commands::updates::Updates::default())
         .register_asynchronous_uri_scheme_protocol("oneshot-img", |ctx, request, responder| {
             images::handle(ctx.app_handle(), request, responder);
         })
@@ -236,6 +238,8 @@ fn main() {
             commands::system::palette,
             commands::system::tmdb_palette,
             commands::system::cache_clear,
+            commands::updates::update_check,
+            commands::updates::update_install,
             commands::admin::admin_overview,
             commands::admin::admin_run_task,
             commands::admin::admin_scan_library,

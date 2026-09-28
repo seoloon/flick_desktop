@@ -13,6 +13,7 @@ import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from
 import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
 import { ServerManager } from "@/features/servers/Servers";
 import { TmdbSettings } from "./TmdbSettings";
+import { UpdateSettings } from "./UpdateSettings";
 import { api, unwrap } from "@/ipc/api";
 import type { BitstreamFormat } from "@/ipc/bindings/BitstreamFormat";
 import type { CapabilityReport } from "@/ipc/bindings/CapabilityReport";
@@ -172,9 +173,12 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
   switch (section) {
     case "general":
       return (
-        <SettingsGroup>
-          <ToggleRow label="Start in Flick Frame" hint="Open full screen in TV mode." checked={s.general.startInMaxiFrame} onChange={(v) => set((x) => (x.general.startInMaxiFrame = v))} />
-        </SettingsGroup>
+        <>
+          <SettingsGroup>
+            <ToggleRow label="Start in Flick Frame" hint="Open full screen in TV mode." checked={s.general.startInMaxiFrame} onChange={(v) => set((x) => (x.general.startInMaxiFrame = v))} />
+          </SettingsGroup>
+          <UpdateSettings s={s} version={about.data?.version} />
+        </>
       );
     case "appearance":
       return (

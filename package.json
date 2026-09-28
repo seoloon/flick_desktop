@@ -10,7 +10,9 @@
     "test": "cargo test --workspace && pnpm --filter oneshot-ui test && pnpm --filter oneshot-ui typecheck",
     "lint": "cargo clippy --workspace --all-targets && pnpm --filter oneshot-ui typecheck",
     "bindings": "cargo test -p oneshot-core -p oneshot-playback -p oneshot-player -p oneshot-catalog --features \"oneshot-core/ts oneshot-playback/ts oneshot-player/ts oneshot-catalog/ts\" export_bindings",
-    "libmpv": "node tools/ensure-libmpv.mjs"
+    "libmpv": "node tools/ensure-libmpv.mjs",
+    "release": "node tools/release.mjs",
+    "release:publish": "node tools/release.mjs --publish"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.5"

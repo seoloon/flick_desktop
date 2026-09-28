@@ -32,6 +32,16 @@ export type AboutInfo = {
   cacheDir: string;
   display: string | null;
 };
+/** A newer release than the running one (app/src/commands/updates.rs). */
+export type UpdateInfo = {
+  version: string;
+  currentVersion: string;
+  /** Markdown, from the GitHub release. */
+  notes: string | null;
+  /** RFC 3339. */
+  date: string | null;
+};
+export type InstallProgress = { event: "started"; total: number | null } | { event: "progress"; downloaded: number } | { event: "installing" };
 export type LogEntry = {
   seq: number;
   time: string;

@@ -46,6 +46,38 @@ not notarised, so on another Mac it is opened for the first time with
 right-click › Open, or with *System Settings › Privacy & Security › Open
 Anyway*.
 
+## Releases and updates
+
+Installed copies update themselves from the repository's GitHub releases.
+At launch (unless turned off in *Settings › General*) Flick reads
+`latest.json` from the latest release and, if it is newer, offers it:
+*Update Now* downloads it, checks its signature and installs it with no
+installer window, then Flick restarts. *Later* keeps it ready in *Settings ›
+General*, which also has a manual check.
+
+Every package is signed with the updater key; the app holds the public key
+(`app/tauri.conf.json` › `plugins.updater.pubkey`) and refuses anything
+else. The private key lives outside the repository, in
+`~/.tauri/flick-updater.key` on each machine that builds releases (or in
+`TAURI_SIGNING_PRIVATE_KEY`). Keep a copy somewhere safe. If it is lost,
+installed copies can never be updated again: they would need a manual
+reinstall with a new key.
+
+To release:
+
+1. Raise `version` in the root `Cargo.toml` (`[workspace.package]`),
+   commit and push.
+2. On Windows, then on macOS, from the same commit: `pnpm release`. Each run
+   builds that platform, signs it and uploads it to the draft release
+   `v<version>`, with `latest.json`. Windows ships the NSIS installer only:
+   it installs per user, so updates need no administrator rights.
+3. Review the notes on the draft on GitHub (generated from the merged
+   changes, or `pnpm release -- --notes-file notes.md`), then
+   `pnpm release:publish`. The notes are what the update prompt shows.
+
+A copy older than the first release that has the updater cannot update
+itself: install that release by hand once.
+
 ## Diagnostics (optional)
 
 ```sh

@@ -23,13 +23,17 @@ type Props = {
   onClose: () => void;
   title: string;
   description?: ReactNode;
+  /** Above the title. */
+  icon?: ReactNode;
+  /** `false`: Back, the overlay and the close button do nothing (work in progress). */
+  dismissible?: boolean;
   children: ReactNode;
 };
 
-export function TvDialog({ open, onClose, title, description, children }: Props) {
+export function TvDialog({ open, onClose, title, description, icon, dismissible = true, children }: Props) {
   const restore = useRef<string | null>(null);
   const close = useRef(onClose);
-  close.current = onClose;
+  close.current = dismissible ? onClose : () => {};
 
   useEffect(() => {
     if (!open) return;
@@ -42,7 +46,7 @@ export function TvDialog({ open, onClose, title, description, children }: Props)
   }, [open]);
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && close.current()}>
       <DialogPortal>
         <DialogOverlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
         <DialogContent
@@ -61,6 +65,7 @@ export function TvDialog({ open, onClose, title, description, children }: Props)
           <FocusGroup focusKey="dialog" boundary autoFocus className="flex flex-col gap-5">
             <header className="flex items-start justify-between gap-4">
               <div className="flex flex-col gap-1.5">
+                {icon}
                 <DialogTitle className="text-2xl font-bold tracking-tight">{title}</DialogTitle>
                 {description ? (
                   <DialogDescription className="text-[0.9375rem] leading-relaxed text-muted-foreground">{description}</DialogDescription>
@@ -69,7 +74,7 @@ export function TvDialog({ open, onClose, title, description, children }: Props)
                 )}
               </div>
               {/* Centred on the corner's arc (32 px radius, 22 px button): concentric with the card. */}
-              <Button variant="ghost" size="icon" icon={X} label="Close" onClick={onClose} className="-mt-[1.375rem] -mr-[1.375rem]" />
+              {dismissible && <Button variant="ghost" size="icon" icon={X} label="Close" onClick={onClose} className="-mt-[1.375rem] -mr-[1.375rem]" />}
             </header>
             {children}
           </FocusGroup>

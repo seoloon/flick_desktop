@@ -46,5 +46,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM2Qjc5QkQzOTVFQTVCQ0MKUldUTVcrcVYwNXUzeG4xQnc4ZGRFSmFKeHBNNThMNmxJVGJrckZsdUk2S01KSmxRaExPL2pYUkMK",
+      "endpoints": [
+        "https://github.com/seoloon/flick_desktop/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
   }
 }
