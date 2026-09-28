@@ -24,18 +24,33 @@ pub(crate) fn hdr_state_from_edr_headroom(headroom: f64) -> HdrState {
 
 pub fn probe(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCapabilities, VideoCapabilities) {
     notes.push("macOS audio/decoder probing is not implemented yet (sub-project 4.3); reported as unknown.".into());
-    (screens(), AudioCapabilities::default(), VideoCapabilities::default())
+    let mut displays = screens();
+    // Stop-gap: never report `Active` EDR, even for genuinely EDR-capable
+    // screens. The `CAOpenGLLayer` we render into today has an 8-bit
+    // integer CGL pixel format with no PQ color space set on the layer, so
+    // claiming `Active` here would make the playback pipeline send
+    // `target-trc=pq`/`target-prim=bt.2020` to mpv, which the layer cannot
+    // actually display -- washed-out/wrong colors on real EDR hardware, not
+    // just "no HDR". Downgrade to `SupportedButOff` until a color-managed
+    // layer (proper PQ colorspace, float pixel format) lands; mpv will then
+    // tone-map to SDR instead of sending unmanaged PQ.
+    for display in &mut displays {
+        if matches!(display.hdr, HdrState::Active { .. }) {
+            display.hdr = HdrState::SupportedButOff;
+        }
+    }
+    (displays, AudioCapabilities::default(), VideoCapabilities::default())
 }
 
 fn screens() -> Vec<DisplayCapabilities> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSScreen;
 
-    // SAFETY: `NSScreen` property reads (`screens`, `frame`, EDR headroom)
-    // are documented by Apple as safe to call from any thread — only
-    // methods that change screen configuration need the main thread.
-    // `CapabilityManager::refresh()` runs off the UI thread by design (see
-    // its doc comment), so we cannot wait for a `MainThreadMarker` here.
+    // SAFETY: NSScreen property reads are not documented by Apple as
+    // thread-safe, but are widely relied upon as such in practice (verified
+    // empirically); `CapabilityManager::refresh()` runs off the main thread
+    // by design and cannot wait for one, so this is an accepted risk rather
+    // than a guarantee.
     let mtm = unsafe { MainThreadMarker::new_unchecked() };
     let screens = NSScreen::screens(mtm);
     screens
