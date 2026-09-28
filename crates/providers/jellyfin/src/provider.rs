@@ -98,6 +98,37 @@ impl JellyfinProvider {
         }
     }
 
+    /// The user's libraries, without their title counts.
+    async fn views(&self) -> Result<Vec<Library>> {
+        let r: QueryResult<BaseItemDto> = self.get("UserViews", &[self.uid()]).await?;
+        Ok(r.items.iter().map(|d| map::library(self.server(), d)).collect())
+    }
+
+    /// Movies or series in a library, as its grid lists them. `None` for
+    /// other kinds of library, or when the server does not answer.
+    async fn title_count(&self, library: &Library) -> Option<u32> {
+        let kind = match library.kind {
+            LibraryKind::Movies => "Movie",
+            LibraryKind::Shows => "Series",
+            _ => return None,
+        };
+        let q = [
+            self.uid(),
+            ("ParentId", library.id.key.clone()),
+            ("IncludeItemTypes", kind.into()),
+            ("Recursive", "true".into()),
+            ("Limit", "0".into()),
+            ("EnableTotalRecordCount", "true".into()),
+        ];
+        match self.get::<QueryResult<BaseItemDto>>("Items", &q).await {
+            Ok(r) => r.total_record_count,
+            Err(e) => {
+                tracing::warn!(target: "provider", library = %library.name, "title count failed: {e}");
+                None
+            }
+        }
+    }
+
     async fn latest(&self, library: &Library) -> Result<Vec<MediaItem>> {
         let mut q = self.list_query();
         q.push(("ParentId", library.id.key.clone()));
@@ -156,8 +187,12 @@ impl MediaProvider for JellyfinProvider {
     }
 
     async fn libraries(&self) -> Result<Vec<Library>> {
-        let r: QueryResult<BaseItemDto> = self.get("UserViews", &[self.uid()]).await?;
-        Ok(r.items.iter().map(|d| map::library(self.server(), d)).collect())
+        let mut libraries = self.views().await?;
+        let counts = futures::future::join_all(libraries.iter().map(|l| self.title_count(l))).await;
+        for (library, count) in libraries.iter_mut().zip(counts) {
+            library.item_count = count;
+        }
+        Ok(libraries)
     }
 
     async fn home(&self) -> Result<Vec<HomeRow>> {
@@ -168,7 +203,7 @@ impl MediaProvider for JellyfinProvider {
         let (resume, next_up, libraries) = futures::join!(
             self.get::<QueryResult<BaseItemDto>>("UserItems/Resume", &resume_q),
             self.get::<QueryResult<BaseItemDto>>("Shows/NextUp", &next_q),
-            self.libraries(),
+            self.views(),
         );
 
         let mut rows = Vec::new();

@@ -201,7 +201,9 @@ pub fn library(server: ServerId, dto: &BaseItemDto) -> Library {
         id: ItemRef::new(server, &dto.id),
         name: dto.name.clone().unwrap_or_default(),
         kind,
-        item_count: dto.child_count,
+        // `ChildCount` is the top-level folders, not the titles: the
+        // provider counts those separately.
+        item_count: None,
         image: images(server, dto).poster,
     }
 }
