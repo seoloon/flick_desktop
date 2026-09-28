@@ -29,6 +29,29 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Dxgi_Common",
 ] }
 
+# Versions match the ones Tauri's macOS backend already locks; default
+# features are off so only the bindings the presenter uses get compiled.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSObject"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "objc2-core-foundation",
+  "NSResponder",
+  "NSView",
+  "NSWindow",
+  "NSScreen",
+] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "objc2-core-foundation",
+  "CALayer",
+  "CAOpenGLLayer",
+  "CATransaction",
+  "CATransform3D",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+
 [dev-dependencies]
 oneshot-capabilities.workspace = true
 oneshot-jellyfin.workspace = true
