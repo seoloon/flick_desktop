@@ -100,6 +100,29 @@ fn audio_filters(settings: &Settings, ac3_encode: bool) -> String {
     chain.join(",")
 }
 
+/// The `af` chain for an audio plan. An untouched bitstream cannot be
+/// filtered (no boost, no levelling); a re-encoded one ends in the AC3
+/// encoder.
+pub fn audio_filter_for(plan: &AudioOutputPlan, settings: &Settings) -> String {
+    match plan {
+        AudioOutputPlan::Bitstream { reencoded: true, .. } => audio_filters(settings, true),
+        AudioOutputPlan::Bitstream { reencoded: false, .. } => String::new(),
+        AudioOutputPlan::Pcm { .. } | AudioOutputPlan::ServerDetermined | AudioOutputPlan::None => audio_filters(settings, false),
+    }
+}
+
+/// Settings-only properties to apply while a title plays. The session owns
+/// two of them: the volume (the listener's, set from the player; the
+/// settings value is where the next engine starts) and the audio filters,
+/// which follow the playing decision so a bitstream is never filtered.
+pub fn live_properties(settings: &Settings, playing: &AudioOutputPlan) -> PropertyList {
+    base_properties(settings)
+        .into_iter()
+        .filter(|(name, _)| *name != "volume")
+        .map(|(name, value)| if name == "af" { (name, s(audio_filter_for(playing, settings))) } else { (name, value) })
+        .collect()
+}
+
 /// Gain followed by a limiter, so loud scenes are held just under full scale
 /// instead of clipping. mpv's own volume is applied after the filters, so the
 /// limiter has to sit in the same graph as the gain.
@@ -128,19 +151,18 @@ pub fn decision_properties(
         p.push(("audio-device", s("auto")));
     }
     match &decision.audio {
-        AudioOutputPlan::Bitstream { format, reencoded, .. } => {
+        AudioOutputPlan::Bitstream { format, .. } => {
             // Only the chosen format: never let mpv try a format the probe
             // did not validate (mpv does not fall back to PCM on refusal).
             p.push(("audio-spdif", s(format.mpv_name())));
             p.push(("audio-exclusive", Node::Flag(true)));
-            // An untouched bitstream cannot be filtered (no boost, no levelling).
-            p.push(("af", s(if *reencoded { audio_filters(settings, true) } else { String::new() })));
+            p.push(("af", s(audio_filter_for(&decision.audio, settings))));
         }
         AudioOutputPlan::Pcm { output_channels, .. } => {
             p.push(("audio-spdif", s("")));
             p.push(("audio-exclusive", Node::Flag(settings.audio.exclusive)));
             p.push(("audio-channels", s(channel_layout(*output_channels))));
-            p.push(("af", s(audio_filters(settings, false))));
+            p.push(("af", s(audio_filter_for(&decision.audio, settings))));
         }
         AudioOutputPlan::ServerDetermined | AudioOutputPlan::None => {
             p.push(("audio-spdif", s("")));
@@ -307,6 +329,20 @@ mod tests {
         s.audio.volume_boost = true;
         s.audio.volume_boost_percent = 200;
         assert_eq!(get(&base_properties(&s), "af"), Some(&Node::from("lavfi=[volume=6.02dB,alimiter=limit=0.97:level=0]")));
+    }
+
+    #[test]
+    fn live_settings_keep_the_listeners_volume_and_the_bitstream_unfiltered() {
+        let mut s = Settings::default();
+        s.audio.volume_boost = true;
+        s.audio.volume_boost_percent = 200;
+        s.audio.normalization = Normalization::Loudness;
+        let bitstream = AudioOutputPlan::Bitstream { format: BitstreamFormat::TrueHd, device: "AVR".into(), reencoded: false };
+        let p = live_properties(&s, &bitstream);
+        assert_eq!(get(&p, "volume"), None, "a settings change never resets the playing volume");
+        assert_eq!(get(&p, "af"), Some(&Node::from("")));
+        let pcm = AudioOutputPlan::Pcm { source_channels: 2, output_channels: 2, downmix: false, spatial_lost: false };
+        assert_eq!(get(&live_properties(&s, &pcm), "af"), get(&base_properties(&s), "af"));
     }
 
     #[test]

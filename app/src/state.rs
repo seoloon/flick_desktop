@@ -61,6 +61,8 @@ pub struct AppState {
     pub verified_plex: RwLock<HashSet<ServerId>>,
     /// One profile switch at a time.
     pub switching: tokio::sync::Mutex<()>,
+    /// One settings save at a time (`settings_set` runs off the main thread).
+    pub settings_io: Mutex<()>,
     /// TMDB client for person pages; `None` without a key (Settings ›
     /// Metadata). The key lives in the OS keychain only.
     pub tmdb: RwLock<Option<oneshot_tmdb::Tmdb>>,

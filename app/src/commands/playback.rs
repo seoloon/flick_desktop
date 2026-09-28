@@ -72,12 +72,12 @@ pub fn player_viewport(window: WebviewWindow, state: St<'_>, rect: CssRect) -> R
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn player_snapshot(state: St<'_>) -> PlayerSnapshot {
     state.player.snapshot()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn player_stats(state: St<'_>) -> LiveStats {
     state.player.stats()
 }

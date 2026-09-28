@@ -3,7 +3,7 @@
 // library costs the same as a 50-title one. The grid scrolls with the screen
 // (the shell's <main>), so the header scrolls away like on tvOS.
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { CardPlaceholder, MediaCard } from "@/components/tv/Card";
 import { CenteredSpinner, Notice } from "@/components/tv/Feedback";
@@ -14,15 +14,24 @@ import { api, asError } from "@/ipc/api";
 import type { ItemKind } from "@/ipc/bindings/ItemKind";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import type { SortBy } from "@/ipc/bindings/SortBy";
+import { useMode } from "@/lib/mode";
+import { useSettings } from "@/lib/settings";
 import { FocusGroup, Screen } from "@/nav/Focusable";
 
 const PAGE = 120;
 
-function remPx() {
-  return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-}
-function cssRem(name: string, fallback: number) {
-  return (parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || fallback) * remPx();
+type Metrics = { rem: number; gap: number; poster: number };
+
+/**
+ * Root font size and the card tokens, in pixels. Read once per grid width,
+ * not per render: the virtualizer re-renders on every scroll frame, and
+ * `getComputedStyle` there would force a style recalculation each time.
+ */
+function readMetrics(): Metrics {
+  const style = getComputedStyle(document.documentElement);
+  const rem = parseFloat(style.fontSize) || 16;
+  const token = (name: string, fallback: number) => (parseFloat(style.getPropertyValue(name)) || fallback) * rem;
+  return { rem, gap: token("--card-gap", 1.5), poster: token("--poster-w", 10.5) };
 }
 
 export function LibraryGrid() {
@@ -44,10 +53,14 @@ export function LibraryGrid() {
   const grid = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1200);
   const [scrollMargin, setScrollMargin] = useState(0);
-  const gap = cssRem("--card-gap", 1.5);
-  const columns = Math.max(2, Math.floor((width + gap) / (cssRem("--poster-w", 10.5) + gap)));
+  // The tokens follow the density and Flick Frame (and the root font size, the window width).
+  const density = useSettings()?.appearance.density;
+  const frame = useMode((s) => s.frame);
+  const metrics = useMemo(() => readMetrics(), [width, density, frame]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gap = metrics.gap;
+  const columns = Math.max(2, Math.floor((width + gap) / (metrics.poster + gap)));
   const cellW = (width - gap * (columns - 1)) / columns;
-  const rowHeight = cellW * 1.5 + remPx() * 3.25 + gap;
+  const rowHeight = cellW * 1.5 + metrics.rem * 3.25 + gap;
   const rowCount = Math.ceil((total ?? 0) / columns);
 
   useLayoutEffect(() => {

@@ -8,26 +8,27 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::presenter::Presenter;
 
-/// Properties mirrored into the player state.
+/// Properties mirrored into the player state. Only what the session reacts
+/// to: every observed property costs an event (a decoded node, a lock of the
+/// player state) each time it changes. Diagnostics (`video-params`,
+/// `audio-out-params`…) are read on demand instead.
 pub(crate) const OBSERVED: &[&str] = &[
     "time-pos",
     "duration",
     "pause",
     "paused-for-cache",
-    "seeking",
     "eof-reached",
     "volume",
     "mute",
     "track-list",
     "demuxer-cache-time",
-    "video-params",
     "hwdec-current",
-    "audio-out-params",
     "chapter-list",
 ];
 
-/// Minimum interval between forwarded `time-pos` updates. mpv reports it
-/// every frame; the UI interpolates between updates.
+/// Minimum interval between forwarded `time-pos` and `demuxer-cache-time`
+/// updates. mpv reports the position every frame and the cache on every
+/// packet read; the UI interpolates between updates.
 const POSITION_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
@@ -95,6 +96,7 @@ impl Engine {
             .name("mpv-events".into())
             .spawn(move || {
                 let mut last_pos = Instant::now() - POSITION_INTERVAL;
+                let mut last_cache = Instant::now() - POSITION_INTERVAL;
                 loop {
                     let Some(ev) = events.wait(-1.0) else { continue };
                     let out = match ev {
@@ -107,11 +109,16 @@ impl Engine {
                                 presenter_t.on_property(&name, &value);
                                 continue;
                             }
-                            if name == "time-pos" {
-                                if last_pos.elapsed() < POSITION_INTERVAL {
+                            let throttle = match name.as_str() {
+                                "time-pos" => Some(&mut last_pos),
+                                "demuxer-cache-time" => Some(&mut last_cache),
+                                _ => None,
+                            };
+                            if let Some(last) = throttle {
+                                if last.elapsed() < POSITION_INTERVAL {
                                     continue;
                                 }
-                                last_pos = Instant::now();
+                                *last = Instant::now();
                             }
                             EngineEvent::Property { name, value }
                         }

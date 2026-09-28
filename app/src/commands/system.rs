@@ -21,8 +21,11 @@ pub fn settings_get(state: St<'_>) -> Settings {
     state.settings()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set(state: St<'_>, settings: Settings) -> Result<()> {
+    // Off the main thread two saves could overlap: one at a time, so the
+    // last one sent is the one kept.
+    let _one = state.settings_io.lock();
     // A profile is active: its part of the settings goes to the profile,
     // the rest to the shared settings file.
     let active = state.profiles.read().enabled.then(|| *state.active_profile.read()).flatten();
@@ -70,7 +73,7 @@ pub struct AboutInfo {
     pub display: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn about(window: WebviewWindow, state: St<'_>) -> AboutInfo {
     let paths = state.store.paths();
     AboutInfo {
@@ -83,7 +86,7 @@ pub fn about(window: WebviewWindow, state: St<'_>) -> AboutInfo {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn diagnostics(state: St<'_>, since: u64, target: Option<String>) -> Vec<LogEntry> {
     state.diagnostics.entries(since, target.as_deref())
 }
@@ -166,7 +169,9 @@ pub async fn tmdb_palette(state: St<'_>, path: String) -> Result<Palette> {
     tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(e.to_string()))?
 }
 
+/// Deleting a large image cache takes seconds: done on a blocking thread.
 #[tauri::command]
-pub fn cache_clear(state: St<'_>) -> Result<()> {
-    state.images.clear()
+pub async fn cache_clear(state: St<'_>) -> Result<()> {
+    let images = state.images.clone();
+    tokio::task::spawn_blocking(move || images.clear()).await.map_err(|e| Error::Other(e.to_string()))?
 }

@@ -169,9 +169,19 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
       held.set(key, now + REPEAT_RATE);
     }
   };
+  // Polled once per frame, but only while a controller is connected: an
+  // endless loop would wake the WebView 60–120 times a second for nothing
+  // (battery on laptops). Browsers report a pad once a button is pressed.
+  let running = false;
+  const connected = () => Array.from(navigator.getGamepads?.() ?? []).some((p) => p?.connected);
   const loop = (now: number) => {
-    const pads = enabled() ? (navigator.getGamepads?.() ?? []) : [];
-    for (const pad of pads) {
+    const pads = navigator.getGamepads?.() ?? [];
+    if (!Array.from(pads).some((p) => p?.connected)) {
+      running = false;
+      held.clear();
+      return;
+    }
+    for (const pad of enabled() ? pads : []) {
       if (!pad || pad.mapping !== "standard") continue;
       const b = (i: number) => pad.buttons[i]?.pressed ?? false;
       const dz = deadzone();
@@ -191,5 +201,11 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
     }
     requestAnimationFrame(loop);
   };
-  requestAnimationFrame(loop);
+  const start = () => {
+    if (running) return;
+    running = true;
+    requestAnimationFrame(loop);
+  };
+  window.addEventListener("gamepadconnected", start);
+  if (connected()) start();
 }

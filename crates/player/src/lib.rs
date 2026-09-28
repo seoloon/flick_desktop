@@ -217,6 +217,10 @@ impl Player {
     /// Places the video under the UI (physical pixels in the window).
     pub fn set_viewport(&self, viewport: Viewport) {
         let mut inner = self.inner.lock();
+        // Unchanged: nothing to move (on Windows each call resizes mpv's swapchain).
+        if inner.viewport == Some(viewport) {
+            return;
+        }
         inner.viewport = Some(viewport);
         if let Some(engine) = &inner.engine {
             engine.presenter.set_viewport(&engine.mpv, viewport);
@@ -230,12 +234,18 @@ impl Player {
     }
 
     /// Applies settings that can change at runtime (styles, hwdec, volume…).
+    /// While a title plays, its volume and audio filters stay the session's
+    /// (see [`options::live_properties`]).
     pub fn apply_settings(&self, settings: &Settings) {
-        if let Some(engine) = &self.inner.lock().engine {
-            for (name, value) in options::base_properties(settings) {
-                if let Err(e) = engine.mpv.set_property(name, value) {
-                    tracing::warn!(target: "player", "apply {name}: {e}");
-                }
+        let inner = self.inner.lock();
+        let Some(engine) = &inner.engine else { return };
+        let props = match &inner.session {
+            Some(s) => options::live_properties(settings, &s.decision().audio),
+            None => options::base_properties(settings),
+        };
+        for (name, value) in props {
+            if let Err(e) = engine.mpv.set_property(name, value) {
+                tracing::warn!(target: "player", "apply {name}: {e}");
             }
         }
     }

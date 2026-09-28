@@ -41,7 +41,7 @@ pub async fn tmdb_set_key(state: St<'_>, key: String) -> Result<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmdb_remove_key(state: St<'_>) -> Result<()> {
     secrets::delete_secret(TMDB_KEY)?;
     *state.tmdb.write() = None;
@@ -127,11 +127,13 @@ pub async fn person_server(state: St<'_>, person: ItemRef, name: String) -> Resu
 
 #[tauri::command]
 pub async fn person_details(state: St<'_>, person: ItemRef, name: String, from: Option<ItemRef>, language: String) -> Result<PersonDetails> {
-    let server = state.catalog.person(&person).await;
-    let origin = match &from {
-        Some(f) => state.catalog.item(f).await.ok(),
-        None => None,
-    };
+    // Independent lookups: side by side, not one after the other.
+    let (server, origin) = tokio::join!(state.catalog.person(&person), async {
+        match &from {
+            Some(f) => state.catalog.item(f).await.ok(),
+            None => None,
+        }
+    });
     let series = match origin.as_ref().and_then(|o| o.episode.as_ref()).and_then(|e| e.series.clone()) {
         Some(s) => state.catalog.item(&s).await.ok(),
         None => None,

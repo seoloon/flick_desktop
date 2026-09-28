@@ -35,7 +35,7 @@ pub async fn item(state: St<'_>, id: ItemRef) -> Result<MediaItem> {
 }
 
 /// Instant, possibly stale copy (for first paint before `item` returns).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn item_cached(state: St<'_>, id: ItemRef) -> Option<MediaItem> {
     state.catalog.cached_item(&id)
 }

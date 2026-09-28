@@ -217,8 +217,21 @@ impl MediaProvider for JellyfinProvider {
         {
             rows.push(HomeRow { kind: HomeRowKind::NextUp, title: "Next Up".into(), items: self.items(&r.items) });
         }
-        for lib in libraries?.iter().filter(|l| matches!(l.kind, LibraryKind::Movies | LibraryKind::Shows)) {
-            match self.latest(lib).await {
+        let libraries = libraries?;
+        let shown: Vec<&Library> = libraries.iter().filter(|l| matches!(l.kind, LibraryKind::Movies | LibraryKind::Shows)).collect();
+        // Recommendations ("Because you watched …") are real server data.
+        let mut rec_q = vec![self.uid(), ("categoryLimit", "1".into()), ("ItemLimit", "20".into()), ("Fields", LIST_FIELDS.into())];
+        rec_q.push(("EnableImageTypes", IMAGE_TYPES.into()));
+        let mut col_q = self.list_query();
+        col_q.extend([("IncludeItemTypes", "BoxSet".into()), ("Recursive", "true".into()), ("Limit", "20".into())]);
+        // Every remaining row at once: one round-trip of latency, not one per row.
+        let (latest, recs, collections) = futures::join!(
+            futures::future::join_all(shown.iter().map(|l| self.latest(l))),
+            self.get::<Vec<Recommendation>>("Movies/Recommendations", &rec_q),
+            self.get::<QueryResult<BaseItemDto>>("Items", &col_q),
+        );
+        for (lib, result) in shown.iter().zip(latest) {
+            match result {
                 Ok(items) if !items.is_empty() => rows.push(HomeRow {
                     kind: HomeRowKind::RecentlyAdded { library: Some(lib.id.clone()) },
                     title: format!("Recently Added in {}", lib.name),
@@ -228,18 +241,13 @@ impl MediaProvider for JellyfinProvider {
                 Err(e) => tracing::warn!(target: "provider", library = %lib.name, "latest failed: {e}"),
             }
         }
-        // Recommendations ("Because you watched …") are real server data.
-        let mut rec_q = vec![self.uid(), ("categoryLimit", "1".into()), ("ItemLimit", "20".into()), ("Fields", LIST_FIELDS.into())];
-        rec_q.push(("EnableImageTypes", IMAGE_TYPES.into()));
-        if let Ok(recs) = self.get::<Vec<Recommendation>>("Movies/Recommendations", &rec_q).await
+        if let Ok(recs) = recs
             && let Some(rec) = recs.into_iter().find(|r| !r.items.is_empty())
         {
             let title = rec.baseline_item_name.map_or_else(|| "Recommended".into(), |b| format!("Because you watched {b}"));
             rows.push(HomeRow { kind: HomeRowKind::Recommended, title, items: self.items(&rec.items) });
         }
-        let mut col_q = self.list_query();
-        col_q.extend([("IncludeItemTypes", "BoxSet".into()), ("Recursive", "true".into()), ("Limit", "20".into())]);
-        if let Ok(c) = self.get::<QueryResult<BaseItemDto>>("Items", &col_q).await
+        if let Ok(c) = collections
             && !c.items.is_empty()
         {
             rows.push(HomeRow { kind: HomeRowKind::Collections, title: "Collections".into(), items: self.items(&c.items) });

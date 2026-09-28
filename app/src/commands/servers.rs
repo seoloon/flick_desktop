@@ -24,7 +24,7 @@ pub struct ServerEntry {
     pub connected: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn servers_list(state: St<'_>, all: Option<bool>) -> Vec<ServerEntry> {
     let connected: Vec<ServerId> = state.catalog.providers().iter().map(|p| p.descriptor().id).collect();
     let members = if all.unwrap_or(false) { None } else { state.active_members() };
@@ -42,12 +42,12 @@ pub async fn server_status(state: St<'_>, id: ServerId) -> Result<ServerStatus> 
     Ok(state.catalog.provider(id)?.status().await)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn server_remove(state: St<'_>, id: ServerId) -> Result<()> {
     state.remove_server(id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn server_set_enabled(state: St<'_>, id: ServerId, enabled: bool) -> Result<()> {
     state.set_server_enabled(id, enabled)
 }

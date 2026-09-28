@@ -4,14 +4,18 @@
 //! leak server URLs or tokens. Eviction is LRU by modification time (touched
 //! on read), capped in bytes.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use oneshot_core::media::{ImageRef, ImageSize};
 use oneshot_core::{Error, Result};
 use sha2::{Digest, Sha256};
+
+/// How recent a file's LRU mark may be before a read refreshes it.
+const TOUCH_INTERVAL: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Clone)]
 pub struct ImageCache {
@@ -63,9 +67,20 @@ impl ImageCache {
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         let path = self.path(key);
-        let bytes = std::fs::read(&path).ok()?;
-        // Touch for LRU; failure only degrades eviction order.
-        let _ = std::fs::File::options().append(true).open(&path).and_then(|f| f.set_modified(SystemTime::now()));
+        // One open serves the read and the LRU touch (read-only fallback).
+        let Ok(mut file) = std::fs::File::options().read(true).append(true).open(&path) else {
+            return std::fs::read(&path).ok();
+        };
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).ok()?;
+        // Touch for LRU, at most once per interval: eviction only needs a
+        // rough order, not a metadata write per image shown. Failure only
+        // degrades eviction order.
+        let now = SystemTime::now();
+        let stale = file.metadata().and_then(|m| m.modified()).map_or(true, |m| now.duration_since(m).unwrap_or_default() > TOUCH_INTERVAL);
+        if stale {
+            let _ = file.set_modified(now);
+        }
         Some(bytes)
     }
 
@@ -74,8 +89,15 @@ impl ImageCache {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::Storage(e.to_string()))?;
         }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, &path)).map_err(|e| Error::Storage(e.to_string()))
+        // A temp name of its own: two writers of the same key (the same
+        // picture fetched twice at once) must not interleave in one file.
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let tmp = path.with_extension(format!("{}-{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let written = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, &path));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        written.map_err(|e| Error::Storage(e.to_string()))
     }
 
     /// Evicts least-recently-used files until the cache fits its budget.
@@ -151,6 +173,29 @@ mod tests {
         let b = cache_key(&img, ImageSize::Hero);
         assert_ne!(a, b);
         assert!(!a.contains("abc") && a.len() == 64);
+    }
+
+    #[test]
+    fn concurrent_writers_of_one_key_never_mix_their_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ImageCache::new(dir.path().to_path_buf(), u64::MAX).unwrap();
+        let key = format!("{:0>64}", 7);
+        let writers: Vec<_> = (0..8u8)
+            .map(|i| {
+                let cache = cache.clone();
+                let key = key.clone();
+                std::thread::spawn(move || cache.put(&key, &vec![i; 64 * 1024 + usize::from(i)]).unwrap())
+            })
+            .collect();
+        for w in writers {
+            w.join().unwrap();
+        }
+        let bytes = cache.get(&key).unwrap();
+        let first = bytes[0];
+        assert!(bytes.iter().all(|b| *b == first), "one writer's picture, whole");
+        assert_eq!(bytes.len(), 64 * 1024 + usize::from(first));
+        let leftovers = std::fs::read_dir(dir.path().join(&key[..2])).unwrap().count();
+        assert_eq!(leftovers, 1, "no temp file left behind");
     }
 
     #[test]

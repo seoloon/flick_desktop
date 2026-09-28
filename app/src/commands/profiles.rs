@@ -38,7 +38,7 @@ pub(crate) fn snapshot(state: &AppState) -> ProfilesState {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profiles_state(state: St<'_>) -> ProfilesState {
     snapshot(&state)
 }
@@ -137,7 +137,7 @@ fn os_user_name() -> String {
     std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Me".into())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_on_startup: bool, pin: Option<String>) -> Result<ProfilesState> {
     // Cloned so the read lock is not held while `authorize_config_change_guarded`
     // hashes the PIN (argon2 is slow; no lock should be held across it).
@@ -183,7 +183,7 @@ pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_o
     Ok(snapshot(&state))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profile_check_pin(state: St<'_>, id: ProfileId, pin: String) -> Result<()> {
     state.check_pin(id, Some(&pin))
 }
@@ -292,7 +292,7 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
     Ok(SwitchOutcome { failed })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profile_create(state: St<'_>, name: String, color: String) -> Result<ProfileId> {
     let name = name.trim().to_owned();
     if name.is_empty() {
@@ -318,7 +318,7 @@ pub struct ProfileEdit {
 
 /// `owner_pin`: linking a connection that another PIN-protected profile uses
 /// (modes A/C) needs that profile's PIN.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Option<String>, owner_pin: Option<String>) -> Result<()> {
     state.check_pin(id, pin.as_deref())?;
     if let Some(next) = &edit.connections {
@@ -355,14 +355,14 @@ pub fn profile_update(state: St<'_>, id: ProfileId, edit: ProfileEdit, pin: Opti
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profile_set_pin(state: St<'_>, id: ProfileId, current: Option<String>, next: Option<String>) -> Result<()> {
     state.check_pin(id, current.as_deref())?;
     let hash = next.as_deref().map(pin::hash_pin).transpose()?;
     state.update_profile(id, |p| p.pin = hash)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: Option<String>) -> Result<()> {
     state.check_pin(id, pin.as_deref())?;
     let owns = state
@@ -384,7 +384,7 @@ pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: O
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn profile_delete(state: St<'_>, id: ProfileId, pin: Option<String>) -> Result<Vec<ServerId>> {
     state.check_pin(id, pin.as_deref())?;
     let (removed, used) = {

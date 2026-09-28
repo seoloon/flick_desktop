@@ -27,6 +27,10 @@ use tracing_subscriber::{EnvFilter, fmt};
 use crate::diagnostics::Diagnostics;
 use crate::state::AppState;
 
+/// Cached metadata older than this is dropped at startup. Well past every
+/// TTL (TMDB answers: a week), so it only removes what nobody opens anymore.
+const METADATA_MAX_AGE_SECS: i64 = 30 * 24 * 3600;
+
 /// Log filter for a settings level; noisy webview crates stay at warn.
 pub fn log_filter(level: &str) -> EnvFilter {
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(format!("{level},wry=warn,tao=warn,hyper=warn,reqwest=warn")))
@@ -135,6 +139,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         offline: RwLock::new(Default::default()),
         verified_plex: RwLock::new(Default::default()),
         switching: tokio::sync::Mutex::new(()),
+        settings_io: Mutex::new(()),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing
     // is loaded until someone is chosen). Off: every connection, as before.
@@ -146,12 +151,18 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
     tauri::async_runtime::block_on(dev::bootstrap(Arc::clone(&state)));
 
     // Probe capabilities in the background so the first playback is instant,
-    // and trim the image cache.
+    // and trim the caches (the metadata one otherwise grows forever: every
+    // title and person ever opened stays in it).
     let bg = Arc::clone(&state);
     std::thread::spawn(move || {
         bg.caps.refresh();
         if let Err(e) = bg.images.enforce_limit() {
             tracing::warn!(target: "cache", "image cache trim failed: {e}");
+        }
+        match bg.metadata.purge_older_than(METADATA_MAX_AGE_SECS) {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(target: "cache", purged = n, "old metadata dropped"),
+            Err(e) => tracing::warn!(target: "cache", "metadata cache trim failed: {e}"),
         }
     });
 

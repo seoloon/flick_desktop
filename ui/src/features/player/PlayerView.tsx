@@ -433,11 +433,26 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
 
   // Session lifecycle.
   useEffect(() => {
-    const fit = () => void api.playerViewport({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
+    // A window drag-resize fires `resize` many times per frame: send the
+    // video rectangle once per frame, and only when it changed (each one
+    // resizes mpv's swapchain on Windows, re-lays the layer on macOS).
+    let fitFrame = 0;
+    let lastFit = "";
+    const sendFit = () => {
+      fitFrame = 0;
+      const rect = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      const key = `${rect.width}x${rect.height}@${window.devicePixelRatio}`;
+      if (key === lastFit) return;
+      lastFit = key;
+      void api.playerViewport(rect);
+    };
+    const fit = () => {
+      if (!fitFrame) fitFrame = requestAnimationFrame(sendFit);
+    };
     let unlisten: (() => void) | undefined;
     let alive = true;
     void onPlayerEvent(store.apply).then((u) => (alive ? (unlisten = u) : u()));
-    fit();
+    sendFit();
     window.addEventListener("resize", fit);
     window.addEventListener("mousemove", poke);
     poke();
@@ -448,6 +463,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     return () => {
       alive = false;
       unlisten?.();
+      cancelAnimationFrame(fitFrame);
       window.removeEventListener("resize", fit);
       window.removeEventListener("mousemove", poke);
       window.clearTimeout(hideTimer.current);

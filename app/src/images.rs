@@ -8,7 +8,9 @@
 //! A second form serves profile pictures: `avatar/<profile-id>/<key>` (the
 //! key only changes the URL when the picture changes).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ImageKind, ImageRef, ImageSize};
@@ -45,31 +47,74 @@ pub fn parse_path(path: &str) -> Option<(ImageRef, ImageSize)> {
     Some((ImageRef { item, kind, tag, blurhash: None }, size))
 }
 
+/// Images being fetched, by cache key.
+type Inflight = parking_lot::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>;
+static INFLIGHT: LazyLock<Inflight> = LazyLock::new(Default::default);
+
+/// The cached bytes under `key`, else `fetch`'s, stored for next time. One
+/// fetch per key at a time: the same picture asked twice at once (a hero and
+/// a card, the ambience and a shelf) is downloaded once, and the second
+/// request is served from the disk cache.
+async fn cached_or_fetch(state: &AppState, key: &str, fetch: impl Future<Output = Result<Vec<u8>>>) -> Result<Vec<u8>> {
+    if let Some(bytes) = disk_get(state, key).await {
+        return Ok(bytes);
+    }
+    let gate = Arc::clone(INFLIGHT.lock().entry(key.to_owned()).or_default());
+    let result = async {
+        let _one = gate.lock().await;
+        if let Some(bytes) = disk_get(state, key).await {
+            return Ok(bytes);
+        }
+        let bytes = fetch.await?;
+        let (images, owned_key, copy) = (state.images.clone(), key.to_owned(), bytes.clone());
+        match tokio::task::spawn_blocking(move || images.put(&owned_key, &copy)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!(target: "cache", "image cache write failed: {e}"),
+            Err(e) => tracing::warn!(target: "cache", "image cache write failed: {e}"),
+        }
+        // Trim the cache periodically rather than on every write.
+        static WRITES: AtomicUsize = AtomicUsize::new(0);
+        if WRITES.fetch_add(1, Ordering::Relaxed) % 250 == 249 {
+            let images = state.images.clone();
+            tokio::task::spawn_blocking(move || images.enforce_limit());
+        }
+        Ok(bytes)
+    }
+    .await;
+    // Last one out removes the gate (the map holds one reference, we hold one).
+    let mut inflight = INFLIGHT.lock();
+    if Arc::strong_count(&gate) <= 2 {
+        inflight.remove(key);
+    }
+    result
+}
+
+/// A cache read on the blocking pool: a grid asks for dozens of pictures at
+/// once, and file opens can be slow (antivirus scanning on Windows); the
+/// async workers stay free for IPC commands meanwhile.
+async fn disk_get(state: &AppState, key: &str) -> Option<Vec<u8>> {
+    let (images, key) = (state.images.clone(), key.to_owned());
+    tokio::task::spawn_blocking(move || images.get(&key)).await.ok().flatten()
+}
+
+async fn download(req: oneshot_net::reqwest::RequestBuilder) -> Result<Vec<u8>> {
+    let resp = oneshot_net::ensure_ok(req.send().await.map_err(oneshot_net::map_err)?).await?;
+    Ok(resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec())
+}
+
 /// Fetches (or reads from cache) the image bytes, of a live connection only
 /// (the disk cache also holds other profiles' artwork).
 pub async fn load(state: &AppState, image: &ImageRef, size: ImageSize) -> Result<Vec<u8>> {
     let provider = state.catalog.provider(image.item.server)?;
     let key = cache_key(image, size);
-    if let Some(bytes) = state.images.get(&key) {
-        return Ok(bytes);
-    }
-    let url = provider.image_url(image, size)?;
-    let mut req = state.http().get(url);
-    for (k, v) in provider.auth_headers() {
-        req = req.header(k, v);
-    }
-    let resp = oneshot_net::ensure_ok(req.send().await.map_err(oneshot_net::map_err)?).await?;
-    let bytes = resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec();
-    if let Err(e) = state.images.put(&key, &bytes) {
-        tracing::warn!(target: "cache", "image cache write failed: {e}");
-    }
-    // Trim the cache periodically rather than on every write.
-    static WRITES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    if WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 250 == 249 {
-        let images = state.images.clone();
-        tokio::task::spawn_blocking(move || images.enforce_limit());
-    }
-    Ok(bytes)
+    cached_or_fetch(state, &key, async {
+        let mut req = state.http().get(provider.image_url(image, size)?);
+        for (k, v) in provider.auth_headers() {
+            req = req.header(k, v);
+        }
+        download(req).await
+    })
+    .await
 }
 
 fn mime(bytes: &[u8]) -> &'static str {
@@ -123,15 +168,7 @@ async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
         .and_then(oneshot_storage::profiles::avatar_of)
         .ok_or_else(|| Error::NotFound(format!("avatar of profile {id}")))?;
     let key = oneshot_storage::images::avatar_cache_key(&url);
-    if let Some(bytes) = state.images.get(&key) {
-        return Ok(bytes);
-    }
-    let resp = oneshot_net::ensure_ok(state.http().get(url).send().await.map_err(oneshot_net::map_err)?).await?;
-    let bytes = resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec();
-    if let Err(e) = state.images.put(&key, &bytes) {
-        tracing::warn!(target: "cache", "avatar cache write failed: {e}");
-    }
-    Ok(bytes)
+    cached_or_fetch(state, &key, download(state.http().get(url))).await
 }
 
 /// A TMDB photo or poster (`tmdb/<size>/<file>`), public; only TMDB files,
@@ -139,15 +176,7 @@ async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
 pub async fn load_tmdb(state: &AppState, rest: &str) -> Result<Vec<u8>> {
     let url = oneshot_tmdb::image_url(rest).ok_or_else(|| Error::Invalid("tmdb image path".into()))?;
     let key = oneshot_storage::images::tmdb_cache_key(&url);
-    if let Some(bytes) = state.images.get(&key) {
-        return Ok(bytes);
-    }
-    let resp = oneshot_net::ensure_ok(state.http().get(url).send().await.map_err(oneshot_net::map_err)?).await?;
-    let bytes = resp.bytes().await.map_err(oneshot_net::map_err)?.to_vec();
-    if let Err(e) = state.images.put(&key, &bytes) {
-        tracing::warn!(target: "cache", "tmdb image cache write failed: {e}");
-    }
-    Ok(bytes)
+    cached_or_fetch(state, &key, download(state.http().get(url))).await
 }
 
 /// Colours for the adaptive background, extracted from a tiny rendition.
@@ -202,23 +231,40 @@ fn kmeans(pixels: &[[f32; 3]], k: usize, iterations: usize) -> Vec<([f32; 3], us
         return Vec::new();
     }
     let mut centroids: Vec<[f32; 3]> = (0..k).map(|i| pixels[i * pixels.len() / k]).collect();
-    let mut assignment = vec![0usize; pixels.len()];
+    // `usize::MAX`: not assigned yet, so the first pass always counts as a change.
+    let mut assignment = vec![usize::MAX; pixels.len()];
+    let mut counts = vec![0usize; k];
     for _ in 0..iterations {
-        for (i, p) in pixels.iter().enumerate() {
-            assignment[i] = (0..k)
-                .min_by(|&a, &b| dist(p, &centroids[a]).total_cmp(&dist(p, &centroids[b])))
-                .unwrap_or(0);
+        let mut changed = false;
+        for (p, slot) in pixels.iter().zip(assignment.iter_mut()) {
+            let nearest = (0..k).min_by(|&a, &b| dist(p, &centroids[a]).total_cmp(&dist(p, &centroids[b]))).unwrap_or(0);
+            changed |= *slot != nearest;
+            *slot = nearest;
         }
-        for (c, centroid) in centroids.iter_mut().enumerate() {
-            let members: Vec<&[f32; 3]> = pixels.iter().zip(&assignment).filter(|(_, a)| **a == c).map(|(p, _)| p).collect();
-            if !members.is_empty() {
-                let n = members.len() as f32;
-                *centroid = [0, 1, 2].map(|ch| members.iter().map(|m| m[ch]).sum::<f32>() / n);
+        // Converged: another pass would compute the same centroids.
+        if !changed {
+            break;
+        }
+        // One pass over the pixels, in pixel order (same sums as per-cluster passes).
+        let mut sums = vec![[0f32; 3]; k];
+        counts.fill(0);
+        for (p, &c) in pixels.iter().zip(&assignment) {
+            for ch in 0..3 {
+                sums[c][ch] += p[ch];
+            }
+            counts[c] += 1;
+        }
+        for ((centroid, sum), &n) in centroids.iter_mut().zip(&sums).zip(&counts) {
+            if n > 0 {
+                *centroid = sum.map(|s| s / n as f32);
             }
         }
     }
-    let mut out: Vec<([f32; 3], usize)> =
-        centroids.iter().enumerate().map(|(c, v)| (*v, assignment.iter().filter(|a| **a == c).count())).filter(|(_, n)| *n > 0).collect();
+    counts.fill(0);
+    for &c in &assignment {
+        counts[c] += 1;
+    }
+    let mut out: Vec<([f32; 3], usize)> = centroids.into_iter().zip(counts).filter(|(_, n)| *n > 0).collect();
     out.sort_by_key(|c| std::cmp::Reverse(c.1));
     out
 }

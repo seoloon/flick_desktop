@@ -35,7 +35,15 @@ pub enum Event {
 
 impl Event {
     /// Decodes the map produced by `mpv_event_to_node`.
-    pub(crate) fn from_node(reply_id: u64, node: Node) -> Self {
+    pub(crate) fn from_node(reply_id: u64, mut node: Node) -> Self {
+        // Payloads (a whole `track-list`, a command result) are moved out,
+        // not deep-copied: this runs for every event, every frame.
+        let mut take = |k: &str| match &mut node {
+            Node::Map(m) => m.remove(k).unwrap_or(Node::None),
+            _ => Node::None,
+        };
+        let data = take("data");
+        let result = take("result");
         let s = |k: &str| node.get(k).and_then(Node::as_str).unwrap_or_default().to_owned();
         let error = node.get("error").and_then(Node::as_str).map(str::to_owned);
         match node.get("event").and_then(Node::as_str).unwrap_or_default() {
@@ -58,16 +66,8 @@ impl Event {
             "audio-reconfig" => Self::AudioReconfig,
             "seek" => Self::Seek,
             "playback-restart" => Self::PlaybackRestart,
-            "property-change" => Self::PropertyChange {
-                id: reply_id,
-                name: s("name"),
-                value: node.get("data").cloned().unwrap_or(Node::None),
-            },
-            "command-reply" => Self::CommandReply {
-                id: reply_id,
-                error,
-                result: node.get("result").cloned().unwrap_or(Node::None),
-            },
+            "property-change" => Self::PropertyChange { id: reply_id, name: s("name"), value: data },
+            "command-reply" => Self::CommandReply { id: reply_id, error, result },
             "set-property-reply" => Self::SetPropertyReply { id: reply_id, error },
             "queue-overflow" => Self::QueueOverflow,
             other => Self::Other { name: other.to_owned() },

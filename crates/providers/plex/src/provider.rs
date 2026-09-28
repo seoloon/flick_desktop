@@ -121,6 +121,8 @@ impl PlexProvider {
 
 /// Library filters that take a person's tag id.
 const PERSON_FILTERS: [&str; 3] = ["actor", "director", "writer"];
+/// Filmography queries in flight at once on one server.
+const PERSON_QUERY_CONCURRENCY: usize = 6;
 
 /// A search hub listing people, however the server labels it.
 fn is_people_hub(h: &crate::dto::Hub) -> bool {
@@ -304,19 +306,31 @@ impl MediaProvider for PlexProvider {
             None => self.actor_id(name).await?,
         };
         let Some(actor) = actor else { return Ok(Vec::new()) };
-        let mut out: Vec<MediaItem> = Vec::new();
-        for lib in self.libraries().await?.into_iter().filter(|l| matches!(l.kind, LibraryKind::Movies | LibraryKind::Shows)) {
-            let Some(section) = lib.id.key.strip_prefix("section:") else { continue };
-            // Actors, directors and writers are separate tags: a person
-            // opened from the crew is found under their own filter.
+        let sections: Vec<String> = self
+            .libraries()
+            .await?
+            .into_iter()
+            .filter(|l| matches!(l.kind, LibraryKind::Movies | LibraryKind::Shows))
+            .filter_map(|l| l.id.key.strip_prefix("section:").map(str::to_owned))
+            .collect();
+        // Actors, directors and writers are separate tags: a person opened
+        // from the crew is found under their own filter. The queries run a
+        // few at a time; `buffered` keeps their order, so the result is the
+        // same as asking one after the other.
+        let mut queries = Vec::with_capacity(sections.len() * PERSON_FILTERS.len());
+        for section in &sections {
             for filter in PERSON_FILTERS {
-                let c = self
-                    .container(&format!("library/sections/{section}/all"), &[(filter, actor.to_string()), ("includeGuids", "1".into())])
-                    .await?;
-                for item in self.items(&c.metadata) {
-                    if !out.iter().any(|o| o.id == item.id) {
-                        out.push(item);
-                    }
+                let path = format!("library/sections/{section}/all");
+                let query = [(filter, actor.to_string()), ("includeGuids", "1".to_owned())];
+                queries.push(async move { self.container(&path, &query).await });
+            }
+        }
+        let pages: Vec<Result<Container>> = futures::stream::iter(queries).buffered(PERSON_QUERY_CONCURRENCY).collect().await;
+        let mut out: Vec<MediaItem> = Vec::new();
+        for page in pages {
+            for item in self.items(&page?.metadata) {
+                if !out.iter().any(|o| o.id == item.id) {
+                    out.push(item);
                 }
             }
         }

@@ -210,6 +210,8 @@ impl Api {
     }
 
     pub fn client_api_version(&self) -> (u32, u32) {
+        // Needed on Windows only: a no-op (and a clippy warning) where `c_ulong` is 64-bit.
+        #[allow(clippy::useless_conversion)]
         // SAFETY: no preconditions. `c_ulong` is 32-bit on Windows, 64-bit elsewhere.
         let v = u64::from(unsafe { (self.mpv_client_api_version)() });
         ((v >> 16) as u32, (v & 0xffff) as u32)

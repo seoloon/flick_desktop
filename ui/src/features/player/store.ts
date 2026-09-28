@@ -45,18 +45,25 @@ export function createPlayerStore() {
 
   let basePos = 0;
   let baseAt = performance.now();
+  // The frame loop only runs while playing: paused, buffering or loading,
+  // the position does not move and nothing needs to wake up every frame.
   let raf = 0;
+  let disposed = false;
   const tick = () => {
     const { phase, duration } = state.getState();
-    if (phase === "playing") {
-      // mpv reports every 250 ms: never run more than a second ahead of it,
-      // so a stalled engine shows a stopped timeline, not a moving one.
-      const p = basePos + Math.min(performance.now() - baseAt, MAX_AHEAD_MS);
-      position.set(duration ? Math.min(p, duration) : p);
+    if (phase !== "playing" || disposed) {
+      raf = 0;
+      return;
     }
+    // mpv reports every 250 ms: never run more than a second ahead of it,
+    // so a stalled engine shows a stopped timeline, not a moving one.
+    const p = basePos + Math.min(performance.now() - baseAt, MAX_AHEAD_MS);
+    position.set(duration ? Math.min(p, duration) : p);
     raf = requestAnimationFrame(tick);
   };
-  raf = requestAnimationFrame(tick);
+  const unsubscribe = state.subscribe((s) => {
+    if (s.phase === "playing" && !raf && !disposed) raf = requestAnimationFrame(tick);
+  });
 
   function apply(e: PlayerEvent) {
     switch (e.type) {
@@ -110,7 +117,11 @@ export function createPlayerStore() {
     apply,
     seekTo,
     setError: (message: string) => state.setState({ error: message, phase: "error" }),
-    dispose: () => cancelAnimationFrame(raf),
+    dispose: () => {
+      disposed = true;
+      unsubscribe();
+      cancelAnimationFrame(raf);
+    },
   };
 }
 
