@@ -5,7 +5,7 @@
 import { Check } from "lucide-react";
 import { motion, useMotionTemplate, useMotionValue, useSpring } from "motion/react";
 import { type PointerEvent, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import type { ItemRef } from "@/ipc/bindings/ItemRef";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { imageUrl } from "@/ipc/images";
@@ -18,6 +18,7 @@ import { useSources } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 import { ServerBadge } from "./ServerBadge";
 import { useTv } from "@/nav/Focusable";
+import { navSection } from "@/shell/navItems";
 
 export function detailPath(id: ItemRef) {
   return `/item/${encodeURIComponent(id)}`;
@@ -59,6 +60,7 @@ type CardProps = {
 
 export function MediaCard({ item, shape, focusKey, fluid, onSelect }: CardProps) {
   const navigate = useNavigate();
+  const { pathname, search, state } = useLocation();
   const tv = useTv<HTMLButtonElement>({ focusKey, onFocused: () => ambientFor(item) });
   const [hover, setHover] = useState(false);
   const lifted = tv.showFocus || hover;
@@ -90,7 +92,7 @@ export function MediaCard({ item, shape, focusKey, fluid, onSelect }: CardProps)
     ly.set(0);
   };
 
-  const open = () => (onSelect ? onSelect(item) : navigate(detailPath(item.id)));
+  const open = () => (onSelect ? onSelect(item) : navigate(detailPath(item.id), { state: { navSection: navSection(pathname, search, state) } }));
   const pct = progress(item);
   const [source] = useSources([item.id]);
   const thumb = shape === "thumb";
