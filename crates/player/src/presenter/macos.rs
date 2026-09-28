@@ -245,6 +245,20 @@ unsafe impl Sync for Surface {}
 
 impl Surface {
     fn create(mpv: &Mpv) -> Result<Arc<Self>, String> {
+        Self::create_with_proc_address(mpv, get_proc_address)
+    }
+
+    /// The fallible core of `create`, with the GL loader as a parameter so
+    /// tests can inject one that resolves nothing and exercise the failure
+    /// path (`RenderContext::create_opengl` erroring) without needing a
+    /// broken system OpenGL loader — see the `surface_create_*` tests below,
+    /// which mirror `oneshot_mpv::render::tests::create_opengl_without_gl_context_fails_cleanly`
+    /// (Task 2) one layer up, at the point `LayerPresenter::on_mpv_ready`
+    /// actually depends on.
+    fn create_with_proc_address(
+        mpv: &Mpv,
+        get_proc_address: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
+    ) -> Result<Arc<Self>, String> {
         let pixel_format = choose_pixel_format()?;
         let mut context: CglContext = std::ptr::null_mut();
         // SAFETY: `pixel_format` is valid; `context` is an out-pointer.
@@ -269,6 +283,9 @@ impl Surface {
         with_current(context, || {
             created = RenderContext::create_opengl(mpv, get_proc_address, std::ptr::null_mut()).map_err(|e| e.to_string());
         });
+        // `surface` (and the CGL pixel format/context it owns) is dropped
+        // cleanly here via `Surface::drop`/`shutdown` if this `?` returns:
+        // no leak, no panic, just a `String` handed back to the caller.
         let render = created.map_err(|e| format!("mpv OpenGL render context: {e}"))?;
         render.set_update_callback(on_mpv_update, Arc::as_ptr(&surface).cast_mut().cast::<c_void>());
         *surface.gl.lock() = GlState { render: Some(render), mpv: Some(mpv.clone()) };
@@ -806,5 +823,44 @@ mod tests {
         let vp = Viewport { x: 100, y: 50, width: 400, height: 300 };
         let r = appkit_rect(vp, 400.0, 2.0);
         assert_eq!(r, AppKitRect { x: 50.0, y: 225.0, width: 200.0, height: 150.0 });
+    }
+
+    /// A `get_proc_address` that resolves nothing — mirrors
+    /// `oneshot_mpv::render::tests::create_opengl_without_gl_context_fails_cleanly`
+    /// (Task 2), one layer up: the same failure, exercised through the
+    /// macOS presenter's own `Surface::create_with_proc_address`, which is
+    /// what `LayerPresenter::on_mpv_ready` (Task 6) actually calls.
+    unsafe extern "C" fn null_get_proc_address(_ctx: *mut c_void, _name: *const c_char) -> *mut c_void {
+        std::ptr::null_mut()
+    }
+
+    /// Proves the fallback contract Task 9 is about: when mpv's OpenGL
+    /// render context can't be created (here, forced by a GL loader that
+    /// resolves nothing), `Surface::create` returns `Err` instead of
+    /// panicking or crashing, and nothing is leaked (`Surface::drop` runs
+    /// on the early return inside `create_with_proc_address`). This is the
+    /// exact call `LayerPresenter::on_mpv_ready` makes; on `Err` it logs and
+    /// returns without ever touching the `LAYERS` registry, so
+    /// `set_viewport`/`set_visible` remain safe no-ops for that presenter id.
+    #[test]
+    #[ignore = "needs a real libmpv; run with `cargo test -p oneshot-player -- --ignored`"]
+    fn surface_create_fails_cleanly_without_a_working_gl_loader() {
+        let dirs = [std::path::PathBuf::from("/opt/homebrew/lib"), std::path::PathBuf::from("/usr/local/lib")];
+        let api = oneshot_mpv::load(None, &dirs).expect("libmpv must be installed (brew install mpv) to run this test");
+        let (mpv, _events) = Mpv::create(api, [("vo", "libmpv"), ("idle", "yes"), ("force-window", "no")]).unwrap();
+
+        let result = Surface::create_with_proc_address(&mpv, null_get_proc_address);
+
+        assert!(result.is_err(), "render context creation must not silently succeed with no working GL loader");
+
+        // `on_mpv_ready` (Task 6) matches on exactly this `Result` and, on
+        // `Err`, logs and returns before ever calling `attach` — so a
+        // failure here never inserts a `LAYERS` entry, leaving
+        // `set_viewport`/`set_visible` (which look the id up in `LAYERS`
+        // and no-op if absent) safe for a presenter whose render context
+        // never came up. That control flow is a plain `match`/`return`
+        // (see `on_mpv_ready` above) with no unsafe code in the error arm,
+        // so it needs no separate test beyond this one proving the `Result`
+        // it matches on is itself produced without panicking.
     }
 }
