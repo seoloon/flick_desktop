@@ -29,7 +29,7 @@ Décisions de l'utilisateur (ne pas les rediscuter) :
 | Façon de travailler | Claude Code tourne sur le Mac, compile et lance lui-même ; l'utilisateur juge le rendu (vidéo, HDR, animations). |
 | Licence | L'app est **GPL v3** (`LICENSE`, dépôt `seoloon/flick_desktop`). Une libmpv **GPL** est donc acceptable. |
 | Signature | **Pas de compte Apple Developer.** Signature *ad hoc* (`signingIdentity: "-"`), DMG non notarisé. Premier lancement sur un autre Mac : clic droit › Ouvrir, ou Réglages › Confidentialité et sécurité › Ouvrir quand même. |
-| Build | `pnpm build:mac` produit une app **universelle** (arm64 + x86_64). |
+| Build | `pnpm build:mac` produit une app **Apple silicon** (arm64) ; l'universel est reporté. |
 
 Limites acceptées d'avance (documentées dans ARCHITECTURE.md §6 et §14) :
 - pas de bitstream TrueHD / DTS-HD / Atmos TrueHD (CoreAudio n'a pas de HBR) ;
@@ -52,7 +52,7 @@ pnpm install
 pnpm desktop                                 # tauri dev
 pnpm test                                    # cargo test + vitest + tsc
 pnpm lint                                    # clippy (0 avertissement exigé) + tsc
-pnpm build:mac                               # app universelle + DMG (ad hoc)
+pnpm build:mac                               # app arm64 + DMG (ad hoc), libmpv embarquée
 ```
 
 Ajouté depuis Windows, **à vérifier sur le Mac** :
@@ -87,7 +87,7 @@ Conventions du dépôt (voir aussi `ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`) :
 | Profils, PIN (Argon2id), réglages, cache | `crates/storage` | Rust pur. |
 | Secrets (tokens, clé TMDB) | `crates/storage/src/secrets.rs` (`keyring` 4) | Le Trousseau macOS est déjà dans le `Cargo.lock` (`apple-native-keyring-store`). *À vérifier* : une invite d'accès au Trousseau peut apparaître à chaque build ad hoc (signature différente). |
 | Protocole d'images `oneshot-img` | `app/src/images.rs`, `ui/src/ipc/images.ts` | L'UI utilise déjà `oneshot-img://localhost/` hors Windows ; la CSP (`tauri.conf.json`) l'autorise. |
-| Chargement de libmpv | `crates/mpv/src/sys.rs` (noms `libmpv.2.dylib`, `libmpv.dylib`), `app/src/main.rs` `libmpv_dirs` | **Fait** pour le dev : `/opt/homebrew/lib` et `/usr/local/lib` cherchés en debug sur macOS. Reste 4.4 (libmpv universelle livrée en distribution, `third_party/mpv/macos-universal/`). |
+| Chargement de libmpv | `crates/mpv/src/sys.rs` (noms `libmpv.2.dylib`, `libmpv.dylib`), `app/src/main.rs` `libmpv_dirs` | **Fait** pour le dev : `/opt/homebrew/lib` et `/usr/local/lib` cherchés en debug sur macOS. Distribution : libmpv livrée dans l'app, arm64 seulement (`tools/bundle-libmpv-macos.mjs` → `third_party/mpv/macos-arm64/`, embarquée en ressource `libmpv/`). Reste l'Intel/universel. |
 | Décision de lecture | `crates/playback` | Portable ; reste prudente tant que les capacités sont « inconnues ». |
 
 ## 4. Chantiers, du plus lourd au plus léger

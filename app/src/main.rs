@@ -57,6 +57,7 @@ fn libmpv_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     if cfg!(debug_assertions) {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         dirs.push(root.join("third_party/mpv/windows-x64"));
+        dirs.push(root.join("third_party/mpv/macos-arm64"));
         if cfg!(target_os = "macos") {
             // `brew install mpv` (arm64: Homebrew's default prefix; Intel: /usr/local).
             dirs.push(PathBuf::from("/opt/homebrew/lib"));

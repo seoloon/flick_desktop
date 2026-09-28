@@ -96,7 +96,7 @@ title of theirs across all your servers, and what else they are known for.
 | Platform | Status |
 |---|---|
 | **Windows 10 / 11** (x64) | ✅ Available |
-| **macOS** (Apple Silicon and Intel) | 🚧 In progress: [the plan](docs/MACOS_PORT.md) |
+| **macOS** (Apple Silicon) | 🚧 In progress: [the plan](docs/MACOS_PORT.md) |
 | **Linux** | 🗺️ Designed, not started |
 
 ## Build it yourself
@@ -105,7 +105,7 @@ title of theirs across all your servers, and what else they are known for.
 pnpm install
 pnpm desktop      # run in development
 pnpm build:win    # Windows installer
-pnpm build:mac    # universal macOS app and DMG
+pnpm build:mac    # Apple silicon macOS app and DMG
 ```
 
 Requirements, tooling, tests and repository layout are in

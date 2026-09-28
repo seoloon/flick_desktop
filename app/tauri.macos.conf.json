@@ -24,6 +24,9 @@
   "bundle": {
     "macOS": {
       "signingIdentity": "-"
+    },
+    "resources": {
+      "../third_party/mpv/macos-arm64/": "libmpv/"
     }
   }
 }

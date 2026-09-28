@@ -20,10 +20,14 @@ The design documents are written in French.
 - **libmpv ≥ 0.41**, loaded at runtime (the Rust build never links it):
   - **Windows**: downloaded automatically into `third_party/mpv/windows-x64`
     on the first `pnpm desktop` or build;
-  - **macOS / Linux**: the system libmpv (`brew install mpv`, `libmpv2`…);
+  - **macOS (Apple silicon)**: needs `brew install mpv` on the build machine only;
+    the first build copies libmpv and its dependencies into
+    `third_party/mpv/macos-arm64` and ships them inside the app, so users
+    install nothing;
+  - **Linux**: the system libmpv (`libmpv2`…);
   - **anywhere**: `ONESHOT_LIBMPV=/path/to/libmpv` overrides the search.
-- macOS builds: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`
-  for the universal app.
+- macOS builds: `rustup target add aarch64-apple-darwin`. Apple silicon only
+  for now, there is no Intel build.
 
 ## Commands
 
@@ -34,7 +38,7 @@ pnpm install        # once
 pnpm desktop        # tauri dev: Vite and the app, with hot reload
 pnpm build          # production build for the current platform
 pnpm build:win      # Windows x64 installers (.msi and NSIS .exe)
-pnpm build:mac      # universal macOS app and DMG, signed ad hoc
+pnpm build:mac      # Apple silicon macOS app and DMG, signed ad hoc
 pnpm test           # Rust tests, UI tests and UI typecheck
 pnpm lint           # clippy (zero warnings) and UI typecheck
 pnpm bindings       # regenerate the TypeScript types from Rust (ts-rs)

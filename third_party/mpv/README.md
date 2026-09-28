@@ -6,7 +6,7 @@ build never links against it. Place the platform library here for development:
 | Platform | Expected file | Source |
 |---|---|---|
 | Windows x64 | `windows-x64/libmpv-2.dll` | `tools/fetch-libmpv.ps1` (LGPL build from zhongfly/mpv-winbuild) |
-| macOS | `macos-universal/libmpv.2.dylib` | Homebrew `mpv` or a custom build |
+| macOS (Apple silicon) | `macos-arm64/libmpv.2.dylib` + dependencies | `tools/bundle-libmpv-macos.mjs` (from Homebrew `mpv`) |
 | Linux | system `libmpv.so.2` | distro package (`libmpv2` / `mpv-libs`) |
 
 **Licensing:** Flick is GPL-3.0, so a GPL build of libmpv (with GPL-only

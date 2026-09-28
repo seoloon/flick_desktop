@@ -114,7 +114,7 @@ if (flag("--publish")) {
 // without asking for administrator rights; the MSI installs per machine.
 const platform = {
   win32: { target: "x86_64-pc-windows-msvc", bundles: ["nsis"] },
-  darwin: { target: "universal-apple-darwin", bundles: ["app", "dmg"] },
+  darwin: { target: "aarch64-apple-darwin", bundles: ["app", "dmg"] },
 }[process.platform];
 if (!platform) fail(`releases are built on Windows and macOS, not ${process.platform}`);
 
@@ -168,14 +168,12 @@ if (process.platform === "win32") {
   entries["windows-x86_64-nsis"] = { url: nsis.url, signature: nsis.signature };
   entries["windows-x86_64"] = entries["windows-x86_64-nsis"];
 } else {
-  const app = signed(find("macos", ".app.tar.gz", false), `Flick_${version}_universal.app.tar.gz`);
+  const app = signed(find("macos", ".app.tar.gz", false), `Flick_${version}_aarch64.app.tar.gz`);
   const dmg = find("dmg", ".dmg");
   uploads.push(app.file, dmg);
-  // One universal app for both architectures.
-  for (const arch of ["aarch64", "x86_64"]) {
-    entries[`darwin-${arch}-app`] = { url: app.url, signature: app.signature };
-    entries[`darwin-${arch}`] = { url: app.url, signature: app.signature };
-  }
+  // Apple silicon only: Intel Macs are not offered this build.
+  entries["darwin-aarch64-app"] = { url: app.url, signature: app.signature };
+  entries["darwin-aarch64"] = { url: app.url, signature: app.signature };
 }
 
 if (!existing) {
