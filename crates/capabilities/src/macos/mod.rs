@@ -1,12 +1,14 @@
 //! macOS display probing: EDR headroom only (§4.3 of the macOS port is the
 //! full capability-probing sub-project; this is the minimum `video_target()`
 //! in `crates/player/src/options.rs` needs to signal PQ).
-//! Audio and video decoder probing stay `Unknown`/default here.
+//! Audio probing stays default here; video decoders come from VideoToolbox.
 //!
 //! `screens()` below runs off the main thread (`CapabilityManager::refresh()`
 //! runs on a background thread by design) and bypasses `objc2`'s
 //! `MainThreadMarker` guard with a documented `unsafe` rather than requiring
 //! a hop to the main thread — see the `SAFETY` comment on `screens()`.
+
+mod video;
 
 use oneshot_core::capabilities::{AudioCapabilities, DisplayCapabilities, HdrState, Rect, VideoCapabilities};
 
@@ -41,7 +43,7 @@ fn screen_id(screen: &objc2_app_kit::NSScreen) -> Option<String> {
 }
 
 pub fn probe(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCapabilities, VideoCapabilities) {
-    notes.push("macOS audio/decoder probing is not implemented yet (sub-project 4.3); reported as unknown.".into());
+    notes.push("macOS audio probing is not implemented yet (sub-project 4.3); reported as unknown.".into());
     let mut displays = screens();
     // Stop-gap: never report `Active` EDR, even for genuinely EDR-capable
     // screens. The `CAOpenGLLayer` we render into today has an 8-bit
@@ -57,7 +59,7 @@ pub fn probe(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCapabil
             display.hdr = HdrState::SupportedButOff;
         }
     }
-    (displays, AudioCapabilities::default(), VideoCapabilities::default())
+    (displays, AudioCapabilities::default(), video::probe(notes))
 }
 
 fn screens() -> Vec<DisplayCapabilities> {

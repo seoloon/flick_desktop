@@ -249,8 +249,10 @@ pratique, `CapabilityManager::refresh()` tournant sur un thread d'arrière-plan
 par conception). Le résultat HDR est actuellement toujours rétrogradé en
 `SupportedButOff` avant de sortir de `probe()` — voir §4.1, HDR.
 
-Audio et décodeurs restent non sondés (`AudioCapabilities::default()`,
-`VideoCapabilities::default()`, avec une note explicative pour rester honnête).
+**Vidéo : fait** (`crates/capabilities/src/macos/video.rs`,
+`VTIsHardwareDecodeSupported` par codec : H.264, HEVC, AV1, VP9 ; HEVC Main10
+supposé sur Apple silicon, non déclaré sur Intel). L'audio reste non sondé
+(`AudioCapabilities::default()`, avec une note explicative pour rester honnête).
 `crates/capabilities/src/windows/` (≈ 600 lignes : `display.rs`, `audio.rs`,
 `video.rs`) reste le modèle à suivre pour le reste du chantier. Modèle à
 remplir : `crates/core/src/capabilities.rs` (`DisplayCapabilities`,
