@@ -33,24 +33,26 @@ const sections = [
   ["appearance", "Appearance"],
   ["playback", "Playback"],
   ["audio", "Audio"],
-  ["video", "Video"],
-  ["hdr", "HDR"],
+  ["video", "Video & HDR"],
   ["subtitles", "Subtitles"],
   ["downloads", "Downloads"],
   ["servers", "Servers"],
   ["metadata", "Metadata"],
   ["profiles", "Profiles"],
-  ["network", "Network"],
-  ["cache", "Cache"],
-  ["performance", "Performance"],
-  ["keyboard", "Keyboard & Remote"],
-  ["controller", "Game Controller"],
-  ["notifications", "Notifications"],
-  ["privacy", "Privacy"],
+  ["network", "Network & Cache"],
+  ["controls", "Controls"],
+  ["privacy", "Notifications & Privacy"],
   ["advanced", "Advanced"],
-  ["debug", "Diagnostics"],
 ] as const;
 type Section = (typeof sections)[number][0];
+
+// Sections that were merged into another; old links and saved URLs still land.
+const MOVED: Record<string, Section> = { hdr: "video", cache: "network", performance: "appearance", keyboard: "controls", controller: "controls", notifications: "privacy", debug: "advanced" };
+const sectionFromParam = (raw: string | null): Section => {
+  if (!raw) return "general";
+  if (sections.some(([id]) => id === raw)) return raw as Section;
+  return MOVED[raw] ?? "general";
+};
 
 const PERSONAL = new Set<Section>(["appearance", "playback", "subtitles"]);
 
@@ -108,7 +110,7 @@ function SectionButton({ id, label, active, onSelect }: { id: Section; label: st
 
 export function Settings() {
   const [params, setParams] = useSearchParams();
-  const section = (params.get("s") as Section | null) ?? "general";
+  const section = sectionFromParam(params.get("s"));
   const settings = useSettings();
   const saveError = useSettingsStore((s) => s.saveError);
   const title = sections.find(([id]) => id === section)?.[1] ?? "Settings";
@@ -182,19 +184,24 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       );
     case "appearance":
       return (
-        <SettingsGroup note={<p>The interface stays neutral: colour comes from the artwork you are looking at.</p>}>
-          <SliderRow label="Artwork colour in background" value={s.appearance.backgroundIntensity} min={0} max={1} step={0.05} format={pct} onChange={(v) => set((x) => (x.appearance.backgroundIntensity = v))} />
-          <ToggleRow label="Frosted glass" hint="Blur behind the sidebar and panels." checked={s.appearance.blur} onChange={(v) => set((x) => (x.appearance.blur = v))} />
-          <SelectRow
-            label="Density"
-            value={s.appearance.density}
-            options={[
-              { value: "comfortable", label: "Comfortable" },
-              { value: "compact", label: "Compact" },
-            ]}
-            onChange={(v) => set((x) => (x.appearance.density = v))}
-          />
-        </SettingsGroup>
+        <>
+          <SettingsGroup title="Look" note={<p>The interface stays neutral: colour comes from the artwork you are looking at.</p>}>
+            <SliderRow label="Artwork colour in background" value={s.appearance.backgroundIntensity} min={0} max={1} step={0.05} format={pct} onChange={(v) => set((x) => (x.appearance.backgroundIntensity = v))} />
+            <SelectRow
+              label="Density"
+              value={s.appearance.density}
+              options={[
+                { value: "comfortable", label: "Comfortable" },
+                { value: "compact", label: "Compact" },
+              ]}
+              onChange={(v) => set((x) => (x.appearance.density = v))}
+            />
+          </SettingsGroup>
+          <SettingsGroup title="Motion and effects">
+            <SliderRow label="Animations" hint="0 turns motion off. The system's reduced-motion setting always wins." value={s.appearance.animationIntensity} min={0} max={1} step={0.25} format={pct} onChange={(v) => set((x) => (x.appearance.animationIntensity = v))} />
+            <ToggleRow label="Frosted glass" hint="Blur behind the sidebar and panels. Costs GPU time on large or 4K screens." checked={s.appearance.blur} onChange={(v) => set((x) => (x.appearance.blur = v))} />
+          </SettingsGroup>
+        </>
       );
     case "playback":
       return (
@@ -246,6 +253,17 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
               ]}
               onChange={(v) => set((x) => (x.playback.skipIntro = v))}
             />
+            <SelectRow
+              label="Credits"
+              hint="Shows on the last episode and on movies. With a next episode, the Up next card appears instead."
+              value={s.playback.skipCredits}
+              options={[
+                { value: "button", label: "Show a skip button" },
+                { value: "auto", label: "Skip automatically" },
+                { value: "off", label: "Never" },
+              ]}
+              onChange={(v) => set((x) => (x.playback.skipCredits = v))}
+            />
           </SettingsGroup>
         </>
       );
@@ -253,52 +271,49 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       return <AudioSection s={s} caps={caps.data} />;
     case "video":
       return (
-        <SettingsGroup
-          title="Decoding"
-          note={
-            caps.data && (
-              <p>
-                Graphics decoders on this computer:{" "}
-                {caps.data.video.hardwareProbeOk ? caps.data.video.hardwareDecoders.map((d) => d.profile).join(", ") || "none" : "not detectable on this platform yet"}
-              </p>
-            )
-          }
-        >
-          <SelectRow
-            label="Hardware decoding"
-            value={s.video.hardwareDecoding}
-            options={[
-              { value: "auto", label: "Automatic" },
-              { value: "off", label: "Off (processor only)" },
-            ]}
-            onChange={(v) => set((x) => (x.video.hardwareDecoding = v))}
-          />
-          <SelectRow
-            label="Deinterlacing"
-            value={s.video.deinterlace}
-            options={[
-              { value: "auto", label: "When flagged" },
-              { value: "on", label: "Always" },
-              { value: "off", label: "Never" },
-            ]}
-            onChange={(v) => set((x) => (x.video.deinterlace = v))}
-          />
-          <SelectRow
-            label="Frame synchronisation"
-            hint="Match to display reduces judder when the refresh rate differs from the film's."
-            value={s.video.frameSync}
-            options={[
-              { value: "audio", label: "Follow audio clock" },
-              { value: "displayResample", label: "Match to display" },
-            ]}
-            onChange={(v) => set((x) => (x.video.frameSync = v))}
-          />
-          <ToggleRow label="Motion smoothing" hint="Requires Match to display. Some viewers dislike the look." checked={s.video.interpolation} disabled={s.video.frameSync !== "displayResample"} onChange={(v) => set((x) => (x.video.interpolation = v))} />
-        </SettingsGroup>
-      );
-    case "hdr":
-      return (
         <>
+          <SettingsGroup
+            title="Decoding"
+            note={
+              caps.data && (
+                <p>
+                  Graphics decoders on this computer:{" "}
+                  {caps.data.video.hardwareProbeOk ? caps.data.video.hardwareDecoders.map((d) => d.profile).join(", ") || "none" : "not detectable on this platform yet"}
+                </p>
+              )
+            }
+          >
+            <SelectRow
+              label="Hardware decoding"
+              value={s.video.hardwareDecoding}
+              options={[
+                { value: "auto", label: "Automatic" },
+                { value: "off", label: "Off (processor only)" },
+              ]}
+              onChange={(v) => set((x) => (x.video.hardwareDecoding = v))}
+            />
+            <SelectRow
+              label="Deinterlacing"
+              value={s.video.deinterlace}
+              options={[
+                { value: "auto", label: "When flagged" },
+                { value: "on", label: "Always" },
+                { value: "off", label: "Never" },
+              ]}
+              onChange={(v) => set((x) => (x.video.deinterlace = v))}
+            />
+            <SelectRow
+              label="Frame synchronisation"
+              hint="Match to display reduces judder when the refresh rate differs from the film's."
+              value={s.video.frameSync}
+              options={[
+                { value: "audio", label: "Follow audio clock" },
+                { value: "displayResample", label: "Match to display" },
+              ]}
+              onChange={(v) => set((x) => (x.video.frameSync = v))}
+            />
+            <ToggleRow label="Motion smoothing" hint="Requires Match to display. Some viewers dislike the look." checked={s.video.interpolation} disabled={s.video.frameSync !== "displayResample"} onChange={(v) => set((x) => (x.video.interpolation = v))} />
+          </SettingsGroup>
           {caps.data && caps.data.displays.length > 0 && (
             <SettingsGroup title="Displays">
               {caps.data.displays.map((d, i) => (
@@ -389,7 +404,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
     case "network":
       return (
         <>
-          <SettingsGroup>
+          <SettingsGroup title="Connection">
             <SliderRow label="Parallel requests per server" value={s.network.concurrentRequests} min={1} max={16} step={1} onChange={(v) => set((x) => (x.network.concurrentRequests = v))} />
             <SliderRow label="Request timeout" value={s.network.timeoutSecs} min={5} max={60} step={1} format={(v) => `${v} s`} onChange={(v) => set((x) => (x.network.timeoutSecs = v))} />
             <SliderRow label="Playback buffer" value={s.network.bufferMib} min={32} max={1024} step={16} format={(v) => `${v} MiB`} onChange={(v) => set((x) => (x.network.bufferMib = v))} />
@@ -411,62 +426,50 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
             />
           </SettingsGroup>
           {s.network.allowInvalidCertificates && <Notice tone="warn">Certificate checks are off. Connections could be intercepted on untrusted networks.</Notice>}
+          <SettingsGroup title="Cache" note={<p>Your servers stay the source of truth. Cached details refresh after the delay below or when you change something.</p>}>
+            <SliderRow label="Artwork cache" value={s.cache.imageCacheMib} min={128} max={8192} step={128} format={(v) => `${(v / 1024).toFixed(1)} GiB`} onChange={(v) => set((x) => (x.cache.imageCacheMib = v))} />
+            <SliderRow label="Details refresh after" value={s.cache.metadataTtlSecs} min={30} max={3600} step={30} format={(v) => `${Math.round(v / 60)} min`} onChange={(v) => set((x) => (x.cache.metadataTtlSecs = v))} />
+            <LinkRow
+              label="Clear artwork cache"
+              onClick={() =>
+                void api.cacheClear().then(
+                  () => toast.success("Artwork cache cleared"),
+                  () => toast.error("The cache could not be cleared"),
+                )
+              }
+            />
+          </SettingsGroup>
         </>
       );
-    case "cache":
+    case "controls":
       return (
-        <SettingsGroup note={<p>Your servers stay the source of truth. Cached details refresh after the delay below or when you change something.</p>}>
-          <SliderRow label="Artwork cache" value={s.cache.imageCacheMib} min={128} max={8192} step={128} format={(v) => `${(v / 1024).toFixed(1)} GiB`} onChange={(v) => set((x) => (x.cache.imageCacheMib = v))} />
-          <SliderRow label="Details refresh after" value={s.cache.metadataTtlSecs} min={30} max={3600} step={30} format={(v) => `${Math.round(v / 60)} min`} onChange={(v) => set((x) => (x.cache.metadataTtlSecs = v))} />
-          <LinkRow
-            label="Clear artwork cache"
-            onClick={() =>
-              void api.cacheClear().then(
-                () => toast.success("Artwork cache cleared"),
-                () => toast.error("The cache could not be cleared"),
-              )
-            }
-          />
-        </SettingsGroup>
-      );
-    case "performance":
-      return (
-        <SettingsGroup>
-          <SliderRow label="Animations" hint="0 turns motion off. The system's reduced-motion setting always wins." value={s.appearance.animationIntensity} min={0} max={1} step={0.25} format={pct} onChange={(v) => set((x) => (x.appearance.animationIntensity = v))} />
-          <ToggleRow label="Frosted glass" hint="Blur costs GPU time on large or 4K screens." checked={s.appearance.blur} onChange={(v) => set((x) => (x.appearance.blur = v))} />
-        </SettingsGroup>
-      );
-    case "keyboard":
-      return (
-        <SettingsGroup>
-          <InfoRow label="Arrows">Move between items. In the player, left and right skip 10 s when controls are hidden.</InfoRow>
-          <InfoRow label="Enter">Open or activate</InfoRow>
-          <InfoRow label="Escape / Backspace">Back</InfoRow>
-          <InfoRow label="Space">Play or pause</InfoRow>
-          <InfoRow label="Menu key">Toggle Flick Frame</InfoRow>
-          <InfoRow label="Media keys">Play/pause, fast forward and rewind from remotes that send them.</InfoRow>
-        </SettingsGroup>
-      );
-    case "controller":
-      return (
-        <SettingsGroup note={<p>D-pad or left stick moves, A opens, B goes back, Start plays or pauses, bumpers skip 10 seconds, View toggles Flick Frame.</p>}>
-          <ToggleRow label="Use game controllers" checked={s.controller.enabled} onChange={(v) => set((x) => (x.controller.enabled = v))} />
-          <SliderRow label="Stick dead zone" value={s.controller.deadzone} min={0.1} max={0.8} step={0.05} format={pct} onChange={(v) => set((x) => (x.controller.deadzone = v))} />
-          <ToggleRow label="Swap A and B" hint="Nintendo-style confirm button." checked={s.controller.swapConfirm} onChange={(v) => set((x) => (x.controller.swapConfirm = v))} />
-        </SettingsGroup>
-      );
-    case "notifications":
-      return (
-        <SettingsGroup>
-          <ToggleRow label="Next episode" checked={s.notifications.nextEpisode} onChange={(v) => set((x) => (x.notifications.nextEpisode = v))} />
-          <ToggleRow label="Server offline" checked={s.notifications.serverOffline} onChange={(v) => set((x) => (x.notifications.serverOffline = v))} />
-        </SettingsGroup>
+        <>
+          <SettingsGroup title="Keyboard & Remote">
+            <InfoRow label="Arrows">Move between items. In the player, left and right skip 10 s when controls are hidden.</InfoRow>
+            <InfoRow label="Enter">Open or activate</InfoRow>
+            <InfoRow label="Escape / Backspace">Back</InfoRow>
+            <InfoRow label="Space">Play or pause</InfoRow>
+            <InfoRow label="Menu key">Toggle Flick Frame</InfoRow>
+            <InfoRow label="Media keys">Play/pause, fast forward and rewind from remotes that send them.</InfoRow>
+          </SettingsGroup>
+          <SettingsGroup title="Game Controller" note={<p>D-pad or left stick moves, A opens, B goes back, Start plays or pauses, bumpers skip 10 seconds, View toggles Flick Frame.</p>}>
+            <ToggleRow label="Use game controllers" checked={s.controller.enabled} onChange={(v) => set((x) => (x.controller.enabled = v))} />
+            <SliderRow label="Stick dead zone" value={s.controller.deadzone} min={0.1} max={0.8} step={0.05} format={pct} onChange={(v) => set((x) => (x.controller.deadzone = v))} />
+            <ToggleRow label="Swap A and B" hint="Nintendo-style confirm button." checked={s.controller.swapConfirm} onChange={(v) => set((x) => (x.controller.swapConfirm = v))} />
+          </SettingsGroup>
+        </>
       );
     case "privacy":
       return (
-        <SettingsGroup>
-          <ToggleRow label="Report progress to servers" hint="Needed for resume points and watched status on your other devices." checked={s.privacy.reportProgress} onChange={(v) => set((x) => (x.privacy.reportProgress = v))} />
-        </SettingsGroup>
+        <>
+          <SettingsGroup title="Notifications">
+            <ToggleRow label="Next episode" checked={s.notifications.nextEpisode} onChange={(v) => set((x) => (x.notifications.nextEpisode = v))} />
+            <ToggleRow label="Server offline" checked={s.notifications.serverOffline} onChange={(v) => set((x) => (x.notifications.serverOffline = v))} />
+          </SettingsGroup>
+          <SettingsGroup title="Privacy">
+            <ToggleRow label="Report progress to servers" hint="Needed for resume points and watched status on your other devices." checked={s.privacy.reportProgress} onChange={(v) => set((x) => (x.privacy.reportProgress = v))} />
+          </SettingsGroup>
+        </>
       );
     case "advanced": {
       const lib = about.data ? unwrap(about.data.libmpv) : null;
@@ -495,25 +498,22 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
               onChange={(v) => set((x) => (x.advanced.presenter = v))}
             />
           </SettingsGroup>
+          <SettingsGroup title="Diagnostics">
+            <SelectRow
+              label="Log detail"
+              value={s.advanced.logLevel}
+              options={[
+                { value: "info", label: "Normal" },
+                { value: "debug", label: "Detailed" },
+                { value: "trace", label: "Everything" },
+              ]}
+              onChange={(v) => set((x) => (x.advanced.logLevel = v))}
+            />
+            <LinkRow label="Open diagnostics" onClick={() => navigate("/debug")} />
+          </SettingsGroup>
         </>
       );
     }
-    case "debug":
-      return (
-        <SettingsGroup>
-          <SelectRow
-            label="Log detail"
-            value={s.advanced.logLevel}
-            options={[
-              { value: "info", label: "Normal" },
-              { value: "debug", label: "Detailed" },
-              { value: "trace", label: "Everything" },
-            ]}
-            onChange={(v) => set((x) => (x.advanced.logLevel = v))}
-          />
-          <LinkRow label="Open diagnostics" onClick={() => navigate("/debug")} />
-        </SettingsGroup>
-      );
   }
 }
 

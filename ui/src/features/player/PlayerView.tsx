@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ChevronLeft,
+  ListVideo,
   Maximize,
   Maximize2,
   Minimize,
@@ -31,7 +32,6 @@ import {
 import { AnimatePresence, motion, type MotionValue, useMotionValue, useMotionValueEvent, useSpring, useTransform } from "motion/react";
 import { type CSSProperties, type MouseEvent, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { SlidingNumber } from "@/components/animate-ui/primitives/texts/sliding-number";
 import { Button } from "@/components/tv/Button";
 import { Spinner } from "@/components/tv/Feedback";
 import { api, asError } from "@/ipc/api";
@@ -51,6 +51,7 @@ import { focusKey } from "@/nav/spatial";
 import { ServerBadge } from "@/components/tv/ServerBadge";
 import { useSources } from "@/lib/servers";
 import { TitleBar } from "@/shell/TitleBar";
+import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
 import { createPlayerStore, type PlayerStore } from "./store";
@@ -59,6 +60,7 @@ const HIDE_AFTER = 3500;
 const NEXT_UP_WINDOW = 30_000;
 const SEEK_STEP = 10_000;
 const TIMELINE_KEY = "player-timeline";
+const EPISODES_BUTTON = "player-episodes-button";
 
 const cmd = (c: PlayerCommand) => void api.playerCommand(c).catch(() => undefined);
 
@@ -258,7 +260,7 @@ function VolumeControl({ store }: { store: PlayerStore }) {
   );
 }
 
-function NextUp({ next, countdown, onPlay, onDismiss }: { next: MediaItem; countdown: number | null; onPlay: () => void; onDismiss: () => void }) {
+function NextUp({ next, countdown, total, onPlay, onDismiss }: { next: MediaItem; countdown: number | null; total: number; onPlay: () => void; onDismiss: () => void }) {
   const art = imageUrl(next.images.thumb ?? next.images.backdrop, "card");
   return (
     <motion.div
@@ -272,14 +274,7 @@ function NextUp({ next, countdown, onPlay, onDismiss }: { next: MediaItem; count
         <div className="flex gap-3">
           <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-xl bg-white/10">{art && <img src={art} alt="" className="size-full object-cover" />}</div>
           <div className="flex min-w-0 flex-col justify-center gap-1">
-            <span className="flex items-center gap-1 text-[0.6875rem] font-semibold tracking-wide text-white/55 uppercase">
-              Up next
-              {countdown !== null && (
-                <>
-                  {" "}in <SlidingNumber number={countdown} className="tabular-nums" />s
-                </>
-              )}
-            </span>
+            <span className="text-[0.6875rem] font-semibold tracking-wide text-white/55 uppercase">Up next</span>
             <span className="line-clamp-2 font-semibold">
               {episodeLabel(next)} · {next.title}
             </span>
@@ -287,10 +282,12 @@ function NextUp({ next, countdown, onPlay, onDismiss }: { next: MediaItem; count
         </div>
         <div className="flex gap-2">
           <Button variant="primary" size="sm" icon={Play} iconFilled onClick={onPlay} className="relative overflow-hidden">
-            Play Now
+            {/* Fills over the countdown: when it is full, the next episode starts. */}
+            {countdown !== null && <motion.span aria-hidden className="absolute inset-0 origin-left bg-black/20" initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: total, ease: "linear" }} />}
+            <span className="relative">Next Episode</span>
           </Button>
           <Button variant="ghost" size="sm" onClick={onDismiss}>
-            Keep Watching
+            View Credits
           </Button>
         </div>
       </FocusGroup>
@@ -370,6 +367,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
 
   const [chrome, setChrome] = useState(true);
   const [menu, setMenu] = useState(false);
+  const [episodes, setEpisodes] = useState(false);
   const menuActions: MenuActions = useRef(null);
   // Window fullscreen for this playback only; Flick Frame stays what the user chose.
   const [fullscreen, setFullscreen] = useState(false);
@@ -386,7 +384,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const menuRef = useRef(menu);
-  menuRef.current = menu;
+  menuRef.current = menu || episodes;
 
   const poke = useCallback(() => {
     setChrome(true);
@@ -504,17 +502,20 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     [store],
   );
 
-  // ---- markers: skip intro / recap ----------------------------------------
+  // ---- markers: skip intro / recap / credits ----------------------------------
+  // With a next episode, the credits are the Up next card's job; the skip
+  // button is for the last episode and for movies.
+  const next = adjacent.data?.next ?? null;
   const pos = useSecond(store.position);
-  const activeMarker = markers.data?.find((m) => (m.kind === "intro" || m.kind === "recap") && pos >= m.startMs && pos < m.endMs - 1000);
-  const autoSkip = settings?.playback.skipIntro === "auto";
-  const showSkip = !!activeMarker && settings?.playback.skipIntro !== "off" && !autoSkip;
+  const activeMarker = markers.data?.find((m) => (m.kind === "intro" || m.kind === "recap" || (m.kind === "credits" && !next)) && pos >= m.startMs && pos < m.endMs - 1000);
+  const skipMode = activeMarker ? (activeMarker.kind === "credits" ? settings?.playback.skipCredits : settings?.playback.skipIntro) : "off";
+  const autoSkip = skipMode === "auto";
+  const showSkip = !!activeMarker && skipMode === "button";
   useEffect(() => {
     if (activeMarker && autoSkip) seekTo(activeMarker.endMs);
   }, [activeMarker, autoSkip, seekTo]);
 
   // ---- next episode ----------------------------------------------------------
-  const next = adjacent.data?.next ?? null;
   const creditsStart = markers.data?.find((m) => m.kind === "credits")?.startMs;
   const showNext = !!next && !nextDismissed && !!duration && settings?.notifications.nextEpisode !== false && pos >= (creditsStart ?? duration - NEXT_UP_WINDOW);
   const playNext = useCallback(() => {
@@ -553,6 +554,14 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
       }
       const wasHidden = !chrome;
       poke();
+      if (episodes) {
+        if (a.type === "back") {
+          setEpisodes(false);
+          requestAnimationFrame(() => focusKey(EPISODES_BUTTON));
+          return true;
+        }
+        return a.type === "playPause" ? (cmd({ type: "togglePause" }), true) : false;
+      }
       if (menu) {
         if (menuActions.current?.(a)) return true;
         if (a.type === "back") {
@@ -599,12 +608,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           return false;
       }
     });
-  }, [chrome, menu, pip, poke, seekBy, leave, setPipMode]);
+  }, [chrome, menu, episodes, pip, poke, seekBy, leave, setPipMode]);
 
   const it = item.data;
   const title = it?.episode ? (it.episode.seriesTitle ?? it.title) : (it?.title ?? "");
   const subtitle = it?.episode ? `${episodeLabel(it)} · ${it.title}` : it?.year ? String(it.year) : "";
-  const visible = !pip && (chrome || phase !== "playing" || menu);
+  const visible = !pip && (chrome || phase !== "playing" || menu || episodes);
   const scrubbing = scrub !== null;
 
   return (
@@ -685,7 +694,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           >
             <FocusGroup focusKey="skip" autoFocus>
               <Button variant="primary" size="md" onClick={() => seekTo(activeMarker.endMs)}>
-                {activeMarker.kind === "recap" ? "Skip Recap" : "Skip Intro"}
+                {activeMarker.kind === "recap" ? "Skip Recap" : activeMarker.kind === "credits" ? "Skip Credits" : "Skip Intro"}
               </Button>
             </FocusGroup>
           </motion.div>
@@ -695,6 +704,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             key="next"
             next={next}
             countdown={countdown}
+            total={settings?.playback.autoplayCountdownSecs ?? 5}
             onPlay={playNext}
             onDismiss={() => {
               setCountdown(null);
@@ -716,7 +726,18 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           transition={{ type: "spring", stiffness: 300, damping: 34 }}
           style={{ pointerEvents: visible ? "auto" : "none" }}
         >
-          <AnimatePresence>{menu && <PlayerMenu key="menu" store={store} actions={menuActions} source={source} />}</AnimatePresence>
+          <AnimatePresence>
+            {menu && <PlayerMenu key="menu" store={store} actions={menuActions} source={source} />}
+            {episodes && it?.episode?.series && (
+              <EpisodesPanel
+                key="episodes"
+                series={it.episode.series}
+                season={it.episode.season}
+                currentId={itemId}
+                onPick={(id) => (id === itemId ? setEpisodes(false) : navigate(playPath(id, 0), { replace: true }))}
+              />
+            )}
+          </AnimatePresence>
 
           <div className="flex min-w-0 items-baseline gap-2 drop-shadow-[0_1px_8px_rgb(0_0_0/0.6)]">
             <span className="truncate text-[0.9375rem] font-semibold">{title}</span>
@@ -744,12 +765,29 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
               {next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
             </div>
             <div className="flex items-center justify-end gap-1">
+              {it?.episode?.series && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  icon={ListVideo}
+                  label="Episodes"
+                  focusKey={EPISODES_BUTTON}
+                  onClick={() => {
+                    setMenu(false);
+                    setEpisodes((e) => !e);
+                  }}
+                  className={cn(episodes && "bg-white/20 text-white")}
+                />
+              )}
               <Button
                 variant="ghost"
                 size="icon-sm"
                 icon={Settings}
                 label="Audio, subtitles and playback info"
-                onClick={() => setMenu((m) => !m)}
+                onClick={() => {
+                  setEpisodes(false);
+                  setMenu((m) => !m);
+                }}
                 className={cn("[&_svg]:transition-transform [&_svg]:duration-500 [&_svg]:ease-apple", menu && "bg-white/20 text-white [&_svg]:rotate-90")}
               />
               <Button variant="ghost" size="icon-sm" icon={PictureInPicture2} label="Picture in Picture" onClick={() => setPipMode(true)} />

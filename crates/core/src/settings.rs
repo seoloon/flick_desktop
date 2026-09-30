@@ -143,7 +143,7 @@ impl Default for PlaybackSettings {
             transcode_without_hwdec_min_height: None,
             resume: ResumeBehavior::Ask,
             autoplay_next: true,
-            autoplay_countdown_secs: 10,
+            autoplay_countdown_secs: 5,
             skip_intro: SkipMode::Button,
             skip_credits: SkipMode::Button,
             report_interval_secs: 10,
