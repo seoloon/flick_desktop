@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { onAction } from "@/nav/input";
 import { focusKey, NAV_KEY, SCREEN_KEY } from "@/nav/spatial";
 import { useScrollFade } from "@/nav/useScrollFade";
+import { useSmoothWheel } from "@/nav/smoothWheel";
 import { AmbientBackdrop } from "./AmbientBackdrop";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
@@ -78,6 +79,7 @@ export function Shell() {
   const frame = useMode((s) => s.frame);
   const phase = useProfileSwitch((s) => s.phase);
   const main = useRef<HTMLElement>(null);
+  useSmoothWheel(main);
   const [scrolled, setScrolled] = useState(false);
   useScrollFade(main, "y");
 

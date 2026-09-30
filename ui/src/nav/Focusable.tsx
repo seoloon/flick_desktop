@@ -2,6 +2,8 @@
 // element registered with Norigin through `useTv`; containers (`FocusGroup`)
 // remember their last focused child, which is what makes shelves feel right
 // on a TV. `Screen` is the root of each route and restores focus on return.
+import { useDragScroll } from "./dragScroll";
+import { useSmoothWheel } from "./smoothWheel";
 import {
   FocusContext,
   getCurrentFocusKey,
@@ -152,6 +154,8 @@ export function FocusGroup({ focusKey, remember = true, boundary, preferredChild
   useEffect(() => within.current?.(hasFocusedChild), [hasFocusedChild]);
   useScrollFade(ref, fade);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  useDragScroll(scroller);
+  useSmoothWheel(ref as { current: HTMLDivElement | null }, fade === "y");
   const setRefs = useCallback(
     (el: HTMLDivElement | null) => {
       (ref as { current: HTMLDivElement | null }).current = el;
