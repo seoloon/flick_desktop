@@ -113,6 +113,8 @@ pub struct PlaybackSettings {
     pub resume: ResumeBehavior,
     pub autoplay_next: bool,
     pub autoplay_countdown_secs: u32,
+    /// Take the window fullscreen when a playback starts.
+    pub fullscreen_on_play: bool,
     pub skip_intro: SkipMode,
     pub skip_credits: SkipMode,
     /// Progress report interval to the server.
@@ -144,6 +146,7 @@ impl Default for PlaybackSettings {
             resume: ResumeBehavior::Ask,
             autoplay_next: true,
             autoplay_countdown_secs: 5,
+            fullscreen_on_play: false,
             skip_intro: SkipMode::Button,
             skip_credits: SkipMode::Button,
             report_interval_secs: 10,

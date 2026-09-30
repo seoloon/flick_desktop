@@ -404,6 +404,13 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     setFullscreen(next);
     void api.setFullscreen(next).catch(() => undefined);
   }, []);
+  // "Fullscreen on play": once, when this playback opens (Flick Frame is already fullscreen).
+  const autoFullscreen = useRef(false);
+  useEffect(() => {
+    if (autoFullscreen.current || !settings) return;
+    autoFullscreen.current = true;
+    if (settings.playback.fullscreenOnPlay && !useMode.getState().frame && !fullscreenRef.current) toggleFullscreen();
+  }, [settings, toggleFullscreen]);
   const setPipMode = useCallback((on: boolean) => {
     if (pipRef.current === on) return;
     pipRef.current = on;

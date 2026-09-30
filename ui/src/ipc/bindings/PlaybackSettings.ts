@@ -19,7 +19,11 @@ allowTranscode: boolean,
  * Prefer a server transcode over CPU decoding when the GPU cannot decode
  * a source at or above this height (e.g. 2160 on a weak laptop).
  */
-transcodeWithoutHwdecMinHeight: number | null, resume: ResumeBehavior, autoplayNext: boolean, autoplayCountdownSecs: number, skipIntro: SkipMode, skipCredits: SkipMode, 
+transcodeWithoutHwdecMinHeight: number | null, resume: ResumeBehavior, autoplayNext: boolean, autoplayCountdownSecs: number, 
+/**
+ * Take the window fullscreen when a playback starts.
+ */
+fullscreenOnPlay: boolean, skipIntro: SkipMode, skipCredits: SkipMode, 
 /**
  * Progress report interval to the server.
  */

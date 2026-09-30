@@ -240,6 +240,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
               ]}
               onChange={(v) => set((x) => (x.playback.resume = v))}
             />
+            <ToggleRow label="Fullscreen on play" hint="Go fullscreen whenever a playback starts." checked={s.playback.fullscreenOnPlay} onChange={(v) => set((x) => (x.playback.fullscreenOnPlay = v))} />
             <ToggleRow label="Play next episode automatically" checked={s.playback.autoplayNext} onChange={(v) => set((x) => (x.playback.autoplayNext = v))} />
             <SliderRow label="Countdown" value={s.playback.autoplayCountdownSecs} min={3} max={30} step={1} format={(v) => `${v} s`} disabled={!s.playback.autoplayNext} onChange={(v) => set((x) => (x.playback.autoplayCountdownSecs = v))} />
             <SelectRow
