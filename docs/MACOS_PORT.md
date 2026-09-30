@@ -277,24 +277,29 @@ prévu par ARCHITECTURE.md §7.1) :
 - Rafraîchissement quand la fenêtre change d'écran (déjà branché sur
   `ScaleFactorChanged` dans `app/src/main.rs`).
 
-### 4.4 libmpv livrée dans l'app, universelle
+### 4.4 libmpv livrée dans l'app
 
-- Dev : `brew install mpv` suffit (arm64 seulement, chemins absolus vers
-  `/opt/homebrew`, donc non relocalisable). `tools/ensure-libmpv.mjs` se
-  contente de vérifier Homebrew sous macOS.
-- Distribution : il faut une `libmpv.2.dylib` **universelle** (lipo arm64 +
-  x86_64) avec ses dépendances (FFmpeg, libplacebo, libass…), des
-  `install_name` en `@loader_path`/`@rpath`, et chaque dylib signée ad hoc.
-  Emplacement prévu : `third_party/mpv/macos-universal/`
-  (`third_party/mpv/README.md`), livrée via
-  `tauri.macos.conf.json` › `bundle.resources` (le code cherche
-  `resource_dir()/libmpv`) ou `bundle.macOS.frameworks`.
-- Source à choisir : build maison (scripts mpv / `mpv-build`), ou binaires
-  d'un projet existant (IINA, builds CI mpv…). La GPL est acceptée.
+**État : fait pour arm64** (`tools/bundle-libmpv-macos.mjs` copie la libmpv de
+Homebrew et ses dépendances dans `third_party/mpv/macos-arm64/`, relocalisées en
+`@loader_path` et re-signées ad hoc ; livrée en ressource `libmpv/`, cherchée par
+`libmpv_dirs` dans `app/src/main.rs`).
+
+**Piège du hardened runtime** (découvert au premier essai du DMG, invisible en
+dev) : Tauri signe le bundle avec le flag `runtime`. Sans entitlements, macOS
+refuse alors de charger les dylibs ad hoc (« different Team IDs »), puis tue le
+process quand LuaJIT (scripts Lua intégrés de mpv) écrit du code machine
+(`SIGKILL Code Signature Invalid`). `app/entitlements.macos.plist`, référencé par
+`bundle.macOS.entitlements`, pose `disable-library-validation`, `allow-jit` et
+`allow-unsigned-executable-memory`. Vérifié : lecture lancée depuis le DMG sur
+deux Mac Apple silicon. Un test sans écran reste possible : signer un petit
+binaire en `-o runtime` avec ces entitlements et lui faire `dlopen` la libmpv
+du bundle, puis `mpv_initialize`.
+
+**Reste** :
+- Intel / universel : `lipo` arm64 + x86_64 avec toutes les dépendances
+  (`third_party/mpv/macos-universal/`), et `build:mac` en `universal-apple-darwin`.
 - `third_party/mpv/README.md` dit encore « livrer une build LGPL pour ne pas
-  être GPL » : c'est obsolète depuis le passage en GPL v3, à réécrire.
-- Étendre `tools/ensure-libmpv.mjs` pour récupérer ou produire la dylib, comme
-  `tools/fetch-libmpv.ps1` sous Windows.
+  être GPL » : obsolète depuis le passage en GPL v3, à réécrire.
 
 ### 4.5 Ajustements UI et fenêtre
 
@@ -327,6 +332,7 @@ prévu par ARCHITECTURE.md §7.1) :
   `.dmg`). Icône `icons/icon.icns` déjà présente.
 - Ad hoc : vérifier que Tauri signe bien le binaire universel **et** les dylib
   embarquées (`codesign -dv --verbose=4`, `codesign --verify --deep`).
+- `pnpm build:mac` produit pour l'instant l'arm64 seul (`target/aarch64-apple-darwin/`).
 - Tester le DMG sur un Mac « propre » : quarantaine Gatekeeper, lancement,
   Trousseau.
 

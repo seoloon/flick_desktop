@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The bundled libmpv and its dependencies are ad hoc signed (no Apple Developer team), so the hardened runtime's library validation would refuse to load them. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- libmpv runs its built-in Lua scripts on LuaJIT, which emits machine code at run time; without these the hardened runtime kills the process. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
