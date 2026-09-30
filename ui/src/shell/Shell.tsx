@@ -96,11 +96,35 @@ export function Shell() {
     });
   }, [location.pathname]);
 
-  // Each history entry keeps its scroll position.
+  // Each history entry keeps its scroll position. Screens fill in after they
+  // mount (a library's total, a detail page's data), so the saved position may
+  // lie beyond the content for a while: keep applying it as the content grows,
+  // until it is reached or the user scrolls.
+  const restoring = useRef(false);
   useLayoutEffect(() => {
     const el = main.current;
-    if (el) el.scrollTop = scrollMemory.get(location.key) ?? 0;
-    setScrolled((el?.scrollTop ?? 0) > 40);
+    const target = scrollMemory.get(location.key) ?? 0;
+    restoring.current = false;
+    if (!el) return;
+    el.scrollTop = target;
+    setScrolled(el.scrollTop > 40);
+    if (target <= 0 || Math.abs(el.scrollTop - target) < 2) return;
+    restoring.current = true;
+    const apply = () => {
+      el.scrollTop = target;
+      if (Math.abs(el.scrollTop - target) < 2) stop();
+    };
+    const stop = () => {
+      restoring.current = false;
+      ro.disconnect();
+      clearTimeout(timer);
+      for (const ev of ["wheel", "touchstart", "pointerdown", "keydown"]) el.removeEventListener(ev, stop);
+    };
+    const ro = new ResizeObserver(apply);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    const timer = setTimeout(stop, 4000);
+    for (const ev of ["wheel", "touchstart", "pointerdown", "keydown"]) el.addEventListener(ev, stop, { passive: true });
+    return stop;
   }, [location.key]);
 
   return (
@@ -112,7 +136,7 @@ export function Shell() {
         ref={main}
         onScroll={(e) => {
           const top = e.currentTarget.scrollTop;
-          scrollMemory.set(location.key, top);
+          if (!restoring.current) scrollMemory.set(location.key, top);
           setScrolled(top > 40);
         }}
         className="peer no-scrollbar relative h-full overflow-x-hidden overflow-y-auto pl-[var(--content-left)]"
