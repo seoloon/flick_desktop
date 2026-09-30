@@ -14,7 +14,7 @@
 
 <p align="center">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-available-2ea043?style=flat-square&logo=windows&logoColor=white">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-in%20progress-d29922?style=flat-square&logo=apple&logoColor=white">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-available-2ea043?style=flat-square&logo=apple&logoColor=white">
   <img alt="Built with Tauri and Rust" src="https://img.shields.io/badge/Tauri%20%2B%20Rust-native-24c8db?style=flat-square&logo=tauri&logoColor=white">
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square"></a>
 </p>
@@ -96,7 +96,7 @@ title of theirs across all your servers, and what else they are known for.
 | Platform | Status |
 |---|---|
 | **Windows 10 / 11** (x64) | ✅ Available |
-| **macOS** (Apple Silicon) | 🚧 Working (SDR playback, Apple silicon only): [status and plan](docs/MACOS_PORT.md) |
+| **macOS** (Apple Silicon) | ✅ Available (SDR playback): [details and limits](docs/MACOS_PORT.md) |
 | **Linux** | 🗺️ Designed, not started |
 
 ## Build it yourself
