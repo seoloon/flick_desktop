@@ -256,9 +256,13 @@ supposé sur Apple silicon, non déclaré sur Intel).
 **Audio : fait** (`crates/capabilities/src/macos/audio.rs`, CoreAudio via
 `objc2-core-audio`) : périphériques ayant des flux de sortie, UID (nom mpv
 `coreaudio/<UID>`), type de connexion, canaux, fréquence nominale, périphérique
-par défaut. Le passthrough est volontairement `NotProbed` pour tous : pas de HBR
-sous CoreAudio, et la sortie S/PDIF AC3/E-AC3/DTS de mpv n'a pas été validée sur
-un ampli réel (à tester avec un écran HDMI ou un AVR avant de le déclarer).
+par défaut, et **passthrough** : mêmes critères que `ao_coreaudio_exclusive` de mpv
+(un flux dont les formats physiques incluent `ac-3`/`cac3` → {AC3, DTS} ; un format
+à 192 kHz en plus → E-AC3 ; jamais TrueHD/DTS-HD/Atmos, pas de HBR). Sur les
+haut-parleurs du MacBook la sonde dit `{}` et mpv refuse pareil (« No usable
+substream found »). Le cas positif (AVR/TV en HDMI, DAC optique) n'a **pas** pu être
+lu sur du matériel : voir `docs/PLAYBACK_VALIDATION.md`, section macOS.
+
 `crates/capabilities/src/windows/` (≈ 600 lignes : `display.rs`, `audio.rs`,
 `video.rs`) reste le modèle à suivre pour le reste du chantier. Modèle à
 remplir : `crates/core/src/capabilities.rs` (`DisplayCapabilities`,
@@ -353,6 +357,6 @@ du bundle, puis `mpv_initialize`.
 ## 6. Docs à mettre à jour à la fin
 
 - `ARCHITECTURE.md` : §4.2 (statut de la stratégie macOS), §7.1, §14, §16.
-- `docs/PLAYBACK_VALIDATION.md` : section macOS avec le matériel testé.
+- `docs/PLAYBACK_VALIDATION.md` : section macOS **faite** (M1, haut-parleurs) ; à compléter avec un écran EDR/XDR et un ampli.
 - `README.md` : prérequis et commandes macOS (`build:mac`, Homebrew).
 - `third_party/mpv/README.md` : licence et build macOS.
