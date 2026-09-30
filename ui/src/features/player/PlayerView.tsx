@@ -42,7 +42,7 @@ import { onPlayerEvent } from "@/ipc/events";
 import { imageUrl } from "@/ipc/images";
 import { clock, episodeLabel } from "@/lib/format";
 import { focusSpring } from "@/lib/motion";
-import { useMode } from "@/lib/mode";
+import { setFrame, useMode } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
@@ -376,6 +376,8 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const fullscreenRef = useRef(false);
   const [pip, setPip] = useState(false);
   const pipRef = useRef(false);
+  // Flick Frame is off while in Picture in Picture, and back on when leaving it.
+  const frameBeforePip = useRef(false);
   const [hover, setHover] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [nextDismissed, setNextDismissed] = useState(false);
@@ -397,7 +399,8 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const leave = useCallback(() => navigate(-1), [navigate]);
 
   const toggleFullscreen = useCallback(() => {
-    if (useMode.getState().frame) return; // Flick Frame is already fullscreen
+    // Flick Frame is already fullscreen: leaving fullscreen leaves the Frame.
+    if (useMode.getState().frame) return void setFrame(false);
     const next = !fullscreenRef.current;
     fullscreenRef.current = next;
     setFullscreen(next);
@@ -409,17 +412,25 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     setPip(on);
     setMenu(false);
     setHover(false);
-    void api.windowPip(on).catch(() => undefined);
+    void (async () => {
+      if (on) frameBeforePip.current = useMode.getState().frame;
+      await api.windowPip(on).catch(() => undefined);
+      if (on && frameBeforePip.current) await setFrame(false, false);
+      if (!on && frameBeforePip.current) {
+        frameBeforePip.current = false;
+        await setFrame(true, false);
+      }
+    })();
     if (!on) requestAnimationFrame(() => focusKey(TIMELINE_KEY));
   }, []);
   // Leaving the player gives the window back as it was: out of PiP first
   // (which restores a fullscreen window), then out of the player's fullscreen.
   useEffect(
     () => () => {
-      const frame = useMode.getState().frame;
       void (async () => {
         if (pipRef.current) await api.windowPip(false).catch(() => undefined);
-        if (fullscreenRef.current && !frame) await api.setFullscreen(false).catch(() => undefined);
+        if (frameBeforePip.current) await setFrame(true, false);
+        else if (fullscreenRef.current && !useMode.getState().frame) await api.setFullscreen(false).catch(() => undefined);
       })();
     },
     [],
@@ -741,10 +752,14 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
                 onClick={() => setMenu((m) => !m)}
                 className={cn("[&_svg]:transition-transform [&_svg]:duration-500 [&_svg]:ease-apple", menu && "bg-white/20 text-white [&_svg]:rotate-90")}
               />
-              {!frame && <Button variant="ghost" size="icon-sm" icon={PictureInPicture2} label="Picture in Picture" onClick={() => setPipMode(true)} />}
-              {!frame && (
-                <Button variant="ghost" size="icon-sm" icon={fullscreen ? Minimize : Maximize} label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen} />
-              )}
+              <Button variant="ghost" size="icon-sm" icon={PictureInPicture2} label="Picture in Picture" onClick={() => setPipMode(true)} />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                icon={fullscreen || frame ? Minimize : Maximize}
+                label={frame ? "Exit Flick Frame" : fullscreen ? "Exit full screen" : "Full screen"}
+                onClick={toggleFullscreen}
+              />
             </div>
           </FocusGroup>
         </motion.footer>

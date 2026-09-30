@@ -16,11 +16,13 @@ function showCursorThenHide() {
 }
 window.addEventListener("mousemove", showCursorThenHide, { passive: true });
 
-export async function setFrame(on: boolean) {
+/** `moveWindow: false` only switches the layout: the caller already moved the
+ * window (Picture in Picture leaves and restores fullscreen by itself). */
+export async function setFrame(on: boolean, moveWindow = true) {
   useMode.setState({ frame: on });
   document.documentElement.classList.toggle("frame", on);
   showCursorThenHide();
-  await api.setFullscreen(on).catch(() => undefined);
+  if (moveWindow) await api.setFullscreen(on).catch(() => undefined);
 }
 
 /** The sidebar button, the tab bar and the Menu key. Entering Flick Frame
