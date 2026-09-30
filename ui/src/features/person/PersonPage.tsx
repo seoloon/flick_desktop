@@ -139,7 +139,7 @@ export function PersonPage() {
       {known.length > 0 && (
         <section className="relative">
           <h2 className="px-[var(--gutter)] text-[1.3125rem] font-semibold tracking-tight">Also known for</h2>
-          <FocusGroup focusKey="shelf:known-for" fade="x" className="[--fade-size:var(--gutter)] no-scrollbar -mt-2 flex gap-[var(--card-gap)] overflow-x-auto px-[var(--gutter)] pt-6 pb-10">
+          <FocusGroup focusKey="shelf:known-for" fade="x" arrows className="[--fade-size:var(--gutter)] no-scrollbar -mt-2 flex gap-[var(--card-gap)] overflow-x-auto px-[var(--gutter)] pt-6 pb-10">
             {known.map((c) => (
               <KnownForCard key={`${c.kind}:${c.tmdbId}`} credit={c} focusKey={`known-for:${c.kind}:${c.tmdbId}`} />
             ))}

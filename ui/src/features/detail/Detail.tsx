@@ -181,7 +181,7 @@ function Cast({ credits, from }: { credits: Credit[]; from: ItemRef }) {
   return (
     <section className="flex flex-col">
       <h2 className="px-[var(--gutter)] text-[1.3125rem] font-semibold">Cast &amp; Crew</h2>
-      <FocusGroup focusKey="cast" fade="x" className="[--fade-size:var(--gutter)] no-scrollbar flex gap-6 overflow-x-auto px-[var(--gutter)] pt-5 pb-8">
+      <FocusGroup focusKey="cast" fade="x" arrows className="[--fade-size:var(--gutter)] no-scrollbar flex gap-6 overflow-x-auto px-[var(--gutter)] pt-5 pb-8">
         {credits.map((c, i) => (
           <Person key={`${c.name}-${i}`} credit={c} from={from} />
         ))}

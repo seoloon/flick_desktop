@@ -28,7 +28,7 @@ export function Shelf({ id, title, items, shape, action, index = 0 }: Props) {
         <h2 className="text-[1.3125rem] font-semibold tracking-tight text-white">{title}</h2>
         {action}
       </header>
-      <FocusGroup focusKey={`shelf:${id}`} fade="x" className="[--fade-size:var(--gutter)] no-scrollbar -mt-2 flex gap-[var(--card-gap)] overflow-x-auto px-[var(--gutter)] pt-6 pb-10">
+      <FocusGroup focusKey={`shelf:${id}`} fade="x" arrows className="[--fade-size:var(--gutter)] no-scrollbar -mt-2 flex gap-[var(--card-gap)] overflow-x-auto px-[var(--gutter)] pt-6 pb-10">
         {items.map((item) => (
           <MediaCard key={item.id} item={item} shape={shape} focusKey={`shelf:${id}/${item.id}`} />
         ))}
