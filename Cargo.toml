@@ -7,7 +7,7 @@ members = ["crates/core", "crates/mpv", "crates/capabilities", "crates/playback"
 edition = "2024"
 rust-version = "1.85"
 license = "MPL-2.0"
-version = "0.1.2"
+version = "0.2.0"
 
 [workspace.dependencies]
 oneshot-core = { path = "crates/core" }
