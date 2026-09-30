@@ -131,5 +131,91 @@ récepteur refuse malgré le pilote.
    haut-parleurs) ; le fichier 03 contient un ton différent par canal.
 4. **Dolby Vision P5/P8** et **TrueHD 7.1 réel** : fichiers réels dans
    `test-media-real/`.
-5. **macOS / Linux** : non construits ni testés dans cette session (voir
-   ARCHITECTURE.md §4 et §14).
+5. **Linux** : non construit ni testé (voir ARCHITECTURE.md §4 et §14).
+6. **macOS** : voir la section suivante pour ce qui est mesuré et ce qui reste
+   à faire sur du matériel (HDR EDR/XDR, ampli HDMI/optique, Mac Intel).
+
+## macOS (Apple silicon)
+
+Section ajoutée le 2026-09-30. Même corpus (`tools/gen-test-media.sh`, dossier
+`test-media/`). Chaque ligne dit comment elle a été vérifiée ; ce qui ne l'a pas
+été est marqué comme tel.
+
+### Poste de test
+
+| | |
+|---|---|
+| OS | macOS 26 (Darwin 25.6), MacBook Air **Apple M1** |
+| Écran | intégré (pas de XDR/mini-LED), aucun écran externe branché |
+| Audio | Haut-parleurs MacBook Air (stéréo, 48 kHz) ; aucun périphérique HDMI, optique ou USB |
+| libmpv | 0.41.0 (Homebrew), la même que celle embarquée dans l'app (`third_party/mpv/macos-arm64`) |
+| App | `pnpm build:mac`, DMG ad hoc, lancée sur ce Mac et sur un second Mac Apple silicon |
+
+### Décodage, conversion locale (mpv 0.41, `vo=gpu-next`, `--hwdec=auto-safe`)
+
+Mesuré avec le binaire `mpv` de Homebrew piloté par IPC (l'exemple
+`oneshot-mpv --example probe` ouvre sa propre fenêtre et échoue sur macOS avec
+« no NSApplication initialized » ; la mesure passe donc par le binaire mpv, dont
+la libmpv est identique). Options d'audio comme le moteur du lecteur : `audio-channels=stereo`.
+
+| Fichier | hwdec observé | Vidéo entrée → cible d'affichage | Audio entrée → sortie (haut-parleurs stéréo) |
+|---|---|---|---|
+| 01 H.264 | **videotoolbox** | bt.709/bt.1886 → idem | stereo → stereo |
+| 02 HEVC10 HDR10 4K | **videotoolbox** | **bt.2020/pq, MaxCLL 1000 → bt.709/gamma2.2** (tone mapping) | 5.1 → stereo (downmix) |
+| 03 HEVC | videotoolbox | SDR | FLAC 7.1 → stereo (downmix) |
+| 04 AV1 10-bit | **aucun (logiciel, dav1d)** : le M1 n'a pas de décodeur AV1 matériel | SDR | FLAC 5.1 → stereo |
+| 05 VP9 | videotoolbox | SDR | DTS 5.1 → stereo |
+| 07 H.264 4K60 | videotoolbox | 60 fps, 0 image perdue sur 4,5 s | AC3 5.1 → stereo |
+
+- **Conversion HDR → SDR : validée.** Même résultat avec les options SDR de
+  l'app (`target-colorspace-hint=no`, `target-trc=auto`…) : cible bt.709/gamma2.2,
+  pic 1.0, contre un contenu PQ de pic 4,93 (≈ 1000 nits). `video-out-params`
+  n'est pas la bonne propriété pour ça (c'est la sortie des filtres) : il faut
+  `video-target-params`.
+- **Downmix 5.1/7.1 → stéréo : validé** pour E-AC3, FLAC, DTS et AC3, sur la vraie
+  sortie CoreAudio.
+- **Sondes cohérentes avec mpv** : VideoToolbox annonce H.264 ✅, HEVC ✅, AV1 ❌,
+  VP9 ❌ sur ce M1, et mpv ne décode effectivement pas l'AV1 en matériel. ⚠️ Pour le
+  VP9, mpv utilise bien `videotoolbox` alors que `VTIsHardwareDecodeSupported`
+  répond faux (décodage VT logiciel d'Apple) : la sonde est conservatrice, le
+  réglage « transcoder sans décodage matériel » verrait donc du VP9 comme non
+  accéléré.
+- Non mesuré ici : Dolby Vision, HDR10 réel (voir plus bas).
+
+### Passthrough (bitstream)
+
+| Périphérique | Sonde (`crates/capabilities/src/macos/audio.rs`) | mpv `--audio-spdif=ac3 --audio-exclusive=yes` |
+|---|---|---|
+| Haut-parleurs MacBook Air | `{}` (aucun format physique compressé) | ❌ `coreaudio_exclusive`: « No usable substream found » — **identique** |
+
+- La sonde reproduit le critère de `ao_coreaudio_exclusive` : un flux dont les
+  formats physiques incluent `ac-3` / `cac3`. Avec un tel flux : {AC3, DTS} ;
+  {AC3, DTS, E-AC3} si un format à 192 kHz (4x) existe. **TrueHD, DTS-HD et
+  Atmos ne sont jamais annoncés** (CoreAudio n'a pas de HBR).
+- Comme sous Windows, quand mpv refuse un format imposé il **ne se replie pas sur
+  le PCM** (il tente même un autre driver) : le garde-fou reste la sonde par
+  périphérique plus le repli à chaud du lecteur.
+- ❌ **Non vérifié, matériel absent** : le cas positif (AVR/TV en HDMI, DAC
+  optique) — la logique est couverte par des tests unitaires (`formats_from_rates`)
+  mais aucune lecture bitstream réelle n'a été faite sur macOS.
+
+### Application (Tauri + WKWebView + `CAOpenGLLayer`)
+
+| Vérification | Statut |
+|---|---|
+| Lancement depuis le DMG ad hoc, libmpv embarquée chargée (entitlements hardened runtime) | ✅ deux Mac Apple silicon |
+| Vidéo sous l'UI, lecture, fenêtre transparente | ✅ à l'œil (utilisateur) |
+| PiP : entrée, sortie et restauration de la fenêtre maximisée | ✅ mesuré (2880×1740 restauré à l'identique) après correctif |
+| Sous-titres, Flick Frame plein écran + intro, profils/PIN, favoris, TMDB/Trousseau, manette, Cmd+C/V | ⚠️ non vérifiés méthodiquement (« tout a l'air de marcher ») |
+| DMG sur un Mac « propre » (Gatekeeper) | 🟡 lancé sur un second Mac ; procédure clic droit › Ouvrir non documentée pas à pas |
+
+### Procédures restantes (macOS)
+
+1. **HDR10 réel** sur un écran EDR/XDR : nécessite un calque géré en couleur
+   (`CAOpenGLLayer` PQ, pixel format flottant), puis retirer la rétrogradation
+   `Active → SupportedButOff` de `crates/capabilities/src/macos/mod.rs`.
+2. **Bitstream** : Mac → HDMI → AVR (ou DAC optique) ; vérifier la sonde dans
+   Réglages › Audio, puis *Audio out* = `spdif-ac3`/`spdif-dts`.
+3. **PCM 5.1/7.1** : régler l'ampli/écran en multicanal (Configuration Audio
+   MIDI) ; le fichier 03 a un ton par canal.
+4. **Mac Intel / universel** : libmpv x86_64, HEVC Main10 non déclaré par la sonde.

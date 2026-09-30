@@ -2,16 +2,20 @@
 //!
 //! Lists the devices that have output streams, with the connection type, the
 //! channel count of the output stream format and the nominal sample rate.
-//! Passthrough is deliberately not probed: CoreAudio has no HBR path (no
-//! TrueHD / DTS-HD / Atmos bitstream, see ARCHITECTURE.md §6) and whether mpv's
-//! S/PDIF output for AC3 / E-AC3 / DTS reaches a given sink has not been
-//! validated, so every device says `NotProbed` rather than promise it.
+//! Passthrough follows what mpv's exclusive CoreAudio output does: it needs a
+//! stream whose *physical* formats include a compressed one (`ac-3` or the
+//! IEC 60958 `cac3`), which macOS only lists when the sink (AVR, TV over HDMI,
+//! optical DAC) reported it. That gives AC3 and DTS core; E-AC3 additionally
+//! needs a 192 kHz (4x) format. CoreAudio has no HBR path, so TrueHD, DTS-HD and
+//! Atmos never bitstream (ARCHITECTURE.md §6). Acceptance is necessary, not
+//! sufficient: the player still detects a refusal at runtime.
 
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::ptr::{NonNull, null};
 
 use objc2_core_audio::{
+    AudioStreamRangedDescription, kAudioDevicePropertyStreams, kAudioStreamPropertyAvailablePhysicalFormats,
     AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectPropertyAddress, kAudioDevicePropertyDeviceUID,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyTransportType,
     kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
@@ -20,9 +24,10 @@ use objc2_core_audio::{
     kAudioHardwarePropertyDevices, kAudioObjectPropertyElementMain, kAudioObjectPropertyName,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeOutput, kAudioObjectSystemObject,
 };
-use objc2_core_audio_types::AudioBufferList;
+use objc2_core_audio_types::{AudioBufferList, kAudioFormat60958AC3, kAudioFormatAC3};
 use objc2_core_foundation::{CFRetained, CFString};
 use oneshot_core::capabilities::{AudioCapabilities, AudioConnection, AudioDevice, PassthroughProbe};
+use oneshot_core::stream::BitstreamFormat;
 
 type Id = u32;
 
@@ -80,6 +85,48 @@ fn output_channels(device: Id) -> u32 {
     }
 }
 
+/// Highest sample rate of each compressed (digital) physical format a stream offers.
+fn digital_rates(stream: Id) -> Vec<f64> {
+    let Some(buf) = get_bytes(stream, address(kAudioStreamPropertyAvailablePhysicalFormats, kAudioObjectPropertyScopeGlobal)) else {
+        return Vec::new();
+    };
+    let size = property_size(stream, address(kAudioStreamPropertyAvailablePhysicalFormats, kAudioObjectPropertyScopeGlobal)).unwrap_or(0);
+    let count = size as usize / size_of::<AudioStreamRangedDescription>();
+    // SAFETY: the property is an array of `count` `AudioStreamRangedDescription` inside `buf`
+    // (a `u64` buffer, so suitably aligned for the 8-byte fields).
+    let formats = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<AudioStreamRangedDescription>(), count) };
+    formats
+        .iter()
+        .filter(|f| f.mFormat.mFormatID == kAudioFormatAC3 || f.mFormat.mFormatID == kAudioFormat60958AC3)
+        .map(|f| f.mSampleRateRange.mMaximum.max(f.mFormat.mSampleRate))
+        .collect()
+}
+
+/// Formats mpv can bitstream, from the sample rates of a device's compressed physical formats.
+fn formats_from_rates(rates: &[f64]) -> Vec<BitstreamFormat> {
+    if rates.is_empty() {
+        return Vec::new();
+    }
+    let mut formats = vec![BitstreamFormat::Ac3, BitstreamFormat::Dts];
+    // E-AC3 rides IEC 61937 at 4x the base rate.
+    if rates.iter().any(|r| *r >= 192_000.0) {
+        formats.push(BitstreamFormat::Eac3);
+    }
+    formats
+}
+
+fn passthrough(device: Id) -> PassthroughProbe {
+    let streams = get_bytes(device, address(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput));
+    let count = property_size(device, address(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput)).unwrap_or(0) as usize / size_of::<Id>();
+    let Some(streams) = streams else {
+        return PassthroughProbe::NotProbed { reason: "the device lists no output stream".into() };
+    };
+    // SAFETY: the property is an array of `count` stream ids inside `streams`.
+    let ids: &[Id] = unsafe { std::slice::from_raw_parts(streams.as_ptr().cast::<Id>(), count) };
+    let rates: Vec<f64> = ids.iter().flat_map(|&s| digital_rates(s)).collect();
+    PassthroughProbe::Probed { formats: formats_from_rates(&rates) }
+}
+
 // CoreAudio's constants keep their C names.
 #[allow(non_upper_case_globals)]
 fn connection(transport: u32) -> AudioConnection {
@@ -111,7 +158,7 @@ fn describe(device: Id) -> Option<AudioDevice> {
         channels: channels.min(u32::from(u8::MAX)) as u8,
         channel_layout: None,
         sample_rate: rate.filter(|r| *r > 0.0).map(|r| r.round() as u32),
-        passthrough: PassthroughProbe::NotProbed { reason: "compressed passthrough is not validated on macOS".into() },
+        passthrough: passthrough(device),
     })
 }
 
@@ -120,23 +167,21 @@ pub fn probe(notes: &mut Vec<String>) -> AudioCapabilities {
         notes.push("CoreAudio device enumeration failed; audio outputs reported as unknown.".into());
         return AudioCapabilities::default();
     };
-    let count = get_len(SYSTEM);
+    let count = property_size(SYSTEM, address(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal)).unwrap_or(0) as usize / size_of::<Id>();
     // SAFETY: the property is an array of `AudioObjectID` (u32) of `count` entries inside `buf`.
     let ids: &[Id] = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<Id>(), count) };
     let devices: Vec<AudioDevice> = ids.iter().filter_map(|&d| describe(d)).collect();
     let default_id = get::<Id>(SYSTEM, address(kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal));
     let default_device = default_id.and_then(|d| get_string(d, address(kAudioDevicePropertyDeviceUID, kAudioObjectPropertyScopeGlobal)));
-    notes.push("Audio outputs probed through CoreAudio; compressed passthrough is not probed on macOS.".into());
+    notes.push("Audio outputs and their compressed formats probed through CoreAudio (no HBR: TrueHD and DTS-HD never bitstream).".into());
     AudioCapabilities { devices, default_device }
 }
 
-/// Number of device ids the system object lists.
-fn get_len(object: Id) -> usize {
-    let mut addr = address(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
+fn property_size(object: Id, mut addr: AudioObjectPropertyAddress) -> Option<u32> {
     let mut size = 0u32;
     // SAFETY: valid address and size pointers.
     let status = unsafe { AudioObjectGetPropertyDataSize(object, NonNull::from(&mut addr), 0, null(), NonNull::from(&mut size)) };
-    if status == 0 { size as usize / size_of::<Id>() } else { 0 }
+    (status == 0).then_some(size)
 }
 
 #[cfg(test)]
@@ -152,6 +197,23 @@ mod tests {
         for d in &caps.devices {
             assert!(d.channels > 0 && d.mpv_name.as_deref().is_some_and(|n| n.starts_with("coreaudio/")), "{d:?}");
         }
+    }
+
+    #[test]
+    fn no_digital_format_means_no_bitstream() {
+        assert!(formats_from_rates(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_digital_format_gives_ac3_and_dts() {
+        assert_eq!(formats_from_rates(&[48_000.0, 96_000.0]), vec![BitstreamFormat::Ac3, BitstreamFormat::Dts]);
+    }
+
+    #[test]
+    fn a_192khz_digital_format_adds_eac3_but_never_hbr_codecs() {
+        let formats = formats_from_rates(&[48_000.0, 192_000.0]);
+        assert!(formats.contains(&BitstreamFormat::Eac3));
+        assert!(!formats.contains(&BitstreamFormat::TrueHd) && !formats.contains(&BitstreamFormat::DtsHd));
     }
 
     #[test]
