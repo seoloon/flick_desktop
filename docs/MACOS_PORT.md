@@ -191,17 +191,11 @@ tout premier test à faire, voir « Ce qui reste ».
    `ensure_engine` avec `DedicatedWindow` — un vrai changement d'architecture,
    volontairement laissé de côté lors de la revue finale plutôt que précipité
    dans la dernière vague de correctifs.
-4. **Décalage d'identifiant d'écran pour le HDR multi-écrans** :
-   `crates/capabilities/src/macos/mod.rs::screens()` identifie les écrans par
-   `nsscreen-{i}`, mais `app/src/commands/playback.rs` cherche l'écran de la
-   fenêtre via `current_monitor().name()` (un identifiant différent sous
-   macOS, via `tao`) — ces identifiants ne se correspondent jamais, donc
-   `session.rs` retombe toujours sur `primary_display()` au lieu de l'écran
-   réel de la fenêtre vidéo. Sans fixer ça, un test HDR sur une machine à
-   plusieurs écrans (point 3 de la validation, §5) ne testera rien de réel
-   dès que le point précédent sera réactivé. Fixer en alignant sur le
-   `CGDirectDisplayID` (via `deviceDescription["NSScreenNumber"]`), des deux
-   côtés.
+4. ~~Décalage d'identifiant d'écran pour le HDR multi-écrans~~ **corrigé** :
+   `screens()` identifie maintenant les écrans comme `tao` (`Monitor #<numéro de
+   modèle CGDisplay>`, via `NSScreenNumber`), ce qui est ce que
+   `current_display` renvoie. Limite : deux écrans du même modèle partagent
+   l'identifiant (`tao` ne fait pas mieux).
 5. **HDR10 réel sur un écran EDR/XDR** : une fois qu'un vrai calque géré en
    couleur existe (espace colorimétrique PQ posé sur le `CAOpenGLLayer`,
    pixel format flottant), retirer la rétrogradation `Active → SupportedButOff`

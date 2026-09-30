@@ -22,6 +22,24 @@ pub(crate) fn hdr_state_from_edr_headroom(headroom: f64) -> HdrState {
     }
 }
 
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGDisplayModelNumber(display: u32) -> u32;
+}
+
+/// The id `tao` gives a monitor (`MonitorHandle::name`), so that
+/// `commands::playback::current_display` finds the window's screen in the
+/// capability report. `NSScreenNumber` is the screen's `CGDirectDisplayID`.
+fn screen_id(screen: &objc2_app_kit::NSScreen) -> Option<String> {
+    use objc2_foundation::{NSNumber, NSString};
+
+    let description = screen.deviceDescription();
+    let number = description.objectForKey(&NSString::from_str("NSScreenNumber"))?;
+    let display_id = number.downcast::<NSNumber>().ok()?.unsignedIntValue();
+    // SAFETY: plain CoreGraphics getter taking a display id; unknown ids yield 0.
+    Some(format!("Monitor #{}", unsafe { CGDisplayModelNumber(display_id) }))
+}
+
 pub fn probe(notes: &mut Vec<String>) -> (Vec<DisplayCapabilities>, AudioCapabilities, VideoCapabilities) {
     notes.push("macOS audio/decoder probing is not implemented yet (sub-project 4.3); reported as unknown.".into());
     let mut displays = screens();
@@ -60,7 +78,7 @@ fn screens() -> Vec<DisplayCapabilities> {
             let frame = screen.frame();
             let headroom = screen.maximumPotentialExtendedDynamicRangeColorComponentValue();
             DisplayCapabilities {
-                id: format!("nsscreen-{i}"),
+                id: screen_id(&screen).unwrap_or_else(|| format!("nsscreen-{i}")),
                 name: screen.localizedName().to_string(),
                 is_primary: i == 0,
                 width: frame.size.width as u32,
@@ -94,5 +112,13 @@ mod tests {
     #[test]
     fn headroom_at_one_means_supported_but_off() {
         assert_eq!(hdr_state_from_edr_headroom(1.0), HdrState::SupportedButOff);
+    }
+
+    #[test]
+    fn screens_use_the_monitor_ids_tao_reports() {
+        // Headless CI has no screens; on a real Mac every id must be `Monitor #n`.
+        for screen in screens() {
+            assert!(screen.id.starts_with("Monitor #"), "unexpected id {:?}", screen.id);
+        }
     }
 }
