@@ -14,3 +14,7 @@ FFmpeg components) can be shipped as well as an LGPL one.
 
 The runtime search order is: `ONESHOT_LIBMPV` env var → the app resource dir →
 this folder (debug builds only) → system library path.
+
+On macOS the app is signed ad hoc with the hardened runtime, so the bundled
+dylibs only load thanks to the entitlements in `app/entitlements.macos.plist`
+(library validation off; JIT allowed for libmpv's built-in LuaJIT scripts).

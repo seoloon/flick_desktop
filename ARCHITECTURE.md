@@ -30,7 +30,7 @@ le fait. Le problème est d'obtenir *simultanément* :
 | Moteur média (demux, décodage, A/V sync, audio, sous-titres, tone mapping) | **libmpv** (≥ 0.41, `vo=gpu-next` / libplacebo), chargée dynamiquement | ✅ Windows |
 | Présentation vidéo sous l'UI | **Stratégie par OS** derrière un trait `VideoPresenter` — pas une seule technique | voir §4 |
 | Windows | Swapchain mpv en mode **composition** insérée dans un arbre **DirectComposition** *derrière* la WebView2 transparente ; repli fenêtre enfant (`--wid`) | ✅ testé |
-| macOS | API de rendu libmpv (OpenGL) dans un `CAOpenGLLayer` EDR placé sous la `WKWebView` | 🟡 conçu |
+| macOS | API de rendu libmpv (OpenGL) dans un `CAOpenGLLayer` EDR placé sous la `WKWebView` | ✅ SDR validé sur Mac ; 🟡 HDR à faire |
 | Linux X11 | Fenêtre mpv dédiée plein écran + contrôles natifs (OSD mpv) ; `--wid` ne permet pas de mélange alpha avec WebKitGTK | 🟡 conçu |
 | Linux Wayland | Fenêtre mpv dédiée (HDR via `wp-color-management-v1`) + OSD natif | 🟡 conçu |
 | Décision de lecture | `PlaybackDecisionEngine` pur, déterministe, testé (25 scénarios), explicable | ✅ |
@@ -203,7 +203,7 @@ Conséquences :
 |---|---|---|---|---|
 | `Composition` | mpv `--d3d11-output-mode=composition` → `display-swapchain` → `IDCompositionVisual` sur la fenêtre Tauri, cible `topmost=false` (derrière la WebView2) | Windows | Mélange alpha parfait, HDR via DWM, géométrie contrôlée par nous | ✅ validé |
 | `ChildWindow` | mpv `--wid=<HWND Tauri>` : HWND enfant sous la WebView2 | Windows (repli si mpv < 0.41) | Mélange alpha correct, moins de contrôle | ✅ validé |
-| `LayerRender` | API de rendu libmpv (OpenGL) → `CAOpenGLLayer` (EDR, espace PQ) sous la `WKWebView` | macOS | HDR/EDR possible (approche IINA) ; OpenGL déprécié mais fonctionnel | 🟡 |
+| `LayerRender` | API de rendu libmpv (OpenGL) → `CAOpenGLLayer` (EDR, espace PQ) sous la `WKWebView` | macOS | HDR/EDR possible (approche IINA) ; OpenGL déprécié mais fonctionnel | ✅ SDR ; 🟡 HDR (calque géré en couleur à faire) |
 | `DedicatedWindow` | Fenêtre plein écran possédée par mpv ; contrôles rendus par l'OSD mpv (`osd-overlay`) pilotés depuis Rust | Linux (X11/Wayland), repli universel | HDR Wayland ✅ (mpv 0.40+), UI du lecteur plus simple | 🟡 |
 
 **Pourquoi pas `--wid` partout ?** `--wid` n'existe que pour X11, Win32 et
@@ -339,7 +339,7 @@ MediaItem ─► provider.playback_info(profil client) ─► CapabilityManager.
 | `oneshot-core` | Types de domaine, capacités, contrats (`MediaProvider`), erreurs | Zéro I/O, compilé partout, source unique des types (exportés en TS) |
 | `oneshot-mpv` | FFI libmpv chargée dynamiquement, `Node`, événements | `unsafe` confiné ; démarrage possible et diagnostic clair sans libmpv |
 | `oneshot-net` | Politique HTTP commune (timeouts, proxy, TLS, masquage des tokens dans les logs, erreurs) | Même comportement réseau pour providers et cache d'images |
-| `oneshot-capabilities` | Sondes OS (Windows complet ; macOS/Linux « inconnu » honnête) | Code `windows`/`objc2` isolé par OS |
+| `oneshot-capabilities` | Sondes OS (Windows complet ; macOS : écrans/EDR, CoreAudio, VideoToolbox, passthrough non sondé ; Linux « inconnu » honnête) | Code `windows`/`objc2` isolé par OS |
 | `oneshot-playback` | `PlaybackDecisionEngine`, `ClientProfile` | Pur et déterministe → testable exhaustivement sans OS ni serveur |
 | `oneshot-player` | Session de lecture, options mpv, présentation, repli audio, progression | Seul crate qui parle à mpv et à la fenêtre |
 | `oneshot-storage` | Réglages, profils (`profiles.json`, regroupement, PIN), cache métadonnées (SQLite), cache images, secrets (keyring) | Persistance et secrets hors de la logique |
@@ -602,7 +602,7 @@ les vérifier.
 | 3. Plex | ✅ PIN plex.tv, découverte + classement des connexions, hubs, décision MDE, part directe, timeline, marqueurs, admin — testé sur PMS 1.43 (PIN non testable sans compte) |
 | 4. Modèle unifié | ✅ `oneshot-core` |
 | 5. UI bibliothèque | ✅ Home, bibliothèques (grille virtualisée), détail, recherche |
-| 6. Moteur natif | ✅ Windows (composition + fenêtre enfant) ; 🟡 macOS/Linux conçus, non implémentés |
+| 6. Moteur natif | ✅ Windows (composition + fenêtre enfant) ; ✅ macOS SDR (`CAOpenGLLayer`) ; 🟡 Linux conçu, non implémenté |
 | 7. HDR / audio / hwdec / Direct Play | ✅ Windows : sondes, décision, réconciliation ; 🟡 passthrough HDR et HBR à valider sur matériel |
 | 8. Lecteur premium | ✅ timeline interpolée, pistes, skip intro, épisode suivant, panneau technique |
 | 9. Multi-serveurs | ✅ agrégation, fusion par IDs externes, délai par serveur |
@@ -611,9 +611,10 @@ les vérifier.
 | 12. Admin | ✅ selon les droits |
 | 13. Perf / cache | ✅ cache SQLite TTL, cache images LRU, virtualisation ; 🟡 préchargement intelligent à faire |
 
-**Non fait / à faire** (honnêtement) : présentateurs macOS (`LayerRender`) et
-Linux (`DedicatedWindow` + OSD natif) ; sondes de capacités macOS/Linux
-(actuellement « inconnu », donc décisions conservatrices) ; téléchargements
+**Non fait / à faire** (honnêtement) : HDR réel sur macOS (calque géré en couleur), repli
+`DedicatedWindow` si le rendu OpenGL échoue, universel/Intel ; présentateur Linux
+(`DedicatedWindow` + OSD natif) et sondes de capacités Linux (« inconnu », donc
+décisions conservatrices) ; téléchargements
 hors-ligne ; changement automatique de fréquence d'écran ; profils Plex Home
 (changement d'utilisateur) ; Live TV ; packaging/signature des installeurs.
 

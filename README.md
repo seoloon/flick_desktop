@@ -96,7 +96,7 @@ title of theirs across all your servers, and what else they are known for.
 | Platform | Status |
 |---|---|
 | **Windows 10 / 11** (x64) | ✅ Available |
-| **macOS** (Apple Silicon) | 🚧 In progress: [the plan](docs/MACOS_PORT.md) |
+| **macOS** (Apple Silicon) | 🚧 Working (SDR playback, Apple silicon only): [status and plan](docs/MACOS_PORT.md) |
 | **Linux** | 🗺️ Designed, not started |
 
 ## Build it yourself
