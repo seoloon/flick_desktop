@@ -247,6 +247,8 @@ fn main() {
             commands::profiles::profile_update,
             commands::profiles::profile_set_pin,
             commands::profiles::profile_detach,
+            commands::profiles::profile_merge,
+            commands::profiles::profile_unmerge,
             commands::profiles::profile_delete,
             commands::catalog::home,
             commands::catalog::libraries,

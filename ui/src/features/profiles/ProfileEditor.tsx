@@ -52,6 +52,7 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
   const [leaveAfter, setLeaveAfter] = useState(false);
   // A new profile already created, so a retried save never creates it twice.
   const [created, setCreated] = useState<ProfileId | null>(null);
+  const [merging, setMerging] = useState(false);
   const [ownerRetry, setOwnerRetry] = useState<((pin: string) => Promise<PinResult>) | null>(null);
 
   useEffect(() => {
@@ -62,6 +63,7 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
     setAvatarTouched(false);
     setCreated(null);
     setOwnerRetry(null);
+    setMerging(false);
     if (card) {
       setName(card.name);
       setColor(card.color);
@@ -174,6 +176,42 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
     }
   };
 
+  /** Folds this profile into `into` (same person under another name). */
+  const merge = async (into: ProfileCard, intoPin: string | null = null): Promise<PinResult> => {
+    if (!card) return "wrong";
+    try {
+      await api.profileMerge(card.id, into.id, unlock, intoPin);
+    } catch (e) {
+      const p = pinError(e);
+      if (p) return p;
+      fail(e);
+      return "ok";
+    }
+    setOwnerRetry(null);
+    await refresh();
+    toast.success(`${card.name} merged into ${into.name}`);
+    onClose();
+    return "ok";
+  };
+
+  const unmerge = async () => {
+    if (!card) return;
+    try {
+      await api.profileUnmerge(card.id, unlock);
+      await refresh();
+      toast.success("Merge undone");
+      onClose();
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const pickMergeTarget = (into: ProfileCard) => {
+    if (!into.locked) return void merge(into);
+    setMerging(false);
+    setOwnerRetry(() => (typed: string) => merge(into, typed));
+  };
+
   const onUnlock = async (pin: string): Promise<PinResult> => {
     if (!card) return "wrong";
     try {
@@ -235,6 +273,22 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
             if (created) void refresh();
           }}
         />
+      ) : merging && card ? (
+        <>
+          <Notice>Choose the profile that {card.name} is also. Their accounts are joined under that profile; you can undo it from its sheet.</Notice>
+          <FocusGroup className="flex flex-col gap-2" autoFocus>
+            {state.profiles
+              .filter((p) => p.id !== card.id)
+              .map((p) => (
+                <Button key={p.id} className="justify-start" onClick={() => pickMergeTarget(p)}>
+                  {p.name}
+                </Button>
+              ))}
+          </FocusGroup>
+          <Button variant="ghost" onClick={() => setMerging(false)}>
+            Cancel
+          </Button>
+        </>
       ) : pinStep ? (
         <PinPad key={pinStep.stage} title={pinStep.stage === "new" ? "Choose a PIN" : "Confirm the PIN"} hint="4 digits." onSubmit={onNewPin} onCancel={() => setPinStep(null)} />
       ) : orphans.length ? (
@@ -339,6 +393,10 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
                 Preferences
               </Button>
             )}
+            {card && derived && state.profiles.length > 1 && (
+              <Button onClick={() => setMerging(true)}>Merge with…</Button>
+            )}
+            {card?.merged && <Button onClick={() => void unmerge()}>Undo merge</Button>}
             {card && derived && (
               <Button variant="ghost" onClick={() => void setHidden(!card.hidden)}>
                 {card.hidden ? "Show" : "Hide"}

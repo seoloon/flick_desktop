@@ -10,4 +10,8 @@ avatarKey: string | null,
 /**
  * Protected by a Flick PIN.
  */
-locked: boolean, hidden: boolean, accounts: Array<ProfileAccount>, };
+locked: boolean, hidden: boolean, 
+/**
+ * Other people were merged into this one by hand (can be undone).
+ */
+merged: boolean, accounts: Array<ProfileAccount>, };

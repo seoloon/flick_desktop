@@ -72,6 +72,8 @@ export const api = {
   profileUpdate: (id: ProfileId, edit: ProfileEdit, pin: string | null, ownerPin: string | null) => call<void>("profile_update", { id, edit, pin, ownerPin }),
   profileSetPin: (id: ProfileId, current: string | null, next: string | null) => call<void>("profile_set_pin", { id, current, next }),
   profileDetach: (id: ProfileId, connection: ServerId, pin: string | null) => call<void>("profile_detach", { id, connection, pin }),
+  profileMerge: (from: ProfileId, into: ProfileId, pin: string | null, intoPin: string | null) => call<void>("profile_merge", { from, into, pin, intoPin }),
+  profileUnmerge: (id: ProfileId, pin: string | null) => call<void>("profile_unmerge", { id, pin }),
   profileDelete: (id: ProfileId, pin: string | null) => call<ServerId[]>("profile_delete", { id, pin }),
 
   // servers

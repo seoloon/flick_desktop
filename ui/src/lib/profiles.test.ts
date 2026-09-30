@@ -26,7 +26,7 @@ const account = (over: Partial<ProfileAccount> = {}): ProfileAccount => ({
   plexPin: false,
   ...over,
 });
-const card = (over: Partial<ProfileCard> = {}): ProfileCard => ({ id: "p1", name: "Antoine", color: "#5e8bff", avatarKey: null, locked: false, hidden: false, accounts: [account()], ...over });
+const card = (over: Partial<ProfileCard> = {}): ProfileCard => ({ id: "p1", name: "Antoine", color: "#5e8bff", avatarKey: null, locked: false, hidden: false, merged: false, accounts: [account()], ...over });
 
 describe("profile helpers", () => {
   it("makes initials from one or two words", () => {

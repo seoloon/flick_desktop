@@ -94,6 +94,9 @@ pub struct Profile {
     pub hidden: bool,
     /// Mode B: connections taken out of this group (they form their own).
     pub detached: Vec<ServerId>,
+    /// Mode B: group keys of other people folded into this one by hand
+    /// (same person, different names). Empty = nothing merged.
+    pub merged: Vec<String>,
 }
 
 impl Default for Profile {
@@ -115,6 +118,7 @@ impl Profile {
             origin,
             hidden: false,
             detached: Vec::new(),
+            merged: Vec::new(),
         }
     }
 }
@@ -206,6 +210,8 @@ pub struct ProfileCard {
     /// Protected by a Flick PIN.
     pub locked: bool,
     pub hidden: bool,
+    /// Other people were merged into this one by hand (can be undone).
+    pub merged: bool,
     pub accounts: Vec<ProfileAccount>,
 }
 

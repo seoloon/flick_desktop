@@ -384,6 +384,62 @@ pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: O
     Ok(())
 }
 
+/// Mode B: folds `from` into `into` (same person under two names). Both need
+/// their PIN if they have one. `from` disappears from the picker; its
+/// settings and PIN are kept for `profile_unmerge`.
+#[tauri::command(async)]
+pub fn profile_merge(state: St<'_>, from: ProfileId, into: ProfileId, pin: Option<String>, into_pin: Option<String>) -> Result<()> {
+    if from == into {
+        return Err(Error::Invalid("a profile cannot be merged with itself".into()));
+    }
+    state.check_pin(from, pin.as_deref())?;
+    state.check_pin(into, into_pin.as_deref())?;
+    {
+        let mut cfg = state.profiles.write();
+        let key_of = |cfg: &oneshot_core::profile::ProfilesConfig, id: ProfileId| {
+            cfg.profiles.iter().find(|p| p.id == id).and_then(|p| match &p.origin {
+                Origin::Derived { key } => Some(key.clone()),
+                Origin::Manual => None,
+            })
+        };
+        let (Some(from_key), Some(_)) = (key_of(&cfg, from), key_of(&cfg, into)) else {
+            return Err(Error::Invalid("only profiles made from server users can be merged".into()));
+        };
+        // Everything folded into `from` moves along, so merging stays transitive.
+        let mut folded = cfg.profiles.iter_mut().find(|p| p.id == from).map(|p| std::mem::take(&mut p.merged)).unwrap_or_default();
+        folded.push(from_key);
+        if let Some(target) = cfg.profiles.iter_mut().find(|p| p.id == into) {
+            for k in folded {
+                if !target.merged.contains(&k) {
+                    target.merged.push(k);
+                }
+            }
+        }
+        if cfg.last_profile == Some(from) {
+            cfg.last_profile = Some(into);
+        }
+        state.store.save_profiles(&cfg)?;
+    }
+    if *state.active_profile.read() == Some(from) {
+        *state.active_profile.write() = Some(into);
+    }
+    if *state.active_profile.read() == Some(into) {
+        state.restore_servers();
+    }
+    Ok(())
+}
+
+/// Undoes every manual merge into `id`: the folded people come back as their own profiles.
+#[tauri::command(async)]
+pub fn profile_unmerge(state: St<'_>, id: ProfileId, pin: Option<String>) -> Result<()> {
+    state.check_pin(id, pin.as_deref())?;
+    state.update_profile(id, |p| p.merged.clear())?;
+    if *state.active_profile.read() == Some(id) {
+        state.restore_servers();
+    }
+    Ok(())
+}
+
 #[tauri::command(async)]
 pub fn profile_delete(state: St<'_>, id: ProfileId, pin: Option<String>) -> Result<Vec<ServerId>> {
     state.check_pin(id, pin.as_deref())?;

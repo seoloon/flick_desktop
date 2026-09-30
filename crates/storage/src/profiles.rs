@@ -85,6 +85,20 @@ pub fn resolve(config: &mut ProfilesConfig, servers: &[ServerDescriptor], defaul
 
 fn derive(config: &mut ProfilesConfig, servers: &[ServerDescriptor], defaults: &dyn Fn() -> PersonalSettings) -> Vec<Resolved> {
     let detached: HashSet<ServerId> = config.profiles.iter().flat_map(|p| p.detached.iter().copied()).collect();
+    // Hand-made merges: every folded key stands for the profile it was folded into.
+    let alias: std::collections::HashMap<String, String> = config
+        .profiles
+        .iter()
+        .filter_map(|p| match &p.origin {
+            Origin::Derived { key } => Some(p.merged.iter().map(move |m| (m.clone(), key.clone()))),
+            Origin::Manual => None,
+        })
+        .flatten()
+        .collect();
+    let group_key = |name: &str| {
+        let key = normalize_name(name);
+        alias.get(&key).cloned().unwrap_or(key)
+    };
     // (key, display name, accounts), in order of first appearance.
     let mut groups: Vec<(String, String, Vec<ResolvedAccount>)> = Vec::new();
     let mut add = |key: String, name: &str, account: ResolvedAccount| match groups.iter_mut().find(|g| g.0 == key) {
@@ -92,7 +106,7 @@ fn derive(config: &mut ProfilesConfig, servers: &[ServerDescriptor], defaults: &
         None => groups.push((key, name.to_owned(), vec![account])),
     };
     for d in servers {
-        let key = if detached.contains(&d.id) { format!("detached:{}", d.id) } else { normalize_name(&d.user.name) };
+        let key = if detached.contains(&d.id) { format!("detached:{}", d.id) } else { group_key(&d.user.name) };
         add(key, &d.user.name, connected(d, servers, &config.discovered));
     }
     for u in &config.discovered {
@@ -109,7 +123,7 @@ fn derive(config: &mut ProfilesConfig, servers: &[ServerDescriptor], defaults: &
             connection: None,
             discovered: Some(u.clone()),
         };
-        add(normalize_name(&u.name), &u.name, account);
+        add(group_key(&u.name), &u.name, account);
     }
     groups
         .into_iter()
@@ -148,6 +162,7 @@ pub fn card(r: &Resolved, offline: &HashSet<ServerId>) -> ProfileCard {
         avatar_key: avatar_of(r).map(|u| avatar_cache_key(&u)[..12].to_owned()),
         locked: r.profile.pin.is_some(),
         hidden: r.profile.hidden,
+        merged: !r.profile.merged.is_empty(),
         accounts: r
             .accounts
             .iter()
@@ -319,6 +334,27 @@ mod tests {
         let r = resolve(&mut cfg, &[me.clone(), kid.clone()], &defaults);
         let mine = r.iter().find(|p| p.profile.name == "Antoine").unwrap();
         assert_eq!(connections_of(mine), vec![me.id]);
+    }
+
+    #[test]
+    fn merged_names_form_one_profile_until_unmerged() {
+        let a = conn(ProviderKind::Jellyfin, "jf", "j1", "Antoine");
+        let b = conn(ProviderKind::Plex, "px", "11", "Toto");
+        let mut cfg = ProfilesConfig::default();
+        let before = resolve(&mut cfg, &[a.clone(), b.clone()], &defaults);
+        assert_eq!(before.len(), 2);
+        let toto = before.iter().find(|r| r.profile.name == "Toto").unwrap().profile.id;
+        let mine = cfg.profiles.iter_mut().find(|p| p.name == "Antoine").unwrap();
+        mine.merged.push("toto".into());
+        let after = resolve(&mut cfg, &[a.clone(), b.clone()], &defaults);
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].profile.name, "Antoine");
+        assert_eq!(connections_of(&after[0]), vec![a.id, b.id]);
+        assert!(card(&after[0], &HashSet::new()).merged);
+        cfg.profiles.iter_mut().for_each(|p| p.merged.clear());
+        let split = resolve(&mut cfg, &[a, b], &defaults);
+        assert_eq!(split.len(), 2);
+        assert!(split.iter().any(|r| r.profile.id == toto), "the folded profile comes back as it was");
     }
 
     #[test]
