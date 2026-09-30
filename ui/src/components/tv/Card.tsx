@@ -73,7 +73,7 @@ export function MediaCard({ item, shape, focusKey, fluid, onSelect }: CardProps)
   const sry = useSpring(ry, { stiffness: 300, damping: 26, mass: 0.5 });
   const lx = useSpring(30, { stiffness: 200, damping: 30 });
   const ly = useSpring(0, { stiffness: 200, damping: 30 });
-  const sheen = useMotionTemplate`radial-gradient(90% 70% at ${lx}% ${ly}%, rgb(255 255 255 / 0.26), rgb(255 255 255 / 0.06) 45%, transparent 70%)`;
+  const sheen = useMotionTemplate`radial-gradient(90% 70% at ${lx}% ${ly}%, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.02) 45%, transparent 70%)`;
 
   const onMove = (e: PointerEvent<HTMLButtonElement>) => {
     const r = e.currentTarget.getBoundingClientRect();

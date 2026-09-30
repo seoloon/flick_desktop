@@ -62,7 +62,7 @@ export function ProfileTile({ card, index, dimmed, onSelect, onEdit, onFocused, 
         <span
           aria-hidden
           className={cn("pointer-events-none absolute inset-0 rounded-full transition-opacity duration-300", lifted ? "opacity-100" : "opacity-0")}
-          style={{ background: `radial-gradient(60% 60% at ${sheen.x}% ${sheen.y}%, rgb(255 255 255 / 0.28), transparent 70%)` }}
+          style={{ background: `radial-gradient(60% 60% at ${sheen.x}% ${sheen.y}%, rgb(255 255 255 / 0.10), transparent 70%)` }}
         />
         <span aria-hidden className={cn("pointer-events-none absolute -inset-1 rounded-full ring-white transition-[box-shadow] duration-200", tv.showFocus ? "ring-4" : "ring-0")} />
         {overlay}
