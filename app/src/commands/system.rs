@@ -135,10 +135,17 @@ pub fn window_pip(window: WebviewWindow, state: St<'_>, enter: bool) -> Result<(
     } else if let Some(r) = saved.take() {
         window.set_always_on_top(false).map_err(err)?;
         window.set_min_size(Some(LogicalSize::new(MIN_WIDTH, MIN_HEIGHT))).map_err(err)?;
-        window.set_size(r.size).map_err(err)?;
-        window.set_position(r.position).map_err(err)?;
-        if r.maximized {
+        if cfg!(target_os = "macos") && r.maximized {
+            // Zoom straight from the small window: setting the old size first leaves
+            // the window a few points short of the zoomed frame, and macOS then
+            // ignores the zoom (the window came back smaller, in the PiP corner).
             window.maximize().map_err(err)?;
+        } else {
+            window.set_size(r.size).map_err(err)?;
+            window.set_position(r.position).map_err(err)?;
+            if r.maximized {
+                window.maximize().map_err(err)?;
+            }
         }
         if r.fullscreen {
             window.set_fullscreen(true).map_err(err)?;
