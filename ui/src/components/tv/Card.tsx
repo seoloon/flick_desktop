@@ -13,6 +13,7 @@ import type { ImageRef } from "@/ipc/bindings/ImageRef";
 import type { ImageSize } from "@/ipc/bindings/ImageSize";
 import { ambientFor } from "@/lib/ambient";
 import { episodeLabel, progress } from "@/lib/format";
+import { openItemMenu, useOverridden } from "@/lib/itemMenu";
 import { focusSpring } from "@/lib/motion";
 import { useSources } from "@/lib/servers";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,8 @@ type CardProps = {
   onSelect?: (item: MediaItem) => void;
 };
 
-export function MediaCard({ item, shape, focusKey, fluid, onSelect }: CardProps) {
+export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: CardProps) {
+  const item = useOverridden(listed);
   const navigate = useNavigate();
   const { pathname, search, state } = useLocation();
   const tv = useTv<HTMLButtonElement>({ focusKey, onFocused: () => ambientFor(item) });
@@ -106,6 +108,13 @@ export function MediaCard({ item, shape, focusKey, fluid, onSelect }: CardProps)
       type="button"
       {...tv.props}
       onClick={open}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        // From the keyboard (Shift+F10) the event has no cursor position: open on the card.
+        const r = e.currentTarget.getBoundingClientRect();
+        const keyboard = e.clientX === 0 && e.clientY === 0;
+        openItemMenu(item, keyboard ? r.left + r.width / 2 : e.clientX, keyboard ? r.top + r.height / 2 : e.clientY);
+      }}
       onPointerEnter={() => {
         setHover(true);
         ambientFor(item);

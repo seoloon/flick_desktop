@@ -1,6 +1,6 @@
 // Title page: the artwork fills the top, the actions sit on it, then seasons
 // or children, cast, technical details and similar titles.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Heart, Play, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
@@ -20,6 +20,7 @@ import type { ItemRef } from "@/ipc/bindings/ItemRef";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { imageUrl } from "@/ipc/images";
 import { ambientFor } from "@/lib/ambient";
+import { setItemFlag, useOverridden } from "@/lib/itemMenu";
 import { audioCodecLabel, badges, bitrate, channelsLabel, remaining, resolutionLabel, videoCodecLabel } from "@/lib/format";
 import { enter, focusSpring } from "@/lib/motion";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
@@ -32,32 +33,19 @@ export function Detail() {
   const { id: raw = "" } = useParams();
   const id = decodeURIComponent(raw);
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   // Instant paint from cache, then the fresh server copy.
   const cached = useQuery({ queryKey: ["item-cached", id], queryFn: () => api.itemCached(id) });
   const fresh = useQuery({ queryKey: ["item", id], queryFn: () => api.item(id) });
   const similar = useQuery({ queryKey: ["similar", id], queryFn: () => api.similar(id).catch(() => []) });
-  const item = fresh.data ?? cached.data ?? undefined;
+  const loaded = fresh.data ?? cached.data ?? undefined;
+  const item = useOverridden(loaded);
   // The server that plays (the item's own reference) first, then copies elsewhere.
   const sources = useSources(item ? [item.id, ...(item.alternates ?? [])] : []);
 
   useEffect(() => ambientFor(item), [item]);
 
-  const toggle = async (what: "played" | "favorite") => {
-    if (!item) return;
-    try {
-      const next: MediaItem =
-        what === "played"
-          ? { ...item, user: { ...item.user, played: !item.user.played, positionMs: 0 } }
-          : { ...item, user: { ...item.user, favorite: !item.user.favorite } };
-      if (what === "played") await api.setPlayed(item.id, !item.user.played);
-      else await api.setFavorite(item.id, !item.user.favorite);
-      queryClient.setQueryData(["item", id], next);
-      void queryClient.invalidateQueries({ queryKey: ["home"] });
-      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
-    } catch (e) {
-      toast.error(asError(e).message);
-    }
+  const toggle = (what: "played" | "favorite") => {
+    if (item) void setItemFlag(item, what).catch((e) => toast.error(asError(e).message));
   };
 
   if (!item) {
@@ -119,8 +107,8 @@ export function Detail() {
                 {resuming && <Button size="lg" icon={RotateCcw} label="Start over" onClick={() => navigate(playPath(item.id, 0))}>Start Over</Button>}
               </>
             )}
-            <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => void toggle("played")} />
-            <Button size="icon-lg" icon={Heart} iconFilled={item.user.favorite} label={item.user.favorite ? "Remove from favourites" : "Add to favourites"} onClick={() => void toggle("favorite")} />
+            <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => toggle("played")} />
+            <Button size="icon-lg" icon={Heart} iconFilled={item.user.favorite} label={item.user.favorite ? "Remove from favourites" : "Add to favourites"} onClick={() => toggle("favorite")} />
           </FocusGroup>
           {item.overview && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...enter, delay: 0.1 }} className="line-clamp-4 max-w-2xl text-[1.0625rem] leading-relaxed text-white/80 text-pretty">{item.overview}</motion.p>}
         </motion.div>

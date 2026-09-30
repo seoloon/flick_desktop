@@ -8,6 +8,7 @@ import type { ProfileAccount } from "@/ipc/bindings/ProfileAccount";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
 import type { ProfileId } from "@/ipc/bindings/ProfileId";
 import { ambientReset } from "@/lib/ambient";
+import { resetItemOverrides } from "@/lib/itemMenu";
 import { loadSettings } from "@/lib/settings";
 import { queryClient } from "./queryClient";
 
@@ -34,6 +35,7 @@ export async function switchProfile(id: ProfileId, opts: { pin?: string; plexPin
     const [outcome] = await Promise.all([api.profileSwitch(id, opts.pin ?? null, opts.plexPin ?? null), wait(LEAVE_MS)]);
     // Never show one frame of the previous profile's data.
     queryClient.clear();
+    resetItemOverrides();
     ambientReset();
     // The new profile list first: the sidebar's avatar row must exist when
     // the chosen avatar lands, so it flies there directly.

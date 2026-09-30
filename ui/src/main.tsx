@@ -10,6 +10,12 @@ import { isMac } from "./shell/TitleBar";
 
 async function boot() {
   if (isMac) document.documentElement.dataset.platform = "mac";
+  // The browser's right-click menu means nothing in an app: keep it for text
+  // fields (copy/paste) and in dev (Inspect); media opens its own menu.
+  window.addEventListener("contextmenu", (e) => {
+    if (import.meta.env.DEV || (e.target as Element | null)?.closest?.("input, textarea, [contenteditable='true']")) return;
+    e.preventDefault();
+  });
   installSpatialNavigation();
   installKeyboard();
   const s = await loadSettings().catch((e) => {

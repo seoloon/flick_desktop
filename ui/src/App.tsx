@@ -2,6 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { LayoutGroup, MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router";
+import { ItemMenu } from "@/components/tv/ItemMenu";
 import { Toaster } from "@/components/ui/sonner";
 import { Admin } from "@/features/admin/Admin";
 import { Debug } from "@/features/debug/Debug";
@@ -58,6 +59,7 @@ export function App() {
       <MotionConfig reducedMotion={intensity === 0 ? "always" : "user"}>
         <BrowserRouter>
           <GlobalActions />
+          <ItemMenu />
           <ProfileGate />
           <UpdatePrompt launchReady={shown >= 0} />
           {/* One layout group: a profile's avatar flies from the picker to the sidebar. */}
