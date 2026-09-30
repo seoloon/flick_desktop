@@ -211,6 +211,14 @@ fn main() {
     let diag = Diagnostics::default();
     let log_reload = init_tracing(&diag);
     tauri::Builder::default()
+        // First plugin, as the docs require: a second launch brings the running window forward instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::updates::Updates::default())
