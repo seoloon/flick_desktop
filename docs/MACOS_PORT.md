@@ -251,8 +251,14 @@ par conception). Le résultat HDR est actuellement toujours rétrogradé en
 
 **Vidéo : fait** (`crates/capabilities/src/macos/video.rs`,
 `VTIsHardwareDecodeSupported` par codec : H.264, HEVC, AV1, VP9 ; HEVC Main10
-supposé sur Apple silicon, non déclaré sur Intel). L'audio reste non sondé
-(`AudioCapabilities::default()`, avec une note explicative pour rester honnête).
+supposé sur Apple silicon, non déclaré sur Intel).
+
+**Audio : fait** (`crates/capabilities/src/macos/audio.rs`, CoreAudio via
+`objc2-core-audio`) : périphériques ayant des flux de sortie, UID (nom mpv
+`coreaudio/<UID>`), type de connexion, canaux, fréquence nominale, périphérique
+par défaut. Le passthrough est volontairement `NotProbed` pour tous : pas de HBR
+sous CoreAudio, et la sortie S/PDIF AC3/E-AC3/DTS de mpv n'a pas été validée sur
+un ampli réel (à tester avec un écran HDMI ou un AVR avant de le déclarer).
 `crates/capabilities/src/windows/` (≈ 600 lignes : `display.rs`, `audio.rs`,
 `video.rs`) reste le modèle à suivre pour le reste du chantier. Modèle à
 remplir : `crates/core/src/capabilities.rs` (`DisplayCapabilities`,

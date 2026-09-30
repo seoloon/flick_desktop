@@ -42,6 +42,9 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
   "NSScreen",
   "NSGraphics",
 ] }
+objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFString"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSEnumerator", "NSDictionary", "NSString", "NSValue"] }
 
 [lints]
