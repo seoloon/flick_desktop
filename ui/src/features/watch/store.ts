@@ -37,7 +37,8 @@ export async function refreshStatus() {
   try {
     useWatch.getState().setStatus(await api.flicksyncStatus());
   } catch {
-    useWatch.getState().setStatus(null);
+    // Never leave the screen waiting for an answer that is not coming.
+    useWatch.getState().setStatus({ available: false, configured: false, inRoom: false, message: "unavailable" });
   }
 }
 

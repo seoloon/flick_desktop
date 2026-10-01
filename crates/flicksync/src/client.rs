@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use oneshot_net::reqwest::Client;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -214,12 +214,22 @@ impl FlickSyncClient {
         self.shared.engine.lock().reset();
         let (tx, rx) = mpsc::unbounded_channel();
         let shared = Arc::clone(&self.shared);
+        // Held until the handle is stored: a session that ends at once must not
+        // clear a slot that is still empty and leave a dead handle behind.
+        let mut slot = self.shared.session.lock();
         let task = tokio::spawn(async move {
-            Session::new(Arc::clone(&shared), joined, rx).run().await;
+            // A panic inside the session must end it cleanly (leave the room, tell
+            // the UI), not leave a room that looks open and does nothing.
+            let run = Session::new(Arc::clone(&shared), joined, rx).run();
+            if std::panic::AssertUnwindSafe(run).catch_unwind().await.is_err() {
+                tracing::error!(target: "flicksync", "the room session panicked; leaving the room");
+                finish(&shared, Some("error".into()));
+            }
             // The session is over for any reason: forget it so the user can start another.
             shared.session.lock().take();
         });
-        *self.shared.session.lock() = Some(SessionHandle { tx, task });
+        *slot = Some(SessionHandle { tx, task });
+        drop(slot);
         let snapshot = self.state();
         emit_state(&self.shared);
         snapshot

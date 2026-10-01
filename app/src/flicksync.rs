@@ -117,16 +117,16 @@ impl AppController {
 impl PlaybackController for AppController {
     fn local(&self) -> LocalPlayback {
         let st = self.state();
-        let snap = st.player.snapshot();
+        let (item, phase) = st.player.now_playing();
         let current = self.current.lock().clone();
-        let on_room_item = current.is_some() && snap.item == current;
-        let usable = matches!(snap.phase, Phase::Playing | Phase::Paused | Phase::Buffering);
+        let on_room_item = current.is_some() && item == current;
+        let usable = matches!(phase, Phase::Playing | Phase::Paused | Phase::Buffering);
         match st.player.live_timing() {
             Some(t) if on_room_item && usable => LocalPlayback {
                 ready: true,
                 position: t.position_secs,
                 paused: t.paused,
-                buffering: t.buffering || snap.phase == Phase::Buffering,
+                buffering: t.buffering || phase == Phase::Buffering,
                 rate: t.speed,
             },
             _ => LocalPlayback { ready: false, position: 0.0, paused: true, buffering: false, rate: 1.0 },
@@ -153,8 +153,8 @@ impl PlaybackController for AppController {
         let (item, already) = {
             let st = self.state();
             let item = resolve(&st, media).await.ok_or(LoadError::Unavailable)?;
-            let snap = st.player.snapshot();
-            let playing_it = snap.item.as_ref() == Some(&item) && !matches!(snap.phase, Phase::Idle | Phase::Ended | Phase::Error);
+            let (playing, phase) = st.player.now_playing();
+            let playing_it = playing.as_ref() == Some(&item) && !matches!(phase, Phase::Idle | Phase::Ended | Phase::Error);
             (item, playing_it)
         };
         *self.current.lock() = Some(item.clone());
@@ -179,7 +179,7 @@ impl PlaybackController for AppController {
     fn unload(&self) {
         let was = self.current.lock().take();
         let st = self.state();
-        if was.is_some() && st.player.snapshot().item == was {
+        if was.is_some() && st.player.now_playing().0 == was {
             self.command(PlayerCommand::Stop);
         }
     }

@@ -1,7 +1,8 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { LayoutGroup, MotionConfig } from "motion/react";
-import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router";
+import { type ReactNode, useEffect, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ItemMenu } from "@/components/tv/ItemMenu";
 import { Toaster } from "@/components/ui/sonner";
 import { Admin } from "@/features/admin/Admin";
@@ -36,6 +37,16 @@ function PlayerRoute() {
   return item ? <PlayerView key={`${item}:${params.get("start") ?? ""}`} itemId={item} startMs={Number(params.get("start") ?? 0) || 0} /> : null;
 }
 
+/** A render error shows a message instead of a blank window; navigating resets it. */
+function Guarded({ children }: { children: ReactNode }) {
+  const { key } = useLocation();
+  return (
+    <ErrorBoundary area="screen" resetKey={key}>
+      {children}
+    </ErrorBoundary>
+  );
+}
+
 /** App-wide actions: Back walks history, Menu toggles Flick Frame. */
 function GlobalActions() {
   const navigate = useNavigate();
@@ -67,6 +78,7 @@ export function App() {
           <UpdatePrompt launchReady={shown >= 0} />
           {/* One layout group: a profile's avatar flies from the picker to the sidebar. */}
           <LayoutGroup>
+            <Guarded>
             <Routes>
               <Route path="/play" element={<PlayerRoute />} />
               <Route path="/profiles" element={<ProfilePicker />} />
@@ -86,6 +98,7 @@ export function App() {
                 <Route path="/debug" element={<Debug />} />
               </Route>
             </Routes>
+            </Guarded>
           </LayoutGroup>
         </BrowserRouter>
         <Toaster position="bottom-center" />

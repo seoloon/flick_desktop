@@ -25,6 +25,7 @@ import {
   Settings,
   SkipBack,
   SkipForward,
+  Users,
   Volume2,
   VolumeX,
   X,
@@ -51,6 +52,9 @@ import { focusKey } from "@/nav/spatial";
 import { ServerBadge } from "@/components/tv/ServerBadge";
 import { useSources } from "@/lib/servers";
 import { TitleBar } from "@/shell/TitleBar";
+import { toast } from "sonner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { RoomPanel, type RoomTab } from "../watch/RoomPanel";
 import { useWatch } from "../watch/store";
 import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
@@ -373,7 +377,11 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const navigate = useNavigate();
   const settings = useSettings();
   // In a watch room the host chooses what plays next: nothing starts by itself.
-  const inRoom = useWatch((w) => !!w.room);
+  const room = useWatch((w) => w.room);
+  const inRoom = !!room;
+  // Guests do not pick titles: episode switching is the host's.
+  const canPick = !room || room.hostId === room.you;
+  const unreadChat = useWatch((w) => w.unread);
   const frame = useMode((s) => s.frame);
   const store = useMemo(() => createPlayerStore(), []);
   const phase = store.state((s) => s.phase);
@@ -390,6 +398,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const [chrome, setChrome] = useState(true);
   const [menu, setMenu] = useState(false);
   const [episodes, setEpisodes] = useState(false);
+  const [roomOpen, setRoomOpen] = useState(false);
+  const [roomTab, setRoomTab] = useState<RoomTab>("management");
+  // The room ended or was left: its panel goes with it.
+  useEffect(() => {
+    if (!room) setRoomOpen(false);
+  }, [room]);
   const menuActions: MenuActions = useRef(null);
   // Window fullscreen for this playback only; Flick Frame stays what the user chose.
   const [fullscreen, setFullscreen] = useState(false);
@@ -406,7 +420,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const menuRef = useRef(menu);
-  menuRef.current = menu || episodes;
+  menuRef.current = menu || episodes || roomOpen;
 
   const poke = useCallback(() => {
     setChrome(true);
@@ -496,7 +510,13 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     poke();
     api
       .play({ item: itemId, sourceId: null, startMs: startMs || null, audio: { type: "auto" }, subtitle: { type: "auto" } })
-      .catch((e) => store.setError(asError(e).message));
+      .catch((e) => {
+        // A guest opening something the room is not watching: say so and go back.
+        if (useWatch.getState().room && asError(e).message.startsWith("Only the host")) {
+          toast(asError(e).message);
+          navigate(-1);
+        } else store.setError(asError(e).message);
+      });
     requestAnimationFrame(() => focusKey(TIMELINE_KEY));
     return () => {
       alive = false;
@@ -583,6 +603,14 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
       }
       const wasHidden = !chrome;
       poke();
+      if (roomOpen) {
+        if (a.type === "back") {
+          setRoomOpen(false);
+          requestAnimationFrame(() => focusKey(TIMELINE_KEY));
+          return true;
+        }
+        return a.type === "playPause" ? (cmd({ type: "togglePause" }), true) : false;
+      }
       if (episodes) {
         if (a.type === "back") {
           setEpisodes(false);
@@ -637,12 +665,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           return false;
       }
     });
-  }, [chrome, menu, episodes, pip, poke, seekBy, leave, setPipMode]);
+  }, [chrome, menu, episodes, roomOpen, pip, poke, seekBy, leave, setPipMode]);
 
   const it = item.data;
   const title = it?.episode ? (it.episode.seriesTitle ?? it.title) : (it?.title ?? "");
   const subtitle = it?.episode ? `${episodeLabel(it)} · ${it.title}` : it?.year ? String(it.year) : "";
-  const visible = !pip && (chrome || phase !== "playing" || menu || episodes);
+  const visible = !pip && (chrome || phase !== "playing" || menu || episodes || roomOpen);
   const scrubbing = scrub !== null;
 
   return (
@@ -757,7 +785,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         >
           <AnimatePresence>
             {menu && <PlayerMenu key="menu" store={store} actions={menuActions} source={source} />}
-            {episodes && it?.episode?.series && (
+            {roomOpen && room && (
+              <ErrorBoundary key="room" area="room panel" inline>
+                <RoomPanel room={room} tab={roomTab} onTab={setRoomTab} />
+              </ErrorBoundary>
+            )}
+            {episodes && canPick && it?.episode?.series && (
               <EpisodesPanel
                 key="episodes"
                 series={it.episode.series}
@@ -785,16 +818,32 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
               <VolumeControl store={store} />
             </div>
             <div className="flex items-center gap-1.5">
-              {adjacent.data?.previous && (
+              {canPick && adjacent.data?.previous && (
                 <Button variant="ghost" size="icon-sm" icon={SkipBack} label="Previous episode" onClick={() => navigate(playPath(adjacent.data!.previous!.id), { replace: true })} />
               )}
               <Button variant="ghost" size="icon-sm" icon={RotateCcw} label="Back 10 seconds" onClick={() => seekBy(-SEEK_STEP)} />
               <Button variant="ghost" size="icon" icon={phase === "paused" ? Play : Pause} iconFilled label={phase === "paused" ? "Play" : "Pause"} onClick={() => cmd({ type: "togglePause" })} />
               <Button variant="ghost" size="icon-sm" icon={RotateCw} label="Forward 10 seconds" onClick={() => seekBy(SEEK_STEP)} />
-              {next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
+              {canPick && next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
             </div>
             <div className="flex items-center justify-end gap-1">
-              {it?.episode?.series && (
+              {room && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  icon={Users}
+                  label="Watch room"
+                  onClick={() => {
+                    setMenu(false);
+                    setEpisodes(false);
+                    setRoomOpen((o) => !o);
+                  }}
+                  className={cn("relative", roomOpen && "bg-white/20 text-white")}
+                >
+                  {!roomOpen && unreadChat > 0 && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-white ring-2 ring-black/60" aria-label="Unread messages" />}
+                </Button>
+              )}
+              {canPick && it?.episode?.series && (
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -803,6 +852,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
                   focusKey={EPISODES_BUTTON}
                   onClick={() => {
                     setMenu(false);
+                    setRoomOpen(false);
                     setEpisodes((e) => !e);
                   }}
                   className={cn(episodes && "bg-white/20 text-white")}
@@ -815,6 +865,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
                 label="Audio, subtitles and playback info"
                 onClick={() => {
                   setEpisodes(false);
+                  setRoomOpen(false);
                   setMenu((m) => !m);
                 }}
                 className={cn("[&_svg]:transition-transform [&_svg]:duration-500 [&_svg]:ease-apple", menu && "bg-white/20 text-white [&_svg]:rotate-90")}

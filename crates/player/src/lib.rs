@@ -303,6 +303,13 @@ impl Player {
         }
     }
 
+    /// Which item is loaded and in what phase, without cloning the whole snapshot
+    /// (tracks, decision, options): cheap enough to poll several times a second.
+    pub fn now_playing(&self) -> (Option<ItemRef>, state::Phase) {
+        let inner = self.inner.lock();
+        (inner.snapshot.item.clone(), inner.snapshot.phase)
+    }
+
     /// Unthrottled timing straight from mpv (the snapshot position is 4 Hz,
     /// too coarse to measure sub-100 ms drift). `None` without a loaded file.
     pub fn live_timing(&self) -> Option<LiveTiming> {
