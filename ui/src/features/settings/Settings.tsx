@@ -12,6 +12,7 @@ import type { Choice } from "@/components/tv/Segmented";
 import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
 import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
 import { ServerManager } from "@/features/servers/Servers";
+import { WatchSettings } from "@/features/watch/WatchSettings";
 import { TmdbSettings } from "./TmdbSettings";
 import { UpdateSettings } from "./UpdateSettings";
 import { api, unwrap } from "@/ipc/api";
@@ -38,6 +39,7 @@ const sections = [
   ["downloads", "Downloads"],
   ["servers", "Servers"],
   ["metadata", "Metadata"],
+  ["watch", "Watch Together"],
   ["profiles", "Profiles"],
   ["network", "Network & Cache"],
   ["controls", "Controls"],
@@ -402,6 +404,8 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       return <ProfilesSettings />;
     case "metadata":
       return <TmdbSettings />;
+    case "watch":
+      return <WatchSettings s={s} />;
     case "network":
       return (
         <>

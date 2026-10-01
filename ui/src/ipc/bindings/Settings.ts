@@ -4,6 +4,7 @@ import type { AppearanceSettings } from "./AppearanceSettings";
 import type { AudioSettings } from "./AudioSettings";
 import type { CacheSettings } from "./CacheSettings";
 import type { ControllerSettings } from "./ControllerSettings";
+import type { FlickSyncSettings } from "./FlickSyncSettings";
 import type { GeneralSettings } from "./GeneralSettings";
 import type { NetworkSettings } from "./NetworkSettings";
 import type { NotificationSettings } from "./NotificationSettings";
@@ -12,4 +13,4 @@ import type { PrivacySettings } from "./PrivacySettings";
 import type { SubtitleSettings } from "./SubtitleSettings";
 import type { VideoSettings } from "./VideoSettings";
 
-export type Settings = { general: GeneralSettings, appearance: AppearanceSettings, playback: PlaybackSettings, audio: AudioSettings, video: VideoSettings, subtitles: SubtitleSettings, network: NetworkSettings, cache: CacheSettings, controller: ControllerSettings, notifications: NotificationSettings, privacy: PrivacySettings, advanced: AdvancedSettings, };
+export type Settings = { general: GeneralSettings, appearance: AppearanceSettings, playback: PlaybackSettings, audio: AudioSettings, video: VideoSettings, subtitles: SubtitleSettings, network: NetworkSettings, cache: CacheSettings, controller: ControllerSettings, notifications: NotificationSettings, privacy: PrivacySettings, flicksync: FlickSyncSettings, advanced: AdvancedSettings, };

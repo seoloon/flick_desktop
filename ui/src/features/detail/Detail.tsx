@@ -1,7 +1,7 @@
 // Title page: the artwork fills the top, the actions sit on it, then seasons
 // or children, cast, technical details and similar titles.
 import { useQuery } from "@tanstack/react-query";
-import { Check, Heart, Play, RotateCcw } from "lucide-react";
+import { Check, Heart, Play, RotateCcw, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -28,6 +28,7 @@ import { ServerBadge } from "@/components/tv/ServerBadge";
 import { personPath } from "@/lib/person";
 import { useSources } from "@/lib/servers";
 import { isPlayable, playPath } from "../player/route";
+import { useWatch } from "../watch/store";
 
 export function Detail() {
   const { id: raw = "" } = useParams();
@@ -39,6 +40,8 @@ export function Detail() {
   const similar = useQuery({ queryKey: ["similar", id], queryFn: () => api.similar(id).catch(() => []) });
   const loaded = fresh.data ?? cached.data ?? undefined;
   const item = useOverridden(loaded);
+  const room = useWatch((w) => w.room);
+  const watch = useWatch((w) => w.status);
   // The server that plays (the item's own reference) first, then copies elsewhere.
   const sources = useSources(item ? [item.id, ...(item.alternates ?? [])] : []);
 
@@ -60,6 +63,11 @@ export function Detail() {
 
   const resuming = item.user.positionMs > 0;
   const source = item.sources[0];
+  // In a watch room only the host picks the title; guests are told instead of getting an error screen.
+  const start = (ms: number) => {
+    if (room && room.hostId !== room.you) toast("Only the host can choose what the room watches.");
+    else navigate(playPath(item.id, ms));
+  };
 
   return (
     <Screen ready>
@@ -101,10 +109,15 @@ export function Detail() {
           <FocusGroup focusKey="detail-actions" className="flex flex-wrap items-center gap-3 pt-1">
             {isPlayable(item) && (
               <>
-                <Button variant="primary" size="lg" icon={Play} iconFilled autoFocus onClick={() => navigate(playPath(item.id, resuming ? item.user.positionMs : 0))}>
+                <Button variant="primary" size="lg" icon={Play} iconFilled autoFocus onClick={() => start(resuming ? item.user.positionMs : 0)}>
                   {resuming ? `Resume · ${remaining(item)}` : "Play"}
                 </Button>
-                {resuming && <Button size="lg" icon={RotateCcw} label="Start over" onClick={() => navigate(playPath(item.id, 0))}>Start Over</Button>}
+                {resuming && <Button size="lg" icon={RotateCcw} label="Start over" onClick={() => start(0)}>Start Over</Button>}
+                {(item.kind === "movie" || item.kind === "episode") && (room ? room.hostId === room.you : watch?.available) && (
+                  <Button size="lg" icon={Users} onClick={() => (room ? void api.flicksyncSelectMedia(item.id).catch((e) => toast.error(asError(e).message)) : navigate("/watch"))}>
+                    {room ? "Watch in Room" : "Watch Together"}
+                  </Button>
+                )}
               </>
             )}
             <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => toggle("played")} />

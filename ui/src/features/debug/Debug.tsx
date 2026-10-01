@@ -18,6 +18,7 @@ const areas = [
   { value: "mpv", label: "Engine" },
   { value: "provider", label: "Servers" },
   { value: "capabilities", label: "Capabilities" },
+  { value: "flicksync", label: "Watch" },
   { value: "catalog", label: "Library" },
   { value: "cache", label: "Cache" },
 ];
@@ -70,10 +71,12 @@ function Json({ value }: { value: unknown }) {
 
 export function Debug() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<"logs" | "caps" | "player">("logs");
+  const [view, setView] = useState<"logs" | "caps" | "player" | "watch">("logs");
   const [area, setArea] = useState("");
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api.capabilities(false), enabled: view === "caps" });
   const snapshot = useQuery({ queryKey: ["player-snapshot"], queryFn: () => api.playerSnapshot(), enabled: view === "player" });
+  // Watch-room sync internals (RTT, drift, sequence…): never shown in the normal UI.
+  const watch = useQuery({ queryKey: ["flicksync-debug"], queryFn: () => api.flicksyncDebug(), enabled: view === "watch", refetchInterval: 500 });
 
   return (
     <Screen>
@@ -86,6 +89,7 @@ export function Debug() {
                 { value: "logs", label: "Logs" },
                 { value: "caps", label: "This Computer" },
                 { value: "player", label: "Last Playback" },
+                { value: "watch", label: "Watch Room" },
               ]}
               value={view}
               onChange={setView}
@@ -109,6 +113,7 @@ export function Debug() {
           </>
         )}
         {view === "player" && <Json value={snapshot.data ?? null} />}
+        {view === "watch" && <Json value={watch.data ?? null} />}
       </Page>
     </Screen>
   );

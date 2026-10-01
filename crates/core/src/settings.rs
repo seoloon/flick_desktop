@@ -23,6 +23,7 @@ pub struct Settings {
     pub controller: ControllerSettings,
     pub notifications: NotificationSettings,
     pub privacy: PrivacySettings,
+    pub flicksync: FlickSyncSettings,
     pub advanced: AdvancedSettings,
 }
 
@@ -534,6 +535,28 @@ pub struct PrivacySettings {
 impl Default for PrivacySettings {
     fn default() -> Self {
         Self { report_progress: true }
+    }
+}
+
+/// Watch together. FlickSync is optional: with nothing configured the
+/// feature is hidden and the rest of Flick is unaffected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase", default)]
+pub struct FlickSyncSettings {
+    pub enabled: bool,
+    /// The Flick Server, which says where FlickSync is and issues its tokens.
+    pub flick_server_url: Option<String>,
+    /// Manual FlickSync address, for a self-hosted service without a Flick Server.
+    /// The signing key it needs lives in the OS keychain, never here.
+    pub sync_url: Option<String>,
+    /// Shown to the other participants; defaults to the profile or account name.
+    pub display_name: Option<String>,
+}
+
+impl Default for FlickSyncSettings {
+    fn default() -> Self {
+        Self { enabled: true, flick_server_url: None, sync_url: None, display_name: None }
     }
 }
 

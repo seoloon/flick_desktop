@@ -11,6 +11,7 @@ use oneshot_player::{PlayRequest, PlayerCommand};
 use serde::Deserialize;
 use tauri::{State, WebviewWindow};
 
+use crate::flicksync::PlayRoute;
 use crate::state::AppState;
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -22,8 +23,25 @@ pub fn current_display(window: &WebviewWindow) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn play(window: WebviewWindow, state: St<'_>, request: PlayRequest) -> Result<PlaybackDecision> {
-    start(&window, &state, request).await
+pub async fn play(window: WebviewWindow, state: St<'_>, mut request: PlayRequest) -> Result<PlaybackDecision> {
+    let Some(item) = request.item.clone() else { return start(&window, &state, request).await };
+    // In a watch room the room decides what plays and where: the host's choice
+    // is announced to everybody, a guest's play call answers the room's request.
+    match state.flicksync.route_play(&state, &item).await? {
+        PlayRoute::Normal => start(&window, &state, request).await,
+        PlayRoute::Host => {
+            request.start_ms = None;
+            let decision = start(&window, &state, request).await;
+            state.flicksync.host_play_done(&item);
+            decision
+        }
+        PlayRoute::Joiner(pending) => {
+            request.start_ms = None;
+            let decision = start(&window, &state, request).await;
+            pending.finish(&decision);
+            decision
+        }
+    }
 }
 
 /// Restarts the current title at its position with the current settings
@@ -47,6 +65,10 @@ async fn start(window: &WebviewWindow, state: &AppState, request: PlayRequest) -
 
 #[tauri::command]
 pub fn player_command(state: St<'_>, command: PlayerCommand) -> Result<()> {
+    // In a watch room, play/pause/seek/speed are room commands, not local ones.
+    if let Some(handled) = state.flicksync.intercept(&command) {
+        return handled;
+    }
     state.player.command(command)
 }
 

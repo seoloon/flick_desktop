@@ -4,6 +4,7 @@ mod commands;
 #[cfg(debug_assertions)]
 mod dev;
 mod diagnostics;
+mod flicksync;
 mod images;
 mod state;
 
@@ -140,6 +141,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         verified_plex: RwLock::new(Default::default()),
         switching: tokio::sync::Mutex::new(()),
         settings_io: Mutex::new(()),
+        flicksync: flicksync::Hub::new(handle.clone()),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing
     // is loaded until someone is chosen). Off: every connection, as before.
@@ -269,6 +271,21 @@ fn main() {
             commands::people::person_items,
             commands::catalog::set_played,
             commands::catalog::set_favorite,
+            commands::flicksync::flicksync_status,
+            commands::flicksync::flicksync_create,
+            commands::flicksync::flicksync_join,
+            commands::flicksync::flicksync_leave,
+            commands::flicksync::flicksync_state,
+            commands::flicksync::flicksync_select_media,
+            commands::flicksync::flicksync_chat,
+            commands::flicksync::flicksync_update_room,
+            commands::flicksync::flicksync_close_room,
+            commands::flicksync::flicksync_resync_media,
+            commands::flicksync::flicksync_debug,
+            commands::flicksync::flicksync_current_item,
+            commands::flicksync::flicksync_has_key,
+            commands::flicksync::flicksync_set_key,
+            commands::flicksync::flicksync_clear_key,
             commands::playback::play,
             commands::playback::player_reload,
             commands::playback::player_command,

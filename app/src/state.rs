@@ -68,6 +68,8 @@ pub struct AppState {
     pub tmdb: RwLock<Option<oneshot_tmdb::Tmdb>>,
     /// The catalogue's metadata cache, shared with TMDB answers (a week).
     pub metadata: Arc<oneshot_storage::cache::MetadataCache>,
+    /// Watch together (optional: the app works the same without it).
+    pub flicksync: crate::flicksync::Hub,
 }
 
 /// How the main window looked before it shrank into picture-in-picture.
@@ -87,6 +89,12 @@ impl AppState {
 
     pub fn http(&self) -> Client {
         self.http.read().clone()
+    }
+
+    /// Name of the profile in use (multi-user on), for display to others.
+    pub fn active_profile_name(&self) -> Option<String> {
+        let id = (*self.active_profile.read())?;
+        self.profiles.read().profiles.iter().find(|p| p.id == id).map(|p| p.name.clone())
     }
 
     pub fn jellyfin_identity(&self) -> oneshot_jellyfin::ClientIdentity {

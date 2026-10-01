@@ -1,7 +1,8 @@
 // Navigation adapts to what the servers actually offer.
 import { useQuery } from "@tanstack/react-query";
-import { Clapperboard, Heart, House, LayoutGrid, type LucideIcon, Search, Settings, ShieldCheck, Tv } from "lucide-react";
+import { Clapperboard, Heart, House, LayoutGrid, type LucideIcon, Search, Settings, ShieldCheck, Tv, Users } from "lucide-react";
 import { useLocation } from "react-router";
+import { useWatch } from "@/features/watch/store";
 import { api } from "@/ipc/api";
 
 export type NavItem = { id: string; href: string; label: string; icon: LucideIcon; active: boolean };
@@ -20,6 +21,7 @@ export function navSection(pathname: string, search: string, state?: unknown): s
   if (pathname.startsWith("/libraries") || pathname.startsWith("/library/")) return kind === "movies" ? "movies" : kind === "shows" ? "shows" : "libraries";
   if (pathname === "/") return "home";
   if (pathname.startsWith("/favorites")) return "favorites";
+  if (pathname.startsWith("/watch")) return "watch";
   if (pathname.startsWith("/search")) return "search";
   if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/settings") || pathname.startsWith("/debug") || pathname.startsWith("/servers")) return "settings";
@@ -38,6 +40,8 @@ export function useNavItems(): NavItem[] {
   const hasAdmin = !!servers.data?.some((s) => s.connected && s.server.user.isAdmin);
   // Jellyfin favourites, or the Plex user's plex.tv Watchlist.
   const hasFavorites = !!servers.data?.some((s) => s.connected && !s.server.disabled);
+  // Watch together only appears when FlickSync is set up and reachable (or a room is open).
+  const hasWatch = useWatch((w) => !!w.room || !!w.status?.available);
 
   const items: (Omit<NavItem, "active"> & { show?: boolean })[] = [
     { id: "home", href: "/", label: "Home", icon: House },
@@ -45,6 +49,7 @@ export function useNavItems(): NavItem[] {
     { id: "shows", href: "/libraries?kind=shows", label: "TV Shows", icon: Tv, show: hasKind("shows") },
     { id: "libraries", href: "/libraries", label: "Libraries", icon: LayoutGrid },
     { id: "favorites", href: "/favorites", label: "Favourites", icon: Heart, show: hasFavorites },
+    { id: "watch", href: "/watch", label: "Watch Together", icon: Users, show: hasWatch },
     { id: "search", href: "/search", label: "Search", icon: Search },
     { id: "admin", href: "/admin", label: "Admin", icon: ShieldCheck, show: hasAdmin },
     { id: "settings", href: "/settings", label: "Settings", icon: Settings },

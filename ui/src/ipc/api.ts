@@ -3,6 +3,8 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Adjacent } from "./bindings/Adjacent";
 import type { Aggregated } from "./bindings/Aggregated";
 import type { CapabilityReport } from "./bindings/CapabilityReport";
+import type { DebugInfo } from "./bindings/DebugInfo";
+import type { RoomState } from "./bindings/RoomState";
 import type { HomeRow } from "./bindings/HomeRow";
 import type { ImageKind } from "./bindings/ImageKind";
 import type { ItemKind } from "./bindings/ItemKind";
@@ -30,6 +32,7 @@ import type {
   AdminOverview,
   AppError,
   CssRect,
+  FlickSyncStatus,
   LogEntry,
   Palette,
   PlexPin,
@@ -122,6 +125,22 @@ export const api = {
   playerViewport: (rect: CssRect) => call<void>("player_viewport", { rect }),
   playerSnapshot: () => call<PlayerSnapshot>("player_snapshot"),
   playerStats: () => call<LiveStats>("player_stats"),
+
+  // watch together
+  flicksyncStatus: () => call<FlickSyncStatus>("flicksync_status"),
+  flicksyncCreate: (hostOnly: boolean) => call<RoomState>("flicksync_create", { hostOnly }),
+  flicksyncJoin: (code: string) => call<RoomState>("flicksync_join", { code }),
+  flicksyncLeave: () => call<void>("flicksync_leave"),
+  flicksyncState: () => call<RoomState | null>("flicksync_state"),
+  flicksyncSelectMedia: (item: ItemRef) => call<void>("flicksync_select_media", { item }),
+  flicksyncChat: (text: string) => call<void>("flicksync_chat", { text }),
+  flicksyncUpdateRoom: (hostOnly: boolean | null, chatEnabled: boolean | null) => call<void>("flicksync_update_room", { hostOnly, chatEnabled }),
+  flicksyncCloseRoom: () => call<void>("flicksync_close_room"),
+  flicksyncResyncMedia: () => call<void>("flicksync_resync_media"),
+  flicksyncDebug: () => call<DebugInfo | null>("flicksync_debug"),
+  flicksyncHasKey: () => call<boolean>("flicksync_has_key"),
+  flicksyncSetKey: (key: string) => call<void>("flicksync_set_key", { key }),
+  flicksyncClearKey: () => call<void>("flicksync_clear_key"),
 
   // system
   settingsGet: () => call<Settings>("settings_get"),

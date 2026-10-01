@@ -8,6 +8,7 @@ import type { AdminUser } from "./bindings/AdminUser";
 import type { ServerDescriptor } from "./bindings/ServerDescriptor";
 import type { AvatarStyle } from "./bindings/AvatarStyle";
 import type { ServerId } from "./bindings/ServerId";
+import type { UserMessage } from "./bindings/UserMessage";
 
 export type AppError = { kind: string; message: string };
 /** serde's default encoding of `Result<T, E>`. */
@@ -59,6 +60,15 @@ export type AdminOverview = {
   logs: RustResult<string[]>;
 };
 export type CssRect = { x: number; y: number; width: number; height: number };
+
+/** Watch together (app/src/flicksync.rs). */
+export type FlickSyncStatus = {
+  /** Configured and reachable: rooms can be offered. */
+  available: boolean;
+  configured: boolean;
+  inRoom: boolean;
+  message: UserMessage | null;
+};
 
 export type SwitchOutcome = { failed: string[] };
 export type ProfileEdit = {

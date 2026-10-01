@@ -51,6 +51,7 @@ import { focusKey } from "@/nav/spatial";
 import { ServerBadge } from "@/components/tv/ServerBadge";
 import { useSources } from "@/lib/servers";
 import { TitleBar } from "@/shell/TitleBar";
+import { useWatch } from "../watch/store";
 import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
@@ -112,6 +113,14 @@ function Timeline({
   useEffect(() => target.set(scrub ?? store.position.get()), [scrub, target, store.position]);
   const smooth = useSpring(target, { stiffness: 380, damping: 42 });
   const fill = useTransform(smooth, (p) => pct(p));
+  // Pointer position over the bar, in ms: drives the chapter tooltip.
+  const [hoverMs, setHoverMs] = useState<number | null>(null);
+  const hoverChapter = hoverMs === null ? -1 : chapters.reduce((found, c, i) => (c.startMs <= hoverMs ? i : found), -1);
+  const chapter = hoverChapter >= 0 ? chapters[hoverChapter] : null;
+  const msAt = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * duration;
+  };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -142,6 +151,8 @@ function Timeline({
       aria-valuemin={0}
       aria-valuemax={duration}
       onPointerDown={onPointerDown}
+      onPointerMove={(e) => chapters.length > 0 && duration > 0 && setHoverMs(msAt(e))}
+      onPointerLeave={() => setHoverMs(null)}
       onClick={(e) => e.detail === 0 && cmd({ type: "togglePause" })}
       className="group/timeline relative flex h-5 min-w-0 flex-1 cursor-pointer items-center"
     >
@@ -166,6 +177,15 @@ function Timeline({
         animate={{ scale: tv.showFocus ? 1.25 : 0.001, opacity: tv.showFocus ? 1 : 0 }}
         transition={focusSpring}
       />
+      {chapter && hoverMs !== null && (
+        <div
+          className="pointer-events-none absolute bottom-full mb-3 flex max-w-64 -translate-x-1/2 flex-col items-center gap-0.5 rounded-xl bg-black/75 px-3 py-2 text-center shadow-[inset_0_0_0_1px_rgb(255_255_255/0.08),0_12px_30px_-10px_rgb(0_0_0/0.8)]"
+          style={{ left: `clamp(4rem, ${pct(hoverMs)}, calc(100% - 4rem))` }}
+        >
+          <span className="line-clamp-2 text-[0.8125rem] font-semibold text-white">{chapter.title ?? `Chapter ${hoverChapter + 1}`}</span>
+          <span className="text-xs tabular-nums text-white/60">{clock(chapter.startMs)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -352,6 +372,8 @@ function PipOverlay({
 export function PlayerView({ itemId, startMs }: { itemId: string; startMs: number }) {
   const navigate = useNavigate();
   const settings = useSettings();
+  // In a watch room the host chooses what plays next: nothing starts by itself.
+  const inRoom = useWatch((w) => !!w.room);
   const frame = useMode((s) => s.frame);
   const store = useMemo(() => createPlayerStore(), []);
   const phase = store.state((s) => s.phase);
@@ -530,7 +552,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   }, [next, navigate]);
 
   useEffect(() => {
-    if (showNext && settings?.playback.autoplayNext && countdown === null) setCountdown(settings.playback.autoplayCountdownSecs);
+    if (showNext && !inRoom && settings?.playback.autoplayNext && countdown === null) setCountdown(settings.playback.autoplayCountdownSecs);
   }, [showNext, settings, countdown]);
   useEffect(() => {
     if (countdown === null) return;
@@ -544,7 +566,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   }, [countdown, playNext]);
   useEffect(() => {
     if (!ended) return;
-    if (next && settings?.playback.autoplayNext) playNext();
+    if (next && !inRoom && settings?.playback.autoplayNext) playNext();
     else leave();
   }, [ended, next, settings, playNext, leave]);
 
@@ -625,7 +647,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
 
   return (
     <div
-      className={cn("fixed inset-0 overflow-hidden text-white select-none", !visible && !pip && "cursor-none")}
+      className={cn("fixed inset-0 overflow-hidden text-white select-none", !visible && !pip && "[&_*]:cursor-none cursor-none")}
       style={{ "--bar-h": "8.5rem" } as CSSProperties}
       onClick={pip ? undefined : poke}
       onDoubleClick={(e) => !pip && e.target === e.currentTarget && toggleFullscreen()}

@@ -92,6 +92,16 @@ pub(crate) struct Inner {
     pub viewport: Option<Viewport>,
 }
 
+/// Playback timing read live from mpv, for the watch-together sync.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiveTiming {
+    pub position_secs: f64,
+    pub speed: f64,
+    pub paused: bool,
+    /// Stalled waiting for data (not a user pause).
+    pub buffering: bool,
+}
+
 pub struct Player {
     config: PlayerConfig,
     sink: EventSink,
@@ -291,6 +301,21 @@ impl Player {
             video_bitrate: num("video-bitrate"),
             audio_bitrate: num("audio-bitrate"),
         }
+    }
+
+    /// Unthrottled timing straight from mpv (the snapshot position is 4 Hz,
+    /// too coarse to measure sub-100 ms drift). `None` without a loaded file.
+    pub fn live_timing(&self) -> Option<LiveTiming> {
+        let inner = self.inner.lock();
+        let engine = inner.engine.as_ref()?;
+        inner.session.as_ref()?;
+        let get = |p: &str| engine.mpv.try_get_property(p).ok().flatten();
+        Some(LiveTiming {
+            position_secs: get("time-pos").and_then(|n| n.as_f64())?,
+            speed: get("speed").and_then(|n| n.as_f64()).unwrap_or(1.0),
+            paused: get("pause").and_then(|n| n.as_bool()).unwrap_or(false),
+            buffering: get("paused-for-cache").and_then(|n| n.as_bool()).unwrap_or(false),
+        })
     }
 
     /// Stops playback, sends the final report and releases the core.
