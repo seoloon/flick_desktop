@@ -36,6 +36,24 @@ pub struct ItemFilter {
     pub favorites_only: bool,
 }
 
+/// Titles of one kind in one genre, across every library of a server. Paged
+/// per server: each server answers `start`/`limit` on its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct GenreQuery {
+    /// `Movie` or `Series`: they are browsed separately.
+    pub kind: ItemKind,
+    pub genre: String,
+    #[serde(default)]
+    pub sort: SortBy,
+    #[serde(default)]
+    pub order: SortOrder,
+    #[serde(default)]
+    pub start: u32,
+    pub limit: u32,
+}
+
 /// Paged catalogue query. `parent` is a library, collection, playlist, etc.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]

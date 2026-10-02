@@ -18,6 +18,7 @@ import { LibraryGrid } from "@/features/library/LibraryGrid";
 import { PlayerView } from "@/features/player/PlayerView";
 import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { ProfilePicker } from "@/features/profiles/ProfilePicker";
+import { GenreGrid } from "@/features/search/GenreGrid";
 import { Search } from "@/features/search/Search";
 import { Settings } from "@/features/settings/Settings";
 import { UpdatePrompt } from "@/features/updates/UpdatePrompt";
@@ -88,6 +89,7 @@ export function App() {
                 <Route path="/library/:id" element={<LibraryGrid />} />
                 <Route path="/item/:id" element={<Detail />} />
                 <Route path="/search" element={<Search />} />
+                <Route path="/search/genre" element={<GenreGrid />} />
                 {/* Servers moved into Settings; old links keep working. */}
                 <Route path="/servers" element={<Navigate to="/settings?s=servers" replace />} />
                 <Route path="/favorites" element={<Favorites />} />

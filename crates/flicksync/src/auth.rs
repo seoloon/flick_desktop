@@ -1,12 +1,10 @@
 //! FlickSync authentication.
 //!
-//! FlickSync has no accounts: it trusts a short-lived JWT issued by the Flick
-//! Server. The client therefore never invents an identity; it asks a
-//! [`TokenProvider`] for a fresh token before every (re)connection.
-//!
-//! * [`EndpointTokenProvider`]: the real flow, a Flick Server endpoint mints the token.
-//! * [`LocalKeyTokenProvider`]: self-hosting and development, where the user holds the
-//!   FlickSync signing key themselves. The key lives in the OS keychain (Rust side only).
+//! FlickSync has no accounts: it trusts a short-lived JWT signed with the key
+//! of an invitation link (see [`crate::invite`]). The client asks a
+//! [`TokenProvider`] for a fresh token before every (re)connection;
+//! [`LocalKeyTokenProvider`] signs it itself. The key lives in the OS keychain
+//! (Rust side only).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,10 +12,8 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, Mac};
-use serde::Deserialize;
 use serde_json::json;
 use sha2::Sha256;
-use url::Url;
 
 use crate::errors::{Error, Result};
 
@@ -55,16 +51,31 @@ impl std::fmt::Debug for SigningKey {
     }
 }
 
+/// What FlickSync accepts in a `kid` or `server_id`.
+fn valid_ident(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':' | b'@'))
+}
+
+/// Shortest secret a FlickSync server accepts.
+const MIN_SECRET_LEN: usize = 32;
+
 impl SigningKey {
+    /// Parses `kid:server_id:secret` under the server's own rules (the secret is
+    /// everything after the second colon).
     pub fn parse(s: &str) -> Result<Self> {
         let mut parts = s.trim().splitn(3, ':');
         let (Some(kid), Some(server_id), Some(secret)) = (parts.next(), parts.next(), parts.next()) else {
             return Err(Error::NotConfigured);
         };
-        if kid.is_empty() || server_id.is_empty() || secret.len() < 16 {
+        if !valid_ident(kid) || !valid_ident(server_id) || secret.len() < MIN_SECRET_LEN {
             return Err(Error::NotConfigured);
         }
         Ok(Self { kid: kid.into(), server_id: server_id.into(), secret: secret.into() })
+    }
+
+    /// `kid:server_id:secret`, to store or encode. A secret: never log it.
+    pub(crate) fn expose(&self) -> String {
+        format!("{}:{}:{}", self.kid, self.server_id, self.secret)
     }
 }
 
@@ -111,79 +122,6 @@ impl TokenProvider for LocalKeyTokenProvider {
     }
 }
 
-/// Asks the Flick Server for a token: `POST <token_url>` with the device and
-/// display name, answered by `{ "token": "…" }`.
-#[derive(Debug)]
-pub struct EndpointTokenProvider {
-    http: oneshot_net::reqwest::Client,
-    token_url: Url,
-    who: Identity,
-}
-
-impl EndpointTokenProvider {
-    pub fn new(http: oneshot_net::reqwest::Client, token_url: Url, who: Identity) -> Self {
-        Self { http, token_url, who }
-    }
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    token: String,
-}
-
-#[async_trait]
-impl TokenProvider for EndpointTokenProvider {
-    async fn token(&self) -> Result<String> {
-        let resp = self
-            .http
-            .post(self.token_url.clone())
-            .json(&json!({ "user_id": sanitize_user_id(&self.who.user_id), "display_name": self.who.display_name }))
-            .send()
-            .await
-            .map_err(|e| Error::Network(e.without_url().to_string()))?;
-        match resp.status().as_u16() {
-            200..=299 => {}
-            401 | 403 => return Err(Error::Unauthenticated),
-            s => return Err(Error::Network(format!("token endpoint answered {s}"))),
-        }
-        let body: TokenResponse = resp.json().await.map_err(|_| Error::Protocol("malformed token response".into()))?;
-        Ok(body.token)
-    }
-}
-
-/// What a Flick Server says about FlickSync.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Discovery {
-    #[serde(default)]
-    pub enabled: bool,
-    /// Base URL of the FlickSync service (`https://sync.example.com`).
-    #[serde(default)]
-    pub url: Option<Url>,
-    /// Where tokens are minted, relative to the Flick Server or absolute.
-    #[serde(default)]
-    pub token_path: Option<String>,
-}
-
-/// `GET <flick_server>/api/v1/flicksync`. `Ok(None)` when the server does not
-/// offer FlickSync (the feature is then hidden, not broken).
-pub async fn discover(http: &oneshot_net::reqwest::Client, flick_server: &Url) -> Result<Option<(Url, Url)>> {
-    let url = flick_server.join("api/v1/flicksync").map_err(|_| Error::NotConfigured)?;
-    let resp = match http.get(url).send().await {
-        Ok(r) => r,
-        Err(e) => return Err(Error::Network(e.without_url().to_string())),
-    };
-    if resp.status().as_u16() == 404 {
-        return Ok(None);
-    }
-    if !resp.status().is_success() {
-        return Err(Error::Network(format!("discovery answered {}", resp.status().as_u16())));
-    }
-    let d: Discovery = resp.json().await.map_err(|_| Error::Protocol("malformed discovery response".into()))?;
-    let (true, Some(sync_url)) = (d.enabled, d.url) else { return Ok(None) };
-    let token_url = flick_server.join(d.token_path.as_deref().unwrap_or("api/v1/flicksync/token")).map_err(|_| Error::NotConfigured)?;
-    Ok(Some((sync_url, token_url)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,7 +134,8 @@ mod tests {
     fn key_parsing_requires_all_parts_and_a_real_secret() {
         assert!(SigningKey::parse("main:my-flick").is_err());
         assert!(SigningKey::parse("main:my-flick:short").is_err());
-        let k = SigningKey::parse("main:srv:secret:with:colons:0123456789").unwrap();
+        assert!(SigningKey::parse("ma in:my-flick:0123456789abcdef0123456789abcdef").is_err(), "space in the kid");
+        let k = SigningKey::parse("main:srv:secret:with:colons:0123456789abcdef0123456789").unwrap();
         assert_eq!(k.server_id, "srv");
         assert!(!format!("{k:?}").contains("0123456789"), "the secret must not be printable");
     }

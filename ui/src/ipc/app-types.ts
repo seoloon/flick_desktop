@@ -70,6 +70,27 @@ export type FlickSyncStatus = {
   message: UserMessage | null;
 };
 
+/** One step of "Test connection" (mirrors `oneshot_flicksync::diagnose`). */
+export type DiagnosisCheck = {
+  step: "config" | "reach" | "ready" | "clock" | "auth";
+  status: "ok" | "failed" | "skipped";
+  detail: string;
+};
+
+export type FlickSyncDiagnosis = { checks: DiagnosisCheck[] };
+
+/** The saved invitation as the UI may see it: never the key. */
+export type InvitationInfo = {
+  /** `host[:port]`. */
+  host: string;
+  tls: boolean;
+  /** Plain HTTP across the Internet: tokens would travel in the clear. */
+  insecureRemote: boolean;
+};
+
+/** Answer to pasting a link. `saved` is false when the server did not answer or was not ready. */
+export type InvitationAdded = { info: InvitationInfo; saved: boolean; report: FlickSyncDiagnosis };
+
 export type SwitchOutcome = { failed: string[] };
 export type ProfileEdit = {
   name: string | null;

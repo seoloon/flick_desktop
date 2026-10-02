@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::ids::ItemRef;
 use crate::media::{ImageRef, ImageSize, ItemKind, Marker, MediaItem};
 use crate::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
-use crate::query::{HomeRow, ItemFilter, ItemQuery, Page, SortBy, SortOrder};
+use crate::query::{GenreQuery, HomeRow, ItemFilter, ItemQuery, Page, SortBy, SortOrder};
 use crate::server::{Library, ProviderKind, ServerDescriptor, ServerStatus};
 
 /// Previous/next items around an episode, for autoplay and player buttons.
@@ -60,6 +60,18 @@ pub trait MediaProvider: Send + Sync + std::fmt::Debug {
             limit,
         };
         Ok(self.items(&query).await?.items)
+    }
+
+    /// Genres of the movies (or series) of the whole server, as it spells them.
+    async fn genres(&self, _kind: ItemKind) -> Result<Vec<String>> {
+        Err(crate::Error::Unsupported("genres".into()))
+    }
+
+    /// Titles of one kind in one genre, across every library of the server.
+    /// `query.genre` is matched ignoring case and accents; an unknown genre is
+    /// an empty list, not an error.
+    async fn by_genre(&self, _query: &GenreQuery) -> Result<Vec<MediaItem>> {
+        Err(crate::Error::Unsupported("browsing by genre".into()))
     }
 
     /// What this server knows about a person of its own.

@@ -8,10 +8,10 @@ use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ImageKind, ImageRef, ImageSize, ItemKind, Marker, MediaItem};
 use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
 use oneshot_core::provider::{AdminProvider, Adjacent, MediaProvider};
-use oneshot_core::query::{HomeRow, HomeRowKind, ItemQuery, Page, SortBy, SortOrder};
+use oneshot_core::query::{GenreQuery, HomeRow, HomeRowKind, ItemFilter, ItemQuery, Page, SortBy, SortOrder};
 use oneshot_core::server::{Library, LibraryKind, ProviderKind, ServerDescriptor, ServerStatus};
 use oneshot_core::person::PersonInfo;
-use oneshot_core::text::normalize_name;
+use oneshot_core::text::{find_genre, normalize_name};
 use oneshot_core::{Error, Result};
 use oneshot_net::reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
@@ -335,6 +335,27 @@ impl MediaProvider for JellyfinProvider {
         q.push(("Limit", limit.to_string()));
         let r: QueryResult<BaseItemDto> = self.get(&format!("Items/{}/Similar", id.key), &q).await?;
         Ok(self.items(&r.items))
+    }
+
+    async fn genres(&self, kind: ItemKind) -> Result<Vec<String>> {
+        let Some(item_type) = map::item_type_name(kind) else { return Ok(Vec::new()) };
+        let q = [self.uid(), ("IncludeItemTypes", item_type.into()), ("Recursive", "true".into()), ("SortBy", "SortName".into())];
+        let r: QueryResult<BaseItemDto> = self.get("Genres", &q).await?;
+        Ok(r.items.into_iter().filter_map(|d| d.name).collect())
+    }
+
+    async fn by_genre(&self, query: &GenreQuery) -> Result<Vec<MediaItem>> {
+        let Some(genre) = find_genre(&self.genres(query.kind).await?, &query.genre).cloned() else { return Ok(Vec::new()) };
+        let items = ItemQuery {
+            parent: None,
+            kinds: vec![query.kind],
+            filter: ItemFilter { genres: vec![genre], ..ItemFilter::default() },
+            sort: query.sort,
+            order: query.order,
+            start: query.start,
+            limit: query.limit,
+        };
+        Ok(MediaProvider::items(self, &items).await?.items)
     }
 
     async fn adjacent_episodes(&self, id: &ItemRef) -> Result<Adjacent> {

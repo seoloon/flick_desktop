@@ -9,9 +9,24 @@ pub fn normalize_name(name: &str) -> String {
     folded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The server's own spelling of `wanted` among its `genres` (case, accents
+/// and spacing ignored), so "science fiction" finds "Science Fiction".
+pub fn find_genre<'a>(genres: &'a [String], wanted: &str) -> Option<&'a String> {
+    let key = normalize_name(wanted);
+    genres.iter().find(|g| normalize_name(g) == key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn genres_are_found_by_their_normalized_name() {
+        let genres = vec!["Action".to_owned(), "Science Fiction".to_owned(), "Drame".to_owned()];
+        assert_eq!(find_genre(&genres, " science  fiction ").map(String::as_str), Some("Science Fiction"));
+        assert_eq!(find_genre(&genres, "DRAME").map(String::as_str), Some("Drame"));
+        assert!(find_genre(&genres, "Horror").is_none());
+    }
 
     #[test]
     fn names_match_across_case_accents_and_spaces() {

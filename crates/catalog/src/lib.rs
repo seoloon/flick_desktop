@@ -16,16 +16,29 @@ use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ItemKind, MediaItem};
 use oneshot_core::person::PersonInfo;
 use oneshot_core::provider::{Adjacent, MediaProvider};
-use oneshot_core::query::{HomeRow, ItemQuery, Page};
+use oneshot_core::query::{GenreQuery, HomeRow, ItemFilter, ItemQuery, Page, SortBy, SortOrder};
 use oneshot_core::server::{Library, ServerDescriptor};
 use oneshot_core::{Error, Result, ServerId};
 use oneshot_storage::cache::MetadataCache;
 use parking_lot::RwLock;
 use serde::Serialize;
 
-pub use merge::{dedupe, merge_rows};
+pub use merge::{dedupe, merge_genres, merge_rows, recent_seeds, recommendation_rows, sort_by_title};
 
 const SERVER_TIMEOUT: Duration = Duration::from_secs(8);
+/// Recently played titles read per server and kind, to find what to base recommendations on.
+const HISTORY_WINDOW: u32 = 40;
+/// Watched titles that each get a "Because you watched" row.
+const RECOMMENDATION_SEEDS: usize = 3;
+const SIMILAR_PER_SEED: u32 = 24;
+
+/// A server without the feature has nothing to list: not an issue to report.
+fn unsupported_as_empty<T>(r: Result<Vec<T>>) -> Result<Vec<T>> {
+    match r {
+        Err(Error::Unsupported(_)) => Ok(Vec::new()),
+        other => other,
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -175,6 +188,68 @@ impl Catalog {
             .await;
         let all: Vec<MediaItem> = results.into_iter().flat_map(|(_, items)| items).collect();
         Aggregated { data: dedupe(all), issues }
+    }
+
+    /// Genres of the movies (or series) of every server, merged by name.
+    /// A server that cannot list genres is left out quietly.
+    pub async fn genres(&self, kind: ItemKind) -> Aggregated<Vec<String>> {
+        let (results, issues) = self.fan_out(|p| async move { unsupported_as_empty(p.genres(kind).await) }).await;
+        Aggregated { data: merge_genres(results.into_iter().map(|(_, genres)| genres).collect()), issues }
+    }
+
+    /// Titles of one genre on every server; the same title on several servers
+    /// is merged. Each server pages on its own, so `start`/`limit` apply per server.
+    pub async fn by_genre(&self, query: &GenreQuery) -> Aggregated<Vec<MediaItem>> {
+        let (results, issues) = self
+            .fan_out(|p| {
+                let query = query.clone();
+                async move { unsupported_as_empty(p.by_genre(&query).await) }
+            })
+            .await;
+        let mut all: Vec<MediaItem> = results.into_iter().flat_map(|(_, items)| items).collect();
+        if query.sort == SortBy::Title {
+            sort_by_title(&mut all, query.order);
+        }
+        Aggregated { data: dedupe(all), issues }
+    }
+
+    /// "Because you watched …" rows built from what the person watched last:
+    /// each server's own notion of similar titles, minus what is already seen.
+    /// Empty when nothing was watched yet.
+    pub async fn recommendations(&self) -> Aggregated<Vec<HomeRow>> {
+        let (history, issues) = self
+            .fan_out(|p| async move {
+                let mut watched = Vec::new();
+                // Series are found through their episodes, which carry the play date.
+                for kind in [ItemKind::Movie, ItemKind::Episode] {
+                    let query = ItemQuery {
+                        parent: None,
+                        kinds: vec![kind],
+                        filter: ItemFilter::default(),
+                        sort: SortBy::LastPlayed,
+                        order: SortOrder::Descending,
+                        start: 0,
+                        limit: HISTORY_WINDOW,
+                    };
+                    match p.items(&query).await {
+                        Ok(page) => watched.extend(page.items),
+                        Err(Error::Unsupported(_)) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(watched)
+            })
+            .await;
+        let seeds = recent_seeds(history.into_iter().flat_map(|(_, items)| items).collect(), RECOMMENDATION_SEEDS);
+        let found = futures::future::join_all(seeds.into_iter().map(|seed| async move {
+            let similar = match self.provider(seed.id.server) {
+                Ok(p) => tokio::time::timeout(SERVER_TIMEOUT, p.similar(&seed.id, SIMILAR_PER_SEED)).await.ok().and_then(Result::ok),
+                Err(_) => None,
+            };
+            (seed, similar.unwrap_or_default())
+        }))
+        .await;
+        Aggregated { data: recommendation_rows(found, SIMILAR_PER_SEED as usize), issues }
     }
 
     /// What the person's own server knows about them (none if it cannot say).

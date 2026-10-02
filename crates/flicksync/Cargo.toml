@@ -16,6 +16,7 @@ async-trait.workspace = true
 base64 = "0.22"
 futures.workspace = true
 hmac = "0.12"
+httpdate = "1"
 oneshot-net.workspace = true
 parking_lot.workspace = true
 serde.workspace = true

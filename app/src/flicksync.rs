@@ -14,10 +14,10 @@ use oneshot_core::ids::ItemRef;
 use oneshot_core::media::ItemKind;
 use oneshot_core::server::ProviderKind;
 use oneshot_core::{Error, Result};
-use oneshot_flicksync::auth::{
-    EndpointTokenProvider, Identity, LocalKeyTokenProvider, SigningKey, TokenProvider, discover, sanitize_user_id,
-};
+use oneshot_flicksync::auth::{Identity, LocalKeyTokenProvider, TokenProvider, sanitize_user_id};
 use oneshot_flicksync::clock::MonotonicClock;
+use oneshot_flicksync::diagnose::{self, Report};
+use oneshot_flicksync::invite::Invitation;
 use oneshot_flicksync::protocol::{MediaRef, MediaType, Provider};
 use oneshot_flicksync::sync::{LocalPlayback, SyncConfig};
 use oneshot_flicksync::{ClientEvent, FlickSyncClient, LoadError, PlaybackController, UserMessage};
@@ -32,8 +32,23 @@ use url::Url;
 
 use crate::state::AppState;
 
-/// Keychain entry for a self-hosted FlickSync signing key (`kid:server_id:secret`).
-pub const KEY_ENTRY: &str = "flicksync-key";
+/// Keychain entry of the manual signing key from before invitation links; only ever deleted now.
+const LEGACY_KEY_ENTRY: &str = "flicksync-key";
+/// Keychain entry for the FlickSync invitation link (address + key: a secret).
+pub const INVITE_ENTRY: &str = "flicksync-invite";
+
+/// The saved invitation, if any. A link that no longer parses (the format
+/// moved on, the entry was damaged) counts as none: it is logged without its content.
+pub fn stored_invitation() -> Result<Option<Invitation>> {
+    let Some(link) = secrets::load_secret(INVITE_ENTRY)? else { return Ok(None) };
+    match Invitation::parse(&link) {
+        Ok(inv) => Ok(Some(inv)),
+        Err(e) => {
+            tracing::warn!(target: "flicksync", "the saved invitation is unusable: {e}");
+            Ok(None)
+        }
+    }
+}
 const EVENT: &str = "flicksync";
 /// How long a joining player waits for the UI to open the player screen.
 const UI_OPEN_TIMEOUT: Duration = Duration::from_secs(20);
@@ -267,6 +282,8 @@ impl std::fmt::Debug for Hub {
 
 impl Hub {
     pub fn new(app: AppHandle) -> Self {
+        // The manual key is no longer used: don't leave a secret behind in the keychain.
+        let _ = secrets::delete_secret(LEGACY_KEY_ENTRY);
         Self {
             controller: Arc::new(AppController::new(app.clone())),
             app,
@@ -288,47 +305,21 @@ impl Hub {
         Identity { user_id: sanitize_user_id(&st.identity.device_id), display_name: name.trim().chars().take(64).collect() }
     }
 
-    /// `(fingerprint, base url, token provider)` from the settings, or why not.
-    async fn configuration(&self, st: &AppState) -> Result<(String, Url, Arc<dyn TokenProvider>)> {
-        let cfg = st.settings().flicksync;
+    /// `(fingerprint, base url, token provider)` from the saved invitation, or why not.
+    fn configuration(&self, st: &AppState) -> Result<(String, Url, Arc<dyn TokenProvider>)> {
         let not_configured = || Error::Other(UserMessage::NotConfigured.text().to_owned());
-        if !cfg.enabled {
+        if !st.settings().flicksync.enabled {
             return Err(not_configured());
         }
+        let invitation = stored_invitation()?.ok_or_else(not_configured)?;
         let who = Self::identity(st);
-        let http = st.http();
-        // The Flick Server comes first, but when it does not answer (or does not offer
-        // FlickSync) a manually configured address + key still works.
-        let mut failure = None;
-        if let Some(server) = cfg.flick_server_url.as_deref().filter(|s| !s.trim().is_empty()) {
-            match Url::parse(server.trim()) {
-                Ok(server) => match discover(&http, &server).await {
-                    Ok(Some((sync_url, token_url))) => {
-                        let fp = format!("server|{sync_url}|{token_url}|{}", who.display_name);
-                        return Ok((fp, sync_url, Arc::new(EndpointTokenProvider::new(http, token_url, who))));
-                    }
-                    Ok(None) => failure = Some(Error::Other(UserMessage::Unavailable.text().to_owned())),
-                    Err(e) => failure = Some(into_error(e)),
-                },
-                Err(_) => failure = Some(not_configured()),
-            }
-        }
-        if let Some(url) = cfg.sync_url.as_deref().filter(|s| !s.trim().is_empty()) {
-            let base = Url::parse(url.trim())
-                .ok()
-                .filter(|u| matches!(u.scheme(), "http" | "https" | "ws" | "wss"))
-                .ok_or_else(|| Error::Other("The FlickSync address isn't valid (use http://host:port or https://…).".into()))?;
-            let key = secrets::load_secret(KEY_ENTRY)?.ok_or_else(not_configured)?;
-            let key = SigningKey::parse(&key).map_err(|_| not_configured())?;
-            let fp = format!("key|{base}|{}|{}|{}", key.kid, key.server_id, who.display_name);
-            return Ok((fp, base, Arc::new(LocalKeyTokenProvider::new(key, who))));
-        }
-        Err(failure.unwrap_or_else(not_configured))
+        let fp = format!("invite|{}|{}|{}|{}", invitation.host(), invitation.tls(), invitation.key.kid, who.display_name);
+        Ok((fp, invitation.base_url(), Arc::new(LocalKeyTokenProvider::new(invitation.key, who))))
     }
 
     /// The client for the current settings (rebuilt when they changed and no room is open).
     pub async fn client(&self, st: &AppState) -> Result<FlickSyncClient> {
-        let (fp, base, tokens) = self.configuration(st).await?;
+        let (fp, base, tokens) = self.configuration(st)?;
         let mut slot = self.client.lock().await;
         if let Some((old_fp, c)) = slot.as_ref()
             && (*old_fp == fp || c.in_room())
@@ -371,11 +362,23 @@ impl Hub {
             }
             Err(_) => {
                 // Something filled in but not working is "unreachable", not "not set up".
-                let cfg = st.settings().flicksync;
-                let filled = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
-                let configured = cfg.enabled && (filled(&cfg.flick_server_url) || filled(&cfg.sync_url));
+                let configured = st.settings().flicksync.enabled && stored_invitation().ok().flatten().is_some();
                 Status { available: false, configured, in_room, message: configured.then_some(UserMessage::Unavailable) }
             }
+        }
+    }
+
+    /// Runs the connection test for an invitation that is not saved (yet).
+    pub async fn check_invitation(&self, st: &AppState, invitation: &Invitation) -> Report {
+        let tokens = LocalKeyTokenProvider::new(invitation.key.clone(), Self::identity(st));
+        diagnose::run(&st.http(), &invitation.base_url(), &tokens).await
+    }
+
+    /// "Test the connection": the settings as they are right now, step by step.
+    pub async fn diagnose(&self, st: &AppState) -> Report {
+        match self.configuration(st) {
+            Ok((_, base, tokens)) => diagnose::run(&st.http(), &base, tokens.as_ref()).await,
+            Err(e) => Report::config_failed(e.to_string()),
         }
     }
 

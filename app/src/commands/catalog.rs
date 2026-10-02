@@ -6,7 +6,7 @@ use oneshot_catalog::{Aggregated, ServerLibraries};
 use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ItemKind, Marker, MediaItem};
 use oneshot_core::provider::Adjacent;
-use oneshot_core::query::{HomeRow, ItemQuery, Page};
+use oneshot_core::query::{GenreQuery, HomeRow, ItemQuery, Page};
 use oneshot_core::Result;
 use tauri::State;
 
@@ -63,6 +63,23 @@ pub async fn markers(state: St<'_>, id: ItemRef) -> Result<Vec<Marker>> {
 #[tauri::command]
 pub async fn search(state: St<'_>, term: String) -> Result<Aggregated<Vec<MediaItem>>> {
     Ok(state.catalog.search(&term, 40).await)
+}
+
+/// Genres of the movies or series of every server (Search page).
+#[tauri::command]
+pub async fn genres(state: St<'_>, kind: ItemKind) -> Result<Aggregated<Vec<String>>> {
+    Ok(state.catalog.genres(kind).await)
+}
+
+#[tauri::command]
+pub async fn by_genre(state: St<'_>, query: GenreQuery) -> Result<Aggregated<Vec<MediaItem>>> {
+    Ok(state.catalog.by_genre(&query).await)
+}
+
+/// "Because you watched …" rows from the person's own history.
+#[tauri::command]
+pub async fn recommendations(state: St<'_>) -> Result<Aggregated<Vec<HomeRow>>> {
+    Ok(state.catalog.recommendations().await)
 }
 
 /// The active profile's favourites on every server that has them.

@@ -8,9 +8,9 @@ use oneshot_core::ids::ItemRef;
 use oneshot_core::media::{ImageRef, ImageSize, ItemKind, Marker, MediaItem};
 use oneshot_core::playback::{ClientProfile, PlaybackInfo, PlaybackReport, StreamRequest, StreamTarget};
 use oneshot_core::provider::{AdminProvider, Adjacent, MediaProvider};
-use oneshot_core::query::{HomeRow, HomeRowKind, ItemQuery, Page, SortBy, SortOrder};
+use oneshot_core::query::{GenreQuery, HomeRow, HomeRowKind, ItemQuery, Page, SortBy, SortOrder};
 use oneshot_core::server::{Library, LibraryKind, ProviderKind, ServerDescriptor, ServerStatus};
-use oneshot_core::text::normalize_name;
+use oneshot_core::text::{find_genre, normalize_name};
 use oneshot_core::{Error, Result};
 use oneshot_net::reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
@@ -62,6 +62,28 @@ impl PlexProvider {
     /// This server's copy of a Plex catalogue title, if its libraries have it.
     async fn by_guid(&self, guid: &str) -> Result<Option<Metadata>> {
         Ok(self.container("library/all", &[("guid", guid.to_owned())]).await?.metadata.into_iter().next())
+    }
+
+    /// Ids of the library sections holding movies (or series).
+    async fn sections(&self, kind: ItemKind) -> Result<Vec<String>> {
+        let wanted = match kind {
+            ItemKind::Movie => LibraryKind::Movies,
+            ItemKind::Series => LibraryKind::Shows,
+            _ => return Ok(Vec::new()),
+        };
+        Ok(self
+            .libraries()
+            .await?
+            .into_iter()
+            .filter(|l| l.kind == wanted)
+            .filter_map(|l| l.id.key.strip_prefix("section:").map(str::to_owned))
+            .collect())
+    }
+
+    /// `(tag id, name)` of every genre of a section.
+    async fn section_genres(&self, section: &str) -> Result<Vec<(String, String)>> {
+        let c = self.container(&format!("library/sections/{section}/genre"), &[]).await?;
+        Ok(c.directories.into_iter().map(|d| (d.key, d.title)).collect())
     }
 
     pub(crate) fn server(&self) -> oneshot_core::ServerId {
@@ -299,8 +321,45 @@ impl MediaProvider for PlexProvider {
         w.set(&guid, favorite).await
     }
 
+    async fn genres(&self, kind: ItemKind) -> Result<Vec<String>> {
+        let sections = self.sections(kind).await?;
+        let listed = futures::future::join_all(sections.iter().map(|s| self.section_genres(s))).await;
+        let mut names: Vec<String> = Vec::new();
+        for genres in listed {
+            for (_, title) in genres? {
+                if find_genre(&names, &title).is_none() {
+                    names.push(title);
+                }
+            }
+        }
+        Ok(names)
+    }
+
+    /// Plex filters by genre *tag id*, which is per library section: the name
+    /// is resolved in each section of the right kind, then that section is asked.
+    async fn by_genre(&self, query: &GenreQuery) -> Result<Vec<MediaItem>> {
+        let Some(type_number) = map::type_number(query.kind) else { return Ok(Vec::new()) };
+        let mut out = Vec::new();
+        for section in self.sections(query.kind).await? {
+            let genres = self.section_genres(&section).await?;
+            let names: Vec<String> = genres.iter().map(|(_, title)| title.clone()).collect();
+            let Some(found) = find_genre(&names, &query.genre) else { continue };
+            let Some((tag, _)) = genres.iter().find(|(_, title)| title == found) else { continue };
+            let q = [
+                ("type", type_number.to_string()),
+                ("genre", tag.clone()),
+                ("sort", sort(query.sort, query.order)),
+                ("X-Plex-Container-Start", query.start.to_string()),
+                ("X-Plex-Container-Size", query.limit.to_string()),
+                ("includeGuids", "1".into()),
+            ];
+            out.extend(self.items(&self.container(&format!("library/sections/{section}/all"), &q).await?.metadata));
+        }
+        Ok(out)
+    }
+
     async fn person_items(&self, name: &str, hint: Option<&ItemRef>) -> Result<Vec<MediaItem>> {
-        let own = hint.filter(|h| h.server == self.server()).and_then(|h| h.key.parse::<i64>().ok());
+        let own =hint.filter(|h| h.server == self.server()).and_then(|h| h.key.parse::<i64>().ok());
         let actor = match own {
             Some(id) => Some(id),
             None => self.actor_id(name).await?,

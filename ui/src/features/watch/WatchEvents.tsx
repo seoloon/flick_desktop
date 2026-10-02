@@ -17,11 +17,11 @@ export function WatchEvents() {
   onPlayer.current = pathname === "/play";
   const flicksync = useSettings()?.flicksync;
 
-  // Availability follows the settings (server address, key, switch).
+  // Availability follows the switch (the invitation link refreshes it itself).
   // Settings reach Rust after a short debounce: push them first, then ask.
   useEffect(() => {
     void flushSettings().then(refreshStatus, refreshStatus);
-  }, [flicksync?.enabled, flicksync?.flickServerUrl, flicksync?.syncUrl]);
+  }, [flicksync?.enabled]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

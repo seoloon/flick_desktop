@@ -5,6 +5,7 @@ import type { Aggregated } from "./bindings/Aggregated";
 import type { CapabilityReport } from "./bindings/CapabilityReport";
 import type { DebugInfo } from "./bindings/DebugInfo";
 import type { RoomState } from "./bindings/RoomState";
+import type { GenreQuery } from "./bindings/GenreQuery";
 import type { HomeRow } from "./bindings/HomeRow";
 import type { ImageKind } from "./bindings/ImageKind";
 import type { ItemKind } from "./bindings/ItemKind";
@@ -32,7 +33,10 @@ import type {
   AdminOverview,
   AppError,
   CssRect,
+  FlickSyncDiagnosis,
   FlickSyncStatus,
+  InvitationAdded,
+  InvitationInfo,
   LogEntry,
   Palette,
   PlexPin,
@@ -105,6 +109,9 @@ export const api = {
   adjacent: (id: ItemRef) => call<Adjacent>("adjacent", { id }),
   markers: (id: ItemRef) => call<Marker[]>("markers", { id }),
   search: (term: string) => call<Aggregated<MediaItem[]>>("search", { term }),
+  genres: (kind: ItemKind) => call<Aggregated<string[]>>("genres", { kind }),
+  byGenre: (query: GenreQuery) => call<Aggregated<MediaItem[]>>("by_genre", { query }),
+  recommendations: () => call<Aggregated<HomeRow[]>>("recommendations"),
   favorites: () => call<Aggregated<MediaItem[]>>("favorites"),
 
   // people
@@ -128,6 +135,7 @@ export const api = {
 
   // watch together
   flicksyncStatus: () => call<FlickSyncStatus>("flicksync_status"),
+  flicksyncDiagnose: () => call<FlickSyncDiagnosis>("flicksync_diagnose"),
   flicksyncCreate: (hostOnly: boolean) => call<RoomState>("flicksync_create", { hostOnly }),
   flicksyncJoin: (code: string) => call<RoomState>("flicksync_join", { code }),
   flicksyncLeave: () => call<void>("flicksync_leave"),
@@ -138,9 +146,9 @@ export const api = {
   flicksyncCloseRoom: () => call<void>("flicksync_close_room"),
   flicksyncResyncMedia: () => call<void>("flicksync_resync_media"),
   flicksyncDebug: () => call<DebugInfo | null>("flicksync_debug"),
-  flicksyncHasKey: () => call<boolean>("flicksync_has_key"),
-  flicksyncSetKey: (key: string) => call<void>("flicksync_set_key", { key }),
-  flicksyncClearKey: () => call<void>("flicksync_clear_key"),
+  flicksyncInvitation: () => call<InvitationInfo | null>("flicksync_invitation"),
+  flicksyncAddInvitation: (link: string) => call<InvitationAdded>("flicksync_add_invitation", { link }),
+  flicksyncClearInvitation: () => call<void>("flicksync_clear_invitation"),
 
   // system
   settingsGet: () => call<Settings>("settings_get"),
