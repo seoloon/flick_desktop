@@ -2,8 +2,11 @@
 //! and the key its users sign in with.
 //!
 //! ```text
-//! flicksync://<host>[:<port>]/?v=1&tls=<0|1>#k=<base64url(kid:server_id:secret)>
+//! flicksync://<host>[:<port>][/<prefix>]/?v=1&tls=<0|1>#k=<base64url(kid:server_id:secret)>
 //! ```
+//!
+//! `<prefix>` is the path under which a reverse proxy serves FlickSync
+//! (`/sync`); every API path is appended to the base URL, prefix included.
 //!
 //! The key sits in the fragment so it is never sent over HTTP nor seen by a
 //! proxy. The link **is** a secret: it is parsed here, kept in the OS keychain
@@ -33,8 +36,8 @@ pub enum InviteError {
     BadKey,
     #[error("the link has no usable address")]
     BadAddress,
-    #[error("the link has a path")]
-    PathNotAllowed,
+    #[error("the link has an invalid path")]
+    BadPath,
     #[error("the link has no valid version")]
     BadVersion,
     #[error("unsupported link version")]
@@ -50,7 +53,7 @@ impl InviteError {
             Self::NotAnInvitation => "This isn't a FlickSync invitation link.",
             Self::UnsupportedVersion => "This link comes from a newer version of FlickSync. Update Flick.",
             Self::MissingKey | Self::BadKey => "The link is incomplete: copy it again in full.",
-            Self::BadAddress | Self::PathNotAllowed | Self::BadVersion | Self::BadTls => "The link is damaged: copy it again in full, or ask for a new one.",
+            Self::BadAddress | Self::BadPath | Self::BadVersion | Self::BadTls => "The link is damaged: copy it again in full, or ask for a new one.",
         }
     }
 }
@@ -59,6 +62,8 @@ impl InviteError {
 pub struct Invitation {
     /// Lower-case `host[:port]`; an IPv6 host keeps its brackets.
     host: String,
+    /// Path prefix of a reverse proxy: empty, or `/seg[/seg…]` without a trailing slash.
+    prefix: String,
     tls: bool,
     pub key: SigningKey,
 }
@@ -69,10 +74,9 @@ impl Invitation {
         let rest = s.trim().strip_prefix(SCHEME).ok_or(InviteError::NotAnInvitation)?;
         let (before, fragment) = rest.split_once('#').ok_or(InviteError::MissingKey)?;
         let (location, query) = before.split_once('?').unwrap_or((before, ""));
-        let authority = match location.split_once('/') {
-            Some((a, "")) => a,
-            Some(_) => return Err(InviteError::PathNotAllowed),
-            None => location,
+        let (authority, prefix) = match location.split_once('/') {
+            Some((a, path)) => (a, normalize_prefix(path)?),
+            None => (location, String::new()),
         };
         let host = normalize_authority(authority)?;
 
@@ -89,27 +93,34 @@ impl Invitation {
         let raw = URL_SAFE_NO_PAD.decode(param(fragment, "k").ok_or(InviteError::MissingKey)?).map_err(|_| InviteError::BadKey)?;
         let key = String::from_utf8(raw).map_err(|_| InviteError::BadKey)?;
         let key = SigningKey::parse(&key).map_err(|_| InviteError::BadKey)?;
-        Ok(Self { host, tls, key })
+        Ok(Self { host, prefix, tls, key })
     }
 
     /// The canonical link, to store or compare. A secret.
     pub fn link(&self) -> String {
-        format!("{SCHEME}{}/?v={VERSION}&tls={}#k={}", self.host, u8::from(self.tls), URL_SAFE_NO_PAD.encode(self.key.expose()))
+        format!("{SCHEME}{}{}/?v={VERSION}&tls={}#k={}", self.host, self.prefix, u8::from(self.tls), URL_SAFE_NO_PAD.encode(self.key.expose()))
     }
 
-    /// `host[:port]`, safe to show.
+    /// `host[:port]`, without the prefix.
     pub fn host(&self) -> &str {
         &self.host
+    }
+
+    /// `host[:port][/prefix]`: what the server is called, safe to show.
+    pub fn address(&self) -> String {
+        format!("{}{}", self.host, self.prefix)
     }
 
     pub fn tls(&self) -> bool {
         self.tls
     }
 
-    /// REST base: no trailing path.
+    /// REST base, prefix included. It ends with `/`, so that joining `api/v1/…`
+    /// to it keeps the prefix (`https://flick.example.com/sync/`).
     pub fn base_url(&self) -> Url {
-        // The authority was validated at parse time, so this cannot fail.
-        Url::parse(&format!("{}://{}", if self.tls { "https" } else { "http" }, self.host)).unwrap_or_else(|_| Url::parse("http://invalid/").expect("static url"))
+        // The authority and the prefix were validated at parse time, so this cannot fail.
+        Url::parse(&format!("{}://{}{}/", if self.tls { "https" } else { "http" }, self.host, self.prefix))
+            .unwrap_or_else(|_| Url::parse("http://invalid/").expect("static url"))
     }
 
     /// Plain HTTP to a host that is not on a local network: tokens would cross
@@ -126,6 +137,22 @@ fn param<'a>(text: &'a str, name: &str) -> Option<&'a str> {
 
 fn valid_port(p: &str) -> bool {
     !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u32>().is_ok_and(|n| (1..=65535).contains(&n))
+}
+
+/// The path after the authority (`""`, `"sync/"`, `"sync"`, `"a/b/"`) as a
+/// prefix: empty, or `/a/b`. Segments are `A-Za-z0-9 - . _ ~`, never empty,
+/// `.` or `..`; at most one trailing slash.
+fn normalize_prefix(path: &str) -> Result<String, InviteError> {
+    // `path` follows the first slash: `"/"` would be an empty segment (`host//`).
+    if path == "/" {
+        return Err(InviteError::BadPath);
+    }
+    let path = path.strip_suffix('/').unwrap_or(path);
+    if path.is_empty() {
+        return Ok(String::new());
+    }
+    let segment_ok = |s: &str| !s.is_empty() && s != "." && s != ".." && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'));
+    if path.split('/').all(segment_ok) { Ok(format!("/{path}")) } else { Err(InviteError::BadPath) }
 }
 
 /// Lower-cases and checks `host[:port]` (`[v6]` in brackets).
@@ -231,7 +258,34 @@ mod tests {
         assert_eq!(ok("/?tls=1").unwrap_err(), InviteError::BadVersion);
         assert_eq!(ok("/?v=1&tls=2").unwrap_err(), InviteError::BadTls);
         assert_eq!(ok("/?v=1").unwrap_err(), InviteError::BadTls);
-        assert_eq!(ok("/x/?v=1&tls=1").unwrap_err(), InviteError::PathNotAllowed);
+    }
+
+    #[test]
+    fn a_proxy_prefix_is_kept_in_the_base_url_the_address_and_the_link() {
+        let sync = format!("flicksync://flick.example.com/sync/?v=1&tls=1#{}", k());
+        let inv = Invitation::parse(&sync).unwrap();
+        assert_eq!(inv.host(), "flick.example.com");
+        assert_eq!(inv.address(), "flick.example.com/sync");
+        assert_eq!(inv.base_url().as_str(), "https://flick.example.com/sync/");
+        assert_eq!(inv.base_url().join("api/v1/rooms").unwrap().as_str(), "https://flick.example.com/sync/api/v1/rooms", "joins stay under the prefix");
+        assert_eq!(inv.link(), sync);
+        // Several segments, a port, and a missing trailing slash (tolerated, written back with it).
+        let deep = Invitation::parse(&link("a.example:8443", "/x/y.z_~-1?v=1&tls=0", &k())).unwrap();
+        assert_eq!(deep.address(), "a.example:8443/x/y.z_~-1");
+        assert_eq!(deep.base_url().as_str(), "http://a.example:8443/x/y.z_~-1/");
+        let bare = Invitation::parse(&link("a.example", "/sync?v=1&tls=1", &k())).unwrap();
+        assert_eq!(bare.address(), "a.example/sync");
+        assert!(bare.link().contains("a.example/sync/?v=1"));
+        // No prefix: the same as before.
+        assert_eq!(Invitation::parse(LINK).unwrap().base_url().as_str(), "https://sync.example.com/");
+    }
+
+    #[test]
+    fn invalid_prefixes_are_refused() {
+        for path in ["//", "/sync//", "//sync/", "/./", "/../", "/a/../b/", "/a b/", "/sy%6ec/", "/é/"] {
+            let r = Invitation::parse(&link("a.example", &format!("{path}?v=1&tls=1"), &k()));
+            assert_eq!(r.unwrap_err(), InviteError::BadPath, "{path:?}");
+        }
     }
 
     #[test]

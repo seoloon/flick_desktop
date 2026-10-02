@@ -313,7 +313,7 @@ impl Hub {
         }
         let invitation = stored_invitation()?.ok_or_else(not_configured)?;
         let who = Self::identity(st);
-        let fp = format!("invite|{}|{}|{}|{}", invitation.host(), invitation.tls(), invitation.key.kid, who.display_name);
+        let fp = format!("invite|{}|{}|{}|{}", invitation.address(), invitation.tls(), invitation.key.kid, who.display_name);
         Ok((fp, invitation.base_url(), Arc::new(LocalKeyTokenProvider::new(invitation.key, who))))
     }
 

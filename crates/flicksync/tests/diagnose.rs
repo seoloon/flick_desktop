@@ -65,6 +65,22 @@ async fn a_healthy_server_passes_every_step() {
 }
 
 #[tokio::test]
+async fn a_server_behind_a_proxy_prefix_is_reached_under_that_prefix() {
+    // Only paths under /sync answer: asking `/health` at the root would 404.
+    let root = serve(|path| match path {
+        "/sync/health" => ("200 OK", "", r#"{"status":"ok"}"#),
+        "/sync/ready" => ("200 OK", "", r#"{"status":"ready"}"#),
+        "/sync/api/v1/rooms/DIAGNOSTIC" => ("404 Not Found", "", r#"{"error":{"code":"ROOM_NOT_FOUND","message":"x"}}"#),
+        _ => ("404 Not Found", "", "{}"),
+    })
+    .await;
+    let base = root.join("sync/").unwrap();
+    let r = diagnose::run(&oneshot_net::reqwest::Client::new(), &base, &StaticToken).await;
+    assert!(r.passed(), "{r:?}");
+    assert_eq!(status_of(&r, Step::Auth), Status::Ok);
+}
+
+#[tokio::test]
 async fn a_rejected_key_says_which_part_to_check() {
     let base = serve(|path| match path {
         "/health" => ("200 OK", "", r#"{"status":"ok"}"#),

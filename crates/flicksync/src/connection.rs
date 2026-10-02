@@ -38,6 +38,7 @@ pub fn jitter() -> f64 {
 }
 
 /// `https://sync.example.com` + `/api/v1/rooms/X/ws` → `wss://sync.example.com/api/v1/rooms/X/ws`.
+/// Behind a proxy prefix: `https://flick.example.com/sync/` → `wss://flick.example.com/sync/api/v1/rooms/X/ws`.
 /// `ws_path` comes from the server, so it is only accepted as a plain
 /// absolute path under `/api/v1/rooms/`: never another host or scheme.
 pub fn ws_url(base: &Url, ws_path: &str) -> Result<Url> {
@@ -56,7 +57,8 @@ pub fn ws_url(base: &Url, ws_path: &str) -> Result<Url> {
         _ => return Err(Error::NotConfigured),
     };
     url.set_scheme(scheme).map_err(|()| Error::NotConfigured)?;
-    url.set_path(ws_path);
+    // The API paths are relative to the base, whose own path (a proxy prefix) stays.
+    url.set_path(&format!("{}{ws_path}", base.path().trim_end_matches('/')));
     url.set_query(None);
     Ok(url)
 }
@@ -183,6 +185,16 @@ mod tests {
         assert_eq!(ws_url(&base, "/api/v1/rooms/ABC/ws").unwrap().as_str(), "wss://sync.example.com/api/v1/rooms/ABC/ws");
         let local = Url::parse("http://localhost:8787").unwrap();
         assert_eq!(ws_url(&local, "/api/v1/rooms/ABC/ws").unwrap().as_str(), "ws://localhost:8787/api/v1/rooms/ABC/ws");
+    }
+
+    #[test]
+    fn websocket_url_keeps_the_proxy_prefix_of_the_base() {
+        let base = Url::parse("https://flick.example.com/sync/").unwrap();
+        assert_eq!(ws_url(&base, "/api/v1/rooms/ABC/ws").unwrap().as_str(), "wss://flick.example.com/sync/api/v1/rooms/ABC/ws");
+        let deep = Url::parse("http://h:8080/a/b/").unwrap();
+        assert_eq!(ws_url(&deep, "/api/v1/rooms/ABC/ws").unwrap().as_str(), "ws://h:8080/a/b/api/v1/rooms/ABC/ws");
+        // The prefix cannot be used to smuggle a different path in.
+        assert!(ws_url(&base, "/sync/../x").is_err());
     }
 
     #[test]

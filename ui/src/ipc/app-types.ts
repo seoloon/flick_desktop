@@ -81,8 +81,8 @@ export type FlickSyncDiagnosis = { checks: DiagnosisCheck[] };
 
 /** The saved invitation as the UI may see it: never the key. */
 export type InvitationInfo = {
-  /** `host[:port]`. */
-  host: string;
+  /** `host[:port][/prefix]`. */
+  address: string;
   tls: boolean;
   /** Plain HTTP across the Internet: tokens would travel in the clear. */
   insecureRemote: boolean;

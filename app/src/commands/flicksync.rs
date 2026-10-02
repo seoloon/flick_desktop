@@ -107,8 +107,8 @@ pub fn flicksync_current_item(state: St<'_>) -> Option<ItemRef> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InvitationInfo {
-    /// `host[:port]`.
-    pub host: String,
+    /// `host[:port][/prefix]`.
+    pub address: String,
     pub tls: bool,
     /// Plain HTTP across the Internet: tokens would travel in the clear.
     pub insecure_remote: bool,
@@ -116,7 +116,7 @@ pub struct InvitationInfo {
 
 impl From<&Invitation> for InvitationInfo {
     fn from(i: &Invitation) -> Self {
-        Self { host: i.host().to_owned(), tls: i.tls(), insecure_remote: i.is_insecure_remote() }
+        Self { address: i.address(), tls: i.tls(), insecure_remote: i.is_insecure_remote() }
     }
 }
 

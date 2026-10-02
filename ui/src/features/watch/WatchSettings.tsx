@@ -112,7 +112,7 @@ function Invitation({ enabled, onSaved }: { enabled: boolean; onSaved: () => voi
         return;
       }
       setLink("");
-      toast.success(`Connected to ${added.info.host}`);
+      toast.success(`Connected to ${added.info.address}`);
       if (!enabled) onSaved();
       changed();
     } catch (e) {
@@ -132,7 +132,7 @@ function Invitation({ enabled, onSaved }: { enabled: boolean; onSaved: () => voi
   const info = saved.data;
   return (
     <SettingsGroup title="Invitation" note={<p>Paste the invitation link from your FlickSync server's administrator: it holds the address and the key. It is stored in the system keychain.</p>}>
-      {info && <InfoRow label="Server">{info.host}{info.tls ? "" : " (not encrypted)"}</InfoRow>}
+      {info && <InfoRow label="Server">{info.address}{info.tls ? "" : " (not encrypted)"}</InfoRow>}
       <div className="flex flex-col gap-4 px-4 py-4">
         {info?.insecureRemote && <Notice tone="warn">This server is reached without encryption across the Internet: your sign-in tokens travel in the clear. Ask for an https link.</Notice>}
         <TextField label={info ? "Replace with a new link" : "Invitation link"} type="password" placeholder="flicksync://…" value={link} onChange={setLink} onEnter={() => link.trim() && void connect()} />
