@@ -517,7 +517,11 @@ mpv = `Index` Jellyfin/Plex), les sous-titres externes par leur URL.
 - **Aucun mot de passe stocké.** Jellyfin : mot de passe envoyé une fois pour
   obtenir un token (ou Quick Connect). Plex : flux PIN, jamais de mot de passe.
 - Tokens dans le **trousseau de l'OS** (`keyring` : Windows Credential Manager,
-  macOS Keychain, Secret Service), clé = `ServerId`. Plex garde en plus le
+  macOS Keychain, Secret Service), clé = `ServerId`, **tous dans une seule entrée**
+  (`vault`, un JSON clé → secret) : le Keychain macOS redemande le mot de passe
+  entrée par entrée quand la signature change (build ad hoc), donc une entrée =
+  une seule demande. Les anciennes entrées (une par clé) migrent dans le
+  coffre à leur première lecture. Plex garde en plus le
   token plex.tv du compte (`plex-account`) et celui de chaque utilisateur
   (`plex-user:<id>`, pour sa Watchlist), ainsi que la clé TMDB (`tmdb-key`)
   saisie dans Réglages › Metadata, jamais renvoyée à la WebView. La base SQLite ne contient aucun
