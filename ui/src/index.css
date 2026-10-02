@@ -136,8 +136,8 @@
   --card-gap: 1.5rem;
   --sidebar-w: 15.5rem;
   /* Screens start right of the sidebar; heroes bleed under it. Unlike the
-     sidebar width this does not animate: the content jumps to its new
-     margin once and slides there by transform (lib/sidebar.ts). */
+     sidebar width this does not animate: the content takes its new margin
+     at once (one layout) while the sidebar glides over it (lib/sidebar.ts). */
   --content-left: 15.5rem;
 }
 

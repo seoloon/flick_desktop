@@ -23,28 +23,13 @@ apply(initial);
 
 export const useSidebar = create<{ collapsed: boolean }>(() => ({ collapsed: initial }));
 
-const EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
-const DURATION = 500;
-
-/**
- * FLIP: the screen takes its new margin at once (a single layout), then
- * slides from where it was by transform, which the compositor animates
- * without relayout. Only the light sidebar actually changes width.
- */
-function slideContent(update: () => void) {
-  const main = document.querySelector("main");
-  const before = main ? parseFloat(getComputedStyle(main).paddingLeft) : 0;
-  update();
-  if (!main || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const delta = before - parseFloat(getComputedStyle(main).paddingLeft);
-  if (Math.abs(delta) < 1) return;
-  main.animate([{ transform: `translateX(${delta}px)` }, { transform: "translateX(0)" }], { duration: DURATION, easing: EASE });
-}
-
 export function toggleSidebar() {
   const collapsed = !useSidebar.getState().collapsed;
   useSidebar.setState({ collapsed });
-  slideContent(() => apply(collapsed));
+  // The screen takes its new margin at once while the sidebar, which floats
+  // over it, glides alone. Sliding the screen too would make every frosted
+  // layer re-blur moving content for the whole animation: WebKit cannot.
+  apply(collapsed);
   try {
     localStorage.setItem(KEY, collapsed ? "1" : "0");
   } catch {

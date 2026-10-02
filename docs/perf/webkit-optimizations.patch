@@ -1,0 +1,470 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index fa460c6..2517b61 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -53,3 +53,5 @@ undocumented_unsafe_blocks = "warn"
+ [profile.release]
+ lto = "thin"
+ codegen-units = 1
++# Symbols are dead weight in a shipped binary: a smaller file to map and load.
++strip = "symbols"
+diff --git a/ui/src/App.tsx b/ui/src/App.tsx
+index b26d193..6d9adbc 100644
+--- a/ui/src/App.tsx
++++ b/ui/src/App.tsx
+@@ -1,28 +1,16 @@
+ import { QueryClientProvider } from "@tanstack/react-query";
+ import { LayoutGroup, MotionConfig } from "motion/react";
+-import { type ReactNode, useEffect, useState } from "react";
++import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
+ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
+ import { ErrorBoundary } from "@/components/ErrorBoundary";
+ import { ItemMenu } from "@/components/tv/ItemMenu";
+ import { Toaster } from "@/components/ui/sonner";
+-import { Admin } from "@/features/admin/Admin";
+-import { Debug } from "@/features/debug/Debug";
+-import { Detail } from "@/features/detail/Detail";
+-import { Favorites } from "@/features/favorites/Favorites";
+ import { LaunchIntro } from "@/features/intro/LaunchIntro";
+ import { useIntro } from "@/lib/intro";
+-import { PersonPage } from "@/features/person/PersonPage";
+ import { Home } from "@/features/home/Home";
+-import { Libraries } from "@/features/library/Libraries";
+-import { LibraryGrid } from "@/features/library/LibraryGrid";
+-import { PlayerView } from "@/features/player/PlayerView";
+ import { ProfileGate } from "@/features/profiles/ProfileGate";
+ import { ProfilePicker } from "@/features/profiles/ProfilePicker";
+-import { GenreGrid } from "@/features/search/GenreGrid";
+-import { Search } from "@/features/search/Search";
+-import { Settings } from "@/features/settings/Settings";
+ import { UpdatePrompt } from "@/features/updates/UpdatePrompt";
+-import { Watch } from "@/features/watch/Watch";
+ import { WatchEvents } from "@/features/watch/WatchEvents";
+ import { toggleFrame } from "@/lib/mode";
+ import { useSettings } from "@/lib/settings";
+@@ -31,11 +19,57 @@ import { onAction, setBackFallback } from "@/nav/input";
+ import { Shell } from "@/shell/Shell";
+ import { queryClient } from "@/lib/queryClient";
+ 
++// Screens other than Home load on demand: the first paint parses a fraction
++// of the code (WebKit on a small machine feels every megabyte of script), and
++// a screen's chunk comes from the app bundle, not the network. The likely next
++// ones are fetched when the app is idle, so navigation stays instant.
++const screens = {
++  Admin: () => import("@/features/admin/Admin").then((m) => ({ default: m.Admin })),
++  Debug: () => import("@/features/debug/Debug").then((m) => ({ default: m.Debug })),
++  Detail: () => import("@/features/detail/Detail").then((m) => ({ default: m.Detail })),
++  Favorites: () => import("@/features/favorites/Favorites").then((m) => ({ default: m.Favorites })),
++  PersonPage: () => import("@/features/person/PersonPage").then((m) => ({ default: m.PersonPage })),
++  Libraries: () => import("@/features/library/Libraries").then((m) => ({ default: m.Libraries })),
++  LibraryGrid: () => import("@/features/library/LibraryGrid").then((m) => ({ default: m.LibraryGrid })),
++  PlayerView: () => import("@/features/player/PlayerView").then((m) => ({ default: m.PlayerView })),
++  GenreGrid: () => import("@/features/search/GenreGrid").then((m) => ({ default: m.GenreGrid })),
++  Search: () => import("@/features/search/Search").then((m) => ({ default: m.Search })),
++  Settings: () => import("@/features/settings/Settings").then((m) => ({ default: m.Settings })),
++  Watch: () => import("@/features/watch/Watch").then((m) => ({ default: m.Watch })),
++};
++const Admin = lazy(screens.Admin);
++const Debug = lazy(screens.Debug);
++const Detail = lazy(screens.Detail);
++const Favorites = lazy(screens.Favorites);
++const PersonPage = lazy(screens.PersonPage);
++const Libraries = lazy(screens.Libraries);
++const LibraryGrid = lazy(screens.LibraryGrid);
++const PlayerView = lazy(screens.PlayerView);
++const GenreGrid = lazy(screens.GenreGrid);
++const Search = lazy(screens.Search);
++const Settings = lazy(screens.Settings);
++const Watch = lazy(screens.Watch);
++
++/** Once the first screen is up, fetch the chunks people open next. */
++function preloadScreens() {
++  const idle = window.requestIdleCallback ?? ((f: () => void) => window.setTimeout(f, 1500));
++  const queue = [screens.Detail, screens.PlayerView, screens.Libraries, screens.LibraryGrid, screens.Search, screens.Settings, screens.Favorites];
++  const next = () => {
++    const load = queue.shift();
++    if (!load) return;
++    void load().finally(() => idle(next));
++  };
++  idle(next);
++}
++
++/** A screen still loading shows nothing for the few milliseconds it takes. */
++const Lazy = ({ children }: { children: ReactNode }) => <Suspense fallback={null}>{children}</Suspense>;
++
+ /** A new item remounts the player (fresh session state). */
+ function PlayerRoute() {
+   const [params] = useSearchParams();
+   const item = params.get("item");
+-  return item ? <PlayerView key={`${item}:${params.get("start") ?? ""}`} itemId={item} startMs={Number(params.get("start") ?? 0) || 0} /> : null;
++  return item ? <Lazy><PlayerView key={`${item}:${params.get("start") ?? ""}`} itemId={item} startMs={Number(params.get("start") ?? 0) || 0} /></Lazy> : null;
+ }
+ 
+ /** A render error shows a message instead of a blank window; navigating resets it. */
+@@ -68,6 +102,10 @@ export function App() {
+   // runs underneath and loads while it plays.
+   const run = useIntro((s) => s.run);
+   const [shown, setShown] = useState(-1);
++  // Not while the intro plays: it needs every frame.
++  useEffect(() => {
++    if (shown >= 0) preloadScreens();
++  }, [shown]);
+   return (
+     <QueryClientProvider client={queryClient}>
+       <MotionConfig reducedMotion={intensity === 0 ? "always" : "user"}>
+@@ -85,19 +123,19 @@ export function App() {
+               <Route path="/profiles" element={<ProfilePicker />} />
+               <Route element={<Shell />}>
+                 <Route path="/" element={<Home />} />
+-                <Route path="/libraries" element={<Libraries />} />
+-                <Route path="/library/:id" element={<LibraryGrid />} />
+-                <Route path="/item/:id" element={<Detail />} />
+-                <Route path="/search" element={<Search />} />
+-                <Route path="/search/genre" element={<GenreGrid />} />
++                <Route path="/libraries" element={<Lazy><Libraries /></Lazy>} />
++                <Route path="/library/:id" element={<Lazy><LibraryGrid /></Lazy>} />
++                <Route path="/item/:id" element={<Lazy><Detail /></Lazy>} />
++                <Route path="/search" element={<Lazy><Search /></Lazy>} />
++                <Route path="/search/genre" element={<Lazy><GenreGrid /></Lazy>} />
+                 {/* Servers moved into Settings; old links keep working. */}
+                 <Route path="/servers" element={<Navigate to="/settings?s=servers" replace />} />
+-                <Route path="/favorites" element={<Favorites />} />
+-                <Route path="/watch" element={<Watch />} />
+-                <Route path="/person/:ref" element={<PersonPage />} />
+-                <Route path="/settings" element={<Settings />} />
+-                <Route path="/admin" element={<Admin />} />
+-                <Route path="/debug" element={<Debug />} />
++                <Route path="/favorites" element={<Lazy><Favorites /></Lazy>} />
++                <Route path="/watch" element={<Lazy><Watch /></Lazy>} />
++                <Route path="/person/:ref" element={<Lazy><PersonPage /></Lazy>} />
++                <Route path="/settings" element={<Lazy><Settings /></Lazy>} />
++                <Route path="/admin" element={<Lazy><Admin /></Lazy>} />
++                <Route path="/debug" element={<Lazy><Debug /></Lazy>} />
+               </Route>
+             </Routes>
+             </Guarded>
+diff --git a/ui/src/components/tv/Card.tsx b/ui/src/components/tv/Card.tsx
+index 271179d..99e8ed5 100644
+--- a/ui/src/components/tv/Card.tsx
++++ b/ui/src/components/tv/Card.tsx
+@@ -3,8 +3,7 @@
+ // thing: the card lifts, casts a deep shadow and catches a specular sheen;
+ // under a pointer it also tilts toward the cursor (tvOS parallax).
+ import { Check } from "lucide-react";
+-import { motion, useMotionTemplate, useMotionValue, useSpring } from "motion/react";
+-import { type PointerEvent, useState } from "react";
++import { type PointerEvent, useRef, useState } from "react";
+ import { useLocation, useNavigate } from "react-router";
+ import type { ItemRef } from "@/ipc/bindings/ItemRef";
+ import type { MediaItem } from "@/ipc/bindings/MediaItem";
+@@ -14,7 +13,6 @@ import type { ImageSize } from "@/ipc/bindings/ImageSize";
+ import { ambientFor } from "@/lib/ambient";
+ import { episodeLabel, progress } from "@/lib/format";
+ import { openItemMenu, useOverridden } from "@/lib/itemMenu";
+-import { focusSpring } from "@/lib/motion";
+ import { useSources } from "@/lib/servers";
+ import { cn } from "@/lib/utils";
+ import { ServerBadge } from "./ServerBadge";
+@@ -59,6 +57,10 @@ type CardProps = {
+   onSelect?: (item: MediaItem) => void;
+ };
+ 
++// Everything that moves is plain CSS (transform, opacity on their own layers),
++// so a card costs no animation objects while it rests: a Home screen holds
++// hundreds. Pointer tilt and sheen only write two pairs of CSS variables, on
++// the one card under the cursor.
+ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: CardProps) {
+   const item = useOverridden(listed);
+   const navigate = useNavigate();
+@@ -66,32 +68,25 @@ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: Ca
+   const tv = useTv<HTMLButtonElement>({ focusKey, onFocused: () => ambientFor(item) });
+   const [hover, setHover] = useState(false);
+   const lifted = tv.showFocus || hover;
++  const tilt = useRef<HTMLDivElement>(null);
+ 
+   // Tilt and sheen follow the pointer; with a remote they rest at a gentle
+   // top-left light, like the Apple TV idle state.
+-  const rx = useMotionValue(0);
+-  const ry = useMotionValue(0);
+-  const srx = useSpring(rx, { stiffness: 300, damping: 26, mass: 0.5 });
+-  const sry = useSpring(ry, { stiffness: 300, damping: 26, mass: 0.5 });
+-  const lx = useSpring(30, { stiffness: 200, damping: 30 });
+-  const ly = useSpring(0, { stiffness: 200, damping: 30 });
+-  const sheen = useMotionTemplate`radial-gradient(90% 70% at ${lx}% ${ly}%, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.02) 45%, transparent 70%)`;
+-
+   const onMove = (e: PointerEvent<HTMLButtonElement>) => {
++    const el = tilt.current;
++    if (!el) return;
+     const r = e.currentTarget.getBoundingClientRect();
+     const px = (e.clientX - r.left) / r.width;
+     const py = (e.clientY - r.top) / r.height;
+-    ry.set((px * 2 - 1) * MAX_TILT);
+-    rx.set(-(py * 2 - 1) * MAX_TILT);
+-    lx.set(px * 100);
+-    ly.set(py * 100);
++    el.style.setProperty("--ry", `${((px * 2 - 1) * MAX_TILT).toFixed(2)}deg`);
++    el.style.setProperty("--rx", `${(-(py * 2 - 1) * MAX_TILT).toFixed(2)}deg`);
++    el.style.setProperty("--lx", `${(px * 100).toFixed(1)}%`);
++    el.style.setProperty("--ly", `${(py * 100).toFixed(1)}%`);
+   };
+   const onLeave = () => {
+     setHover(false);
+-    rx.set(0);
+-    ry.set(0);
+-    lx.set(30);
+-    ly.set(0);
++    const el = tilt.current;
++    if (el) for (const v of ["--rx", "--ry", "--lx", "--ly"]) el.style.removeProperty(v);
+   };
+ 
+   const open = () => (onSelect ? onSelect(item) : navigate(detailPath(item.id), { state: { navSection: navSection(pathname, search, state) } }));
+@@ -101,9 +96,10 @@ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: Ca
+   const art = thumb ? (item.images.thumb ?? item.images.backdrop ?? item.images.poster) : item.images.poster;
+   const title = thumb ? (item.episode?.seriesTitle ?? item.title) : item.title;
+   const sub = item.episode ? `${episodeLabel(item)} · ${item.title}` : (item.year?.toString() ?? "");
++  const radius = thumb ? "rounded-xl" : "rounded-lg";
+ 
+   return (
+-    <motion.button
++    <button
+       ref={tv.ref}
+       type="button"
+       {...tv.props}
+@@ -122,49 +118,60 @@ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: Ca
+       onPointerMove={onMove}
+       onPointerLeave={onLeave}
+       aria-label={sub ? `${title}, ${sub}` : title}
+-      className={cn("group relative flex shrink-0 cursor-pointer flex-col gap-3 text-left scroll-mx-[var(--gutter)] scroll-mt-24 scroll-mb-28", fluid ? "w-full" : thumb ? "w-[var(--thumb-w)]" : "w-[var(--poster-w)]")}
+-      style={{ perspective: 900 }}
+-      animate={{ scale: tv.showFocus ? 1.1 : hover ? 1.04 : 1, zIndex: lifted ? 10 : 0 }}
+-      whileTap={{ scale: tv.showFocus ? 1.04 : 0.97 }}
+-      transition={focusSpring}
++      data-lifted={lifted || undefined}
++      data-focus={tv.showFocus || undefined}
++      className={cn(
++        "group relative flex shrink-0 cursor-pointer flex-col gap-3 text-left scroll-mx-[var(--gutter)] scroll-mt-24 scroll-mb-28",
++        "z-0 transition-[scale] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] data-[lifted]:z-10 data-[lifted]:scale-[1.04] data-[focus]:scale-110",
++        "active:scale-[0.97] data-[focus]:active:scale-[1.04]",
++        fluid ? "w-full" : thumb ? "w-[var(--thumb-w)]" : "w-[var(--poster-w)]",
++      )}
+     >
+-      <motion.div
+-        className={cn("relative w-full overflow-hidden bg-white/[0.06]", thumb ? "aspect-video rounded-xl" : "aspect-[2/3] rounded-lg")}
+-        style={{ rotateX: srx, rotateY: sry, transformStyle: "preserve-3d" }}
+-        animate={{
+-          boxShadow: lifted ? "0 32px 56px -18px rgb(0 0 0 / 0.85), 0 0 0 1px rgb(255 255 255 / 0.10)" : "0 10px 24px -14px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06)",
+-        }}
+-        transition={focusSpring}
+-      >
+-        <Artwork image={art} size={thumb ? "large" : "card"} alt={title} />
+-        {/* Specular sheen */}
+-        <motion.div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: sheen }} animate={{ opacity: lifted ? 1 : 0 }} transition={{ duration: 0.25 }} />
+-        {source && (
+-          <motion.span
+-            className="glass absolute top-2 left-2 max-w-[calc(100%-3rem)] rounded-full px-2 py-0.5 text-[0.6875rem]"
+-            initial={false}
+-            animate={{ opacity: lifted ? 1 : 0, y: lifted ? 0 : -4 }}
+-            transition={{ duration: 0.2 }}
+-          >
+-            <ServerBadge server={source} />
+-          </motion.span>
+-        )}
+-        {item.user.played && (
+-          <span className="glass absolute top-2 right-2 grid size-6 place-items-center rounded-full text-white" aria-label="Watched">
+-            <Check className="size-3.5" strokeWidth={3} />
+-          </span>
++      <div
++        ref={tilt}
++        className={cn(
++          "relative w-full transition-transform duration-200 ease-out [transform:perspective(900px)_rotateX(var(--rx,0deg))_rotateY(var(--ry,0deg))]",
++          thumb ? "aspect-video" : "aspect-[2/3]",
++          radius,
+         )}
+-        {pct > 0 && (
+-          <span className="absolute inset-x-3 bottom-3 h-1 overflow-hidden rounded-full bg-white/25 backdrop-blur">
+-            <span className="block h-full rounded-full bg-white" style={{ width: `${pct * 100}%` }} />
+-          </span>
+-        )}
+-      </motion.div>
+-      <motion.span className="flex min-w-0 flex-col gap-0.5 px-0.5" animate={{ y: tv.showFocus ? 6 : 0, opacity: tv.showFocus || hover ? 1 : 0.78 }} transition={focusSpring}>
++      >
++        {/* Resting and lifted shadows are two layers: only opacity changes. */}
++        <span aria-hidden className={cn("absolute inset-0 shadow-[0_10px_24px_-14px_rgb(0_0_0/0.6),0_0_0_1px_rgb(255_255_255/0.06)]", radius)} />
++        <span
++          aria-hidden
++          className={cn("absolute inset-0 opacity-0 shadow-[0_32px_56px_-18px_rgb(0_0_0/0.85),0_0_0_1px_rgb(255_255_255/0.10)] transition-opacity duration-300 group-data-[lifted]:opacity-100", radius)}
++        />
++        <div className={cn("absolute inset-0 overflow-hidden bg-white/[0.06]", radius)}>
++          <Artwork image={art} size={thumb ? "large" : "card"} alt={title} />
++          {/* Specular sheen */}
++          <span
++            aria-hidden
++            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[250ms] group-data-[lifted]:opacity-100"
++            style={{ background: "radial-gradient(90% 70% at var(--lx, 30%) var(--ly, 0%), rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.02) 45%, transparent 70%)" }}
++          />
++          {/* Only the lifted card carries its server badge (a frosted chip per card is costly). */}
++          {source && lifted && (
++            <span className="glass animate-in fade-in slide-in-from-top-1 absolute top-2 left-2 max-w-[calc(100%-3rem)] rounded-full px-2 py-0.5 text-[0.6875rem] duration-200">
++              <ServerBadge server={source} />
++            </span>
++          )}
++          {item.user.played && (
++            <span className="absolute top-2 right-2 grid size-6 place-items-center rounded-full bg-black/45 text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.12),inset_0_0_0_1px_rgb(255_255_255/0.08)]" aria-label="Watched">
++              <Check className="size-3.5" strokeWidth={3} />
++            </span>
++          )}
++          {pct > 0 && (
++            <span className="absolute inset-x-3 bottom-3 h-1 overflow-hidden rounded-full bg-black/40">
++              <span className="block h-full rounded-full bg-white" style={{ width: `${pct * 100}%` }} />
++            </span>
++          )}
++        </div>
++      </div>
++      <span className="flex min-w-0 translate-y-0 flex-col gap-0.5 px-0.5 opacity-[0.78] transition-[translate,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-data-[focus]:translate-y-1.5 group-data-[lifted]:opacity-100">
+         <span className="truncate text-[0.9375rem] leading-tight font-semibold text-white">{title}</span>
+         {sub && <span className="truncate text-[0.8125rem] leading-tight text-muted-foreground">{sub}</span>}
+-      </motion.span>
+-    </motion.button>
++      </span>
++    </button>
+   );
+ }
+ 
+diff --git a/ui/src/components/tv/Hero.tsx b/ui/src/components/tv/Hero.tsx
+index f03b666..a5e0681 100644
+--- a/ui/src/components/tv/Hero.tsx
++++ b/ui/src/components/tv/Hero.tsx
+@@ -45,7 +45,7 @@ export function HeroBackdrop({ image, className }: { image: ImageRef | null | un
+       )}
+     >
+       <AnimatePresence initial={false}>{src && <FadeImage key={src} src={src} />}</AnimatePresence>
+-      <ProgressiveBlur direction="bottom" blur={28} layers={7} fadeIn={false} className="top-auto h-[40%]" />
++      <ProgressiveBlur direction="bottom" blur={28} layers={4} fadeIn={false} className="top-auto h-[40%]" />
+       {/* Legibility for the title block (bottom-left). */}
+       <div className="absolute inset-0 bg-[linear-gradient(to_right,rgb(0_0_0/0.7),rgb(0_0_0/0.3)_38%,transparent_65%)]" />
+       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-[linear-gradient(to_top,rgb(0_0_0/0.4),transparent)]" />
+diff --git a/ui/src/shell/AmbientBackdrop.tsx b/ui/src/shell/AmbientBackdrop.tsx
+index 71ea51a..e73ee4f 100644
+--- a/ui/src/shell/AmbientBackdrop.tsx
++++ b/ui/src/shell/AmbientBackdrop.tsx
+@@ -2,26 +2,80 @@
+ // window, heavily blurred and darkened, with its palette as soft light.
+ // Settings > Appearance > "Artwork colour in background" scales it.
+ import { AnimatePresence, motion } from "motion/react";
+-import { useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ import { imageUrl } from "@/ipc/images";
+ import { useAmbient } from "@/lib/ambient";
+ import { ambientFade } from "@/lib/motion";
+ 
++// The softness is made once, on a thumbnail, instead of by a 72 px CSS blur
++// over a window-sized picture (which the GPU redoes on every composited frame,
++// the costliest thing on screen on a laptop with shared memory). The picture
++// is drawn at 16x9, then scaled back up in steps: each bilinear step spreads
++// the colour, and the stretch to the window finishes the job. Colour grading
++// stays a cheap CSS filter.
++const BASE_W = 16;
++const BASE_H = 9;
++const OUT_W = 128;
++const OUT_H = 72;
++
++function soften(img: HTMLImageElement, canvas: HTMLCanvasElement) {
++  const ctx = canvas.getContext("2d");
++  if (!ctx || !img.naturalWidth) return false;
++  // Crop the picture to the canvas' aspect ratio, as object-fit: cover would.
++  const want = OUT_W / OUT_H;
++  let sw = img.naturalWidth;
++  let sh = img.naturalHeight;
++  if (sw / sh > want) sw = sh * want;
++  else sh = sw / want;
++  const sx = (img.naturalWidth - sw) / 2;
++  const sy = (img.naturalHeight - sh) / 2;
++  const step = (w: number, h: number) => {
++    const c = document.createElement("canvas");
++    c.width = w;
++    c.height = h;
++    const g = c.getContext("2d")!;
++    g.imageSmoothingQuality = "high";
++    return [c, g] as const;
++  };
++  const [small, sg] = step(BASE_W, BASE_H);
++  sg.drawImage(img, sx, sy, sw, sh, 0, 0, BASE_W, BASE_H);
++  let from: HTMLCanvasElement = small;
++  for (let w = BASE_W * 2; w <= OUT_W; w *= 2) {
++    const [c, g] = step(w, (w * OUT_H) / OUT_W);
++    g.drawImage(from, 0, 0, c.width, c.height);
++    from = c;
++  }
++  ctx.imageSmoothingQuality = "high";
++  ctx.drawImage(from, 0, 0, OUT_W, OUT_H);
++  return true;
++}
++
+ function BlurredArt({ src }: { src: string }) {
++  const canvas = useRef<HTMLCanvasElement>(null);
+   const [loaded, setLoaded] = useState(false);
++  useEffect(() => {
++    let live = true;
++    const img = new Image();
++    img.decoding = "async";
++    img.onload = () => {
++      if (live && canvas.current && soften(img, canvas.current)) setLoaded(true);
++    };
++    img.src = src;
++    return () => {
++      live = false;
++      img.onload = null;
++    };
++  }, [src]);
+   return (
+-    <motion.img
+-      src={src}
+-      alt=""
+-      decoding="async"
+-      onLoad={() => setLoaded(true)}
++    <motion.div
+       initial={{ opacity: 0, scale: 1.25 }}
+       animate={loaded ? { opacity: 1, scale: 1.15 } : { opacity: 0, scale: 1.25 }}
+       exit={{ opacity: 0 }}
+       transition={ambientFade}
+-      className="absolute inset-0 size-full object-cover"
+-      style={{ filter: "blur(72px) saturate(1.6) brightness(0.62)" }}
+-    />
++      className="absolute inset-0"
++    >
++      <canvas ref={canvas} width={OUT_W} height={OUT_H} className="size-full object-cover" style={{ filter: "saturate(1.6) brightness(0.62)" }} />
++    </motion.div>
+   );
+ }
+ 
+diff --git a/ui/src/shell/Shell.tsx b/ui/src/shell/Shell.tsx
+index be4139e..e7aa5db 100644
+--- a/ui/src/shell/Shell.tsx
++++ b/ui/src/shell/Shell.tsx
+@@ -31,8 +31,12 @@ const scrollMemory = new Map<string, number>();
+  * instead would make Chromium drop the blur until the fade ends (backdrop
+  * filters only see inside a translucent ancestor), which showed as a plain
+  * dark gradient snapping to blur.
++ *
++ * Every layer re-blurs the scrolling content on each frame, so three layers
++ * per edge (not five), and an edge that is off is `invisible` once its fade
++ * has finished: no backdrop filter runs at all while it has nothing to show.
+  */
+-const EDGE_BLURS = [1, 2, 4, 8, 16];
++const EDGE_BLURS = [2, 6, 16];
+ 
+ function edgeMask(top: boolean, i: number) {
+   // Stops run past 100 % for the last layers, so the strongest blur stays
+@@ -49,8 +53,10 @@ function ScrollEdge({ side }: { side: "top" | "bottom" }) {
+     <div
+       aria-hidden
+       className={cn(
+-        "pointer-events-none fixed inset-x-0 z-20 [--edge-on:0]",
+-        top ? "top-0 h-20 peer-data-fade-start:[--edge-on:1]" : "bottom-0 h-16 peer-data-fade-end:[--edge-on:1]",
++        "pointer-events-none invisible fixed inset-x-0 z-20 [--edge-on:0] [transition:visibility_0s_linear_500ms]",
++        top
++          ? "top-0 h-20 peer-data-fade-start:visible peer-data-fade-start:[--edge-on:1] peer-data-fade-start:[transition-delay:0s]"
++          : "bottom-0 h-16 peer-data-fade-end:visible peer-data-fade-end:[--edge-on:1] peer-data-fade-end:[transition-delay:0s]",
+       )}
+     >
+       {EDGE_BLURS.map((blur, i) => (
