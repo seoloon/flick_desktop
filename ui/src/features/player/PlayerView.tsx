@@ -16,6 +16,7 @@ import {
   ListVideo,
   Maximize,
   Maximize2,
+  MessageCircle,
   Minimize,
   Pause,
   PictureInPicture2,
@@ -54,6 +55,7 @@ import { useSources } from "@/lib/servers";
 import { TitleBar } from "@/shell/TitleBar";
 import { toast } from "sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ChatBanner } from "../watch/ChatBanner";
 import { RoomPanel, type RoomTab } from "../watch/RoomPanel";
 import { useWatch } from "../watch/store";
 import { EpisodesPanel } from "./EpisodesPanel";
@@ -400,10 +402,18 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const [episodes, setEpisodes] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
   const [roomTab, setRoomTab] = useState<RoomTab>("management");
-  // The room ended or was left: its panel goes with it.
+  // The room ended or was left: its panel goes with it. Chat turned off: so does its tab.
   useEffect(() => {
     if (!room) setRoomOpen(false);
+    else if (!room.chatEnabled) setRoomTab("management");
   }, [room]);
+  /** The Room and Chat buttons: open that tab, switch to it, or close the panel when it is already showing. */
+  const togglePanel = (tab: RoomTab) => {
+    setMenu(false);
+    setEpisodes(false);
+    setRoomTab(tab);
+    setRoomOpen(!(roomOpen && roomTab === tab));
+  };
   const menuActions: MenuActions = useRef(null);
   // Window fullscreen for this playback only; Flick Frame stays what the user chose.
   const [fullscreen, setFullscreen] = useState(false);
@@ -772,6 +782,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         )}
       </AnimatePresence>
 
+      {!pip && (
+        <ErrorBoundary area="chat banner" inline>
+          <ChatBanner />
+        </ErrorBoundary>
+      )}
+
       {!fullscreen && !pip && <TitleBar hidden={!visible} />}
 
       {/* Bottom bar: a quiet title, the scrubber between its times, then the
@@ -787,7 +803,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             {menu && <PlayerMenu key="menu" store={store} actions={menuActions} source={source} />}
             {roomOpen && room && (
               <ErrorBoundary key="room" area="room panel" inline>
-                <RoomPanel room={room} tab={roomTab} onTab={setRoomTab} />
+                <RoomPanel room={room} tab={roomTab} />
               </ErrorBoundary>
             )}
             {episodes && canPick && it?.episode?.series && (
@@ -828,19 +844,13 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             </div>
             <div className="flex items-center justify-end gap-1">
               {room && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  icon={Users}
-                  label="Watch room"
-                  onClick={() => {
-                    setMenu(false);
-                    setEpisodes(false);
-                    setRoomOpen((o) => !o);
-                  }}
-                  className={cn("relative", roomOpen && "bg-white/20 text-white")}
-                >
-                  {!roomOpen && unreadChat > 0 && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-white ring-2 ring-black/60" aria-label="Unread messages" />}
+                <Button variant="ghost" size="icon-sm" icon={Users} label="Watch room" onClick={() => togglePanel("management")} className={cn(roomOpen && roomTab === "management" && "bg-white/20 text-white")} />
+              )}
+              {room?.chatEnabled && (
+                <Button variant="ghost" size="icon-sm" icon={MessageCircle} label="Chat" onClick={() => togglePanel("chat")} className={cn("relative", roomOpen && roomTab === "chat" && "bg-white/20 text-white")}>
+                  {!(roomOpen && roomTab === "chat") && unreadChat > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-white ring-2 ring-black/60" aria-label="Unread messages" />
+                  )}
                 </Button>
               )}
               {canPick && it?.episode?.series && (
