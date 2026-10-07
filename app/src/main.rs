@@ -294,7 +294,7 @@ fn main() {
             commands::catalog::by_genre,
             commands::catalog::recommendations,
             commands::flicksync::flicksync_status,
-            commands::flicksync::flicksync_diagnose,
+            commands::flickserver::flickserver_diagnose,
             commands::flicksync::flicksync_create,
             commands::flicksync::flicksync_join,
             commands::flicksync::flicksync_leave,

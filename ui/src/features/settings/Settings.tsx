@@ -10,10 +10,9 @@ import { Notice } from "@/components/tv/Feedback";
 import { Pill } from "@/components/tv/Page";
 import type { Choice } from "@/components/tv/Segmented";
 import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
-import { DownloadsSettings } from "@/features/downloads/Downloads";
+import { FlickServerSettings } from "@/features/server/FlickServerSettings";
 import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
 import { ServerManager } from "@/features/servers/Servers";
-import { WatchSettings } from "@/features/watch/WatchSettings";
 import { TmdbSettings } from "./TmdbSettings";
 import { UpdateSettings } from "./UpdateSettings";
 import { api, unwrap } from "@/ipc/api";
@@ -404,10 +403,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       return <TmdbSettings />;
     case "flickserver":
       return (
-        <>
-          <WatchSettings s={s} />
-          <DownloadsSettings />
-        </>
+        <FlickServerSettings s={s} />
       );
     case "network":
       return (

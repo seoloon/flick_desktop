@@ -6,7 +6,6 @@ use std::sync::Arc;
 use oneshot_core::ids::ItemRef;
 use oneshot_core::{Error, Result};
 use oneshot_flicksync::DebugInfo;
-use oneshot_flicksync::diagnose::Report;
 use oneshot_flicksync::protocol::ControlMode;
 use oneshot_flicksync::room::RoomState;
 use tauri::State;
@@ -20,12 +19,6 @@ type St<'a> = State<'a, Arc<AppState>>;
 #[tauri::command]
 pub async fn flicksync_status(state: St<'_>) -> Result<Status> {
     Ok(state.flicksync.status(&state).await)
-}
-
-/// Settings › Watch Together › "Test connection": which step fails, and why.
-#[tauri::command]
-pub async fn flicksync_diagnose(state: St<'_>) -> Result<Report> {
-    Ok(state.flicksync.diagnose(&state).await)
 }
 
 #[tauri::command]

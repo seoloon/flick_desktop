@@ -74,7 +74,7 @@ export function Detail() {
   const inProgress = !!download && !downloaded && download.state !== "done";
   const downloadable = downloadsReady && !!item && !(localServer && item.id.startsWith(`${localServer}:`)) && ["movie", "episode", "season", "series"].includes(item.kind);
   const startDownload = () => {
-    if (download && !download.missing) return navigate("/settings?s=flickserver");
+    if (download && !download.missing) return navigate("/settings?s=flickserver&tab=downloads");
     api.downloadsEnqueue(item.id).then(
       (queued) => toast.success(queued.length > 1 ? `${queued.length} episodes added to downloads` : "Added to downloads"),
       (e) => toast.error(asError(e).message),

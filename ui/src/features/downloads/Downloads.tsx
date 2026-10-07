@@ -114,7 +114,7 @@ export function DownloadsSettings() {
   const used = Object.values(items).reduce((sum, d) => sum + (d.state === "done" ? (d.size ?? 0) : d.offset), 0);
   return (
     <>
-      {status && !status.configured && <Notice tone="warn">Downloads go through your Flick Server. Add its invitation link above first.</Notice>}
+      {status && !status.configured && <Notice tone="warn">Downloads go through your Flick Server. Add its invitation link in the Connection tab first.</Notice>}
       <SettingsGroup
         title="FlickDD · Queue"
         note={

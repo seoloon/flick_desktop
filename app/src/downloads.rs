@@ -1,6 +1,6 @@
 //! Offline downloads in the app: the seam between the FlickDD engine and the
 //! rest of Flick. The engine does the transfer; this finds the server (the
-//! FlickSync invitation link), signs in, keeps what is needed to show a
+//! Flick Server invitation link), signs in, keeps what is needed to show a
 //! download without its server (metadata and artwork, see [`crate::offline`]),
 //! and tells the UI what changed.
 

@@ -41,6 +41,12 @@ pub struct InvitationAdded {
     pub report: Report,
 }
 
+/// Settings › Flick Server › "Test connection": which step fails, and why.
+#[tauri::command]
+pub async fn flickserver_diagnose(state: St<'_>) -> Result<Report> {
+    Ok(state.flicksync.diagnose(&state).await)
+}
+
 #[tauri::command(async)]
 pub fn flickserver_invitation() -> Result<Option<InvitationInfo>> {
     Ok(stored_invitation()?.as_ref().map(InvitationInfo::from))
