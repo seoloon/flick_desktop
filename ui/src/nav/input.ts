@@ -152,8 +152,9 @@ export function installKeyboard() {
 const REPEAT_DELAY = 380;
 const REPEAT_RATE = 110;
 
-// The left stick's raw position (-1..1), for things that follow it like a
-// pointer: the focused card tilts toward it as it would under a mouse.
+// The right stick's raw position (-1..1), for things that follow it like a
+// pointer: the focused card tilts toward it as it would under a mouse. The left
+// stick navigates and does not tilt anything.
 type StickListener = (x: number, y: number) => void;
 const stickListeners = new Set<StickListener>();
 let stickX = 0;
@@ -209,7 +210,9 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
       const dz = deadzone();
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
-      if (Math.hypot(ax, ay) > Math.hypot(sx, sy)) [sx, sy] = [ax, ay];
+      const rx = pad.axes[2] ?? 0;
+      const ry = pad.axes[3] ?? 0;
+      if (Math.hypot(rx, ry) > Math.hypot(sx, sy)) [sx, sy] = [rx, ry];
       const [confirm, cancel] = swapConfirm() ? [1, 0] : [0, 1];
       fire(`${pad.index}:up`, b(12) || ay < -dz, { type: "move", dir: "up" }, now);
       fire(`${pad.index}:down`, b(13) || ay > dz, { type: "move", dir: "down" }, now);
