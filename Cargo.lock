@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Flick"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3007,7 +3007,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "oneshot-capabilities"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "objc2",
@@ -3026,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-cast"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "mdns-sd",
@@ -3048,7 +3048,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-catalog"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-core"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3080,7 +3080,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-flicksync"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3102,7 +3102,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-jellyfin"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3120,7 +3120,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-mpv"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "libloading 0.8.9",
  "serde",
@@ -3131,7 +3131,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-net"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "oneshot-core",
  "reqwest 0.12.28",
@@ -3143,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-playback"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "oneshot-core",
@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-player"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "objc2",
  "objc2-app-kit",
@@ -3181,7 +3181,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-plex"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3199,7 +3199,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-storage"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "keyring",
@@ -3218,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot-tmdb"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "oneshot-core",
