@@ -254,6 +254,14 @@ impl Manager {
         self.pump();
     }
 
+    /// Cancels everything and deletes every downloaded file.
+    pub fn clear(self: &Arc<Self>) {
+        let ids: Vec<String> = self.inner.lock().slots.iter().map(|s| s.item.id.clone()).collect();
+        for id in ids {
+            self.remove(&id, true);
+        }
+    }
+
     /// Takes a download out of the queue and cleans up after it.
     fn discard(self: &Arc<Self>, id: &str) -> Option<Item> {
         let slot = {

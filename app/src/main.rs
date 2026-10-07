@@ -7,6 +7,7 @@ mod diagnostics;
 mod downloads;
 mod flicksync;
 mod images;
+mod offline;
 mod state;
 
 use std::path::PathBuf;
@@ -152,6 +153,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         state.restore_servers();
     }
     app.manage(Arc::clone(&state));
+    state.catalog.set_local(state.downloads.library());
     state.downloads.start();
     #[cfg(debug_assertions)]
     tauri::async_runtime::block_on(dev::bootstrap(Arc::clone(&state)));
@@ -312,8 +314,9 @@ fn main() {
             commands::downloads::downloads_pause,
             commands::downloads::downloads_resume,
             commands::downloads::downloads_remove,
-            commands::downloads::downloads_open,
-            commands::downloads::downloads_reveal,
+            commands::downloads::downloads_clear,
+            commands::downloads::downloads_open_folder,
+            commands::offline::offline_check,
             commands::playback::play,
             commands::playback::player_reload,
             commands::playback::player_command,

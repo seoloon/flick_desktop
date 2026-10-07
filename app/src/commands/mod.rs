@@ -12,6 +12,7 @@ pub mod cast;
 pub mod catalog;
 pub mod downloads;
 pub mod flicksync;
+pub mod offline;
 pub mod people;
 pub mod playback;
 pub mod profiles;

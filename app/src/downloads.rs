@@ -1,13 +1,16 @@
 //! Offline downloads in the app: the seam between the FlickDD engine and the
 //! rest of Flick. The engine does the transfer; this finds the server (the
-//! FlickSync invitation link), signs in, and tells the UI what changed.
+//! FlickSync invitation link), signs in, keeps what is needed to show a
+//! download without its server (metadata and artwork, see [`crate::offline`]),
+//! and tells the UI what changed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use oneshot_core::ids::ItemRef;
-use oneshot_core::media::{ItemKind, MediaItem};
+use oneshot_core::media::{ImageKind, ItemKind, MediaItem};
 use oneshot_core::server::ProviderKind;
 use oneshot_core::{Error, Result};
 use oneshot_flickdd::api::{Failure, Link};
@@ -17,26 +20,29 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _};
 
 use crate::flicksync::{Hub, stored_invitation};
+use crate::offline::{self, IMAGE_KINDS, LocalLibrary};
 use crate::state::AppState;
 
 const EVENT: &str = "downloads";
 /// Episodes queued by one "Download" on a series, so a mistaken click cannot flood the queue.
 const MAX_EPISODES: usize = 400;
+/// Titles whose metadata and artwork are fetched at once.
+const CAPTURE_PARALLEL: usize = 4;
 
+/// Downloads live in the app's own data folder.
 pub fn default_directory(app: &AppHandle) -> PathBuf {
-    app.path().download_dir().or_else(|_| app.path().document_dir()).unwrap_or_else(|_| PathBuf::from(".")).join("Flick")
+    app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from(".")).join("downloads")
 }
 
 struct AppSource {
     app: AppHandle,
+    dir: PathBuf,
 }
 
 #[async_trait]
 impl Source for AppSource {
     async fn connect(&self) -> std::result::Result<Connection, Failure> {
-        let not_configured = || {
-            Failure::NotConfigured("Downloads need a Flick Server invitation link: add one in Settings › Watch Together.".into())
-        };
+        let not_configured = || Failure::NotConfigured("Downloads need a Flick Server invitation link: add one in Settings › Flick Server.".into());
         let state = self.app.state::<Arc<AppState>>();
         let invitation = stored_invitation().ok().flatten().ok_or_else(not_configured)?;
         let who = Hub::identity(&state);
@@ -46,12 +52,14 @@ impl Source for AppSource {
     }
 
     fn directory(&self) -> PathBuf {
-        default_directory(&self.app)
+        self.dir.clone()
     }
 }
 
 pub struct Downloads {
     manager: Arc<Manager>,
+    dir: PathBuf,
+    library: Arc<LocalLibrary>,
 }
 
 impl std::fmt::Debug for Downloads {
@@ -69,6 +77,7 @@ enum UiEvent {
 
 impl Downloads {
     pub fn new(app: AppHandle, config_dir: PathBuf) -> Self {
+        let dir = default_directory(&app);
         let emitter = app.clone();
         let sink: oneshot_flickdd::EventSink = Arc::new(move |e| {
             let ui = match e {
@@ -78,8 +87,10 @@ impl Downloads {
             let _ = emitter.emit(EVENT, &ui);
         });
         let tauri::async_runtime::RuntimeHandle::Tokio(rt) = tauri::async_runtime::handle();
-        let source = Arc::new(AppSource { app });
-        Self { manager: Manager::open(source, config_dir.join("downloads.json"), sink, rt) }
+        let source = Arc::new(AppSource { app, dir: dir.clone() });
+        let manager = Manager::open(source, config_dir.join("downloads.json"), sink, rt);
+        let library = Arc::new(LocalLibrary::new(Arc::clone(&manager), dir.clone()));
+        Self { manager, dir, library }
     }
 
     /// Resumes what was left unfinished.
@@ -91,8 +102,21 @@ impl Downloads {
         &self.manager
     }
 
+    pub fn library(&self) -> Arc<LocalLibrary> {
+        Arc::clone(&self.library)
+    }
+
+    pub fn directory(&self) -> &Path {
+        &self.dir
+    }
+
+    /// The stored picture of a download.
+    pub async fn local_image(&self, id: &str, kind: ImageKind) -> Result<Vec<u8>> {
+        offline::local_image(&self.dir, id, kind).await
+    }
+
     /// Queues a movie or an episode; a season or a series queues each of its episodes.
-    pub async fn enqueue(&self, st: &AppState, id: &ItemRef) -> Result<Vec<Item>> {
+    pub async fn enqueue(&self, st: &Arc<AppState>, id: &ItemRef) -> Result<Vec<Item>> {
         let item = st.catalog.item(id).await?;
         let mut episodes: Vec<MediaItem> = Vec::new();
         match item.kind {
@@ -111,11 +135,84 @@ impl Downloads {
             return Err(Error::Invalid("There is nothing to download here.".into()));
         }
         let mut queued = Vec::with_capacity(episodes.len());
+        let mut captures = Vec::with_capacity(episodes.len());
         for e in &episodes {
-            queued.push(self.manager.enqueue(&request(st, e)?));
+            let download = self.manager.enqueue(&request(st, e)?);
+            captures.push((download.id.clone(), e.id.clone()));
+            queued.push(download);
         }
+        // What the library needs to show them offline is fetched while they download.
+        let (st, dir) = (Arc::clone(st), self.dir.clone());
+        tauri::async_runtime::spawn(async move {
+            futures::stream::iter(captures)
+                .for_each_concurrent(CAPTURE_PARALLEL, |(download, item)| {
+                    let (st, dir) = (Arc::clone(&st), dir.clone());
+                    async move {
+                        if let Err(e) = capture(&st, &dir, &download, &item).await {
+                            tracing::warn!(target: "downloads", "could not keep the details of a download: {e}");
+                        }
+                    }
+                })
+                .await;
+        });
         Ok(queued)
     }
+
+    /// Cancels a download or forgets a finished one, with what was kept to show it.
+    pub fn remove(&self, st: &AppState, id: &str, delete_file: bool) {
+        self.manager.remove(id, delete_file);
+        forget(&self.dir, id);
+        st.catalog.invalidate_item(&ItemRef::new(offline::LOCAL_SERVER, id));
+    }
+
+    /// Everything: queue, files, details and artwork.
+    pub fn clear(&self, st: &AppState) {
+        let ids: Vec<String> = self.manager.list().into_iter().map(|d| d.id).collect();
+        self.manager.clear();
+        for id in &ids {
+            st.catalog.invalidate_item(&ItemRef::new(offline::LOCAL_SERVER, id));
+        }
+        // Stray files too (partials of an interrupted run, pictures of a download that was never recorded).
+        if let Ok(entries) = std::fs::read_dir(&self.dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+            }
+        }
+    }
+}
+
+/// Deletes the snapshot and pictures of a download.
+fn forget(dir: &Path, id: &str) {
+    let _ = std::fs::remove_file(offline::snapshot_path(dir, id));
+    for (kind, _, _) in IMAGE_KINDS {
+        let _ = std::fs::remove_file(offline::image_path(dir, id, kind));
+    }
+}
+
+/// Keeps the title's details and artwork next to its download, so the library can show it offline.
+async fn capture(st: &AppState, dir: &Path, download: &str, item: &ItemRef) -> Result<()> {
+    // The detail fetch (the list of a season has no technical sources).
+    let media = st.catalog.item(item).await?;
+    tokio::fs::create_dir_all(offline::meta_dir(dir)).await.map_err(|e| Error::Storage(e.to_string()))?;
+    for (kind, _, size) in IMAGE_KINDS {
+        let reference = match kind {
+            ImageKind::Poster => &media.images.poster,
+            ImageKind::Backdrop => &media.images.backdrop,
+            ImageKind::Thumb => &media.images.thumb,
+            ImageKind::Logo => &media.images.logo,
+            ImageKind::Banner => &None,
+        };
+        let Some(reference) = reference else { continue };
+        match crate::images::load(st, reference, size).await {
+            Ok(bytes) => {
+                let _ = tokio::fs::write(offline::image_path(dir, download, kind), bytes).await;
+            }
+            Err(e) => tracing::debug!(target: "downloads", "no {kind:?} kept: {e}"),
+        }
+    }
+    let json = serde_json::to_vec(&media).map_err(|e| Error::Storage(e.to_string()))?;
+    tokio::fs::write(offline::snapshot_path(dir, download), json).await.map_err(|e| Error::Storage(e.to_string()))
 }
 
 fn request(st: &AppState, item: &MediaItem) -> Result<NewDownload> {

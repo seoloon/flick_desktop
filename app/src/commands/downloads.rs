@@ -9,8 +9,8 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::downloads::default_directory;
 use crate::flicksync::stored_invitation;
+use crate::offline::LOCAL_SERVER;
 use crate::state::AppState;
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -20,15 +20,18 @@ type St<'a> = State<'a, Arc<AppState>>;
 pub struct DownloadsStatus {
     /// A Flick Server invitation link is saved: downloads can be tried.
     pub configured: bool,
-    /// Where new downloads are written.
+    /// Where downloads are written.
     pub directory: String,
+    /// The library the finished downloads belong to: `<local server>:<download id>` is a title.
+    pub local_server: String,
 }
 
 #[tauri::command(async)]
-pub fn downloads_status(app: AppHandle) -> Result<DownloadsStatus> {
+pub fn downloads_status(state: St<'_>) -> Result<DownloadsStatus> {
     Ok(DownloadsStatus {
         configured: stored_invitation()?.is_some(),
-        directory: default_directory(&app).to_string_lossy().into_owned(),
+        directory: state.downloads.directory().to_string_lossy().into_owned(),
+        local_server: LOCAL_SERVER.to_string(),
     })
 }
 
@@ -41,9 +44,9 @@ pub fn downloads_list(state: St<'_>) -> Vec<Item> {
 #[tauri::command]
 pub async fn downloads_enqueue(state: St<'_>, item: ItemRef) -> Result<Vec<Item>> {
     if stored_invitation()?.is_none() {
-        return Err(Error::Invalid("Downloads need a Flick Server invitation link: add one in Settings › Watch Together.".into()));
+        return Err(Error::Invalid("Downloads need a Flick Server invitation link: add one in Settings › Flick Server.".into()));
     }
-    state.downloads.enqueue(&state, &item).await
+    state.downloads.enqueue(state.inner(), &item).await
 }
 
 #[tauri::command(async)]
@@ -56,31 +59,22 @@ pub fn downloads_resume(state: St<'_>, id: String) {
     state.downloads.manager().resume(&id);
 }
 
-/// Cancels a download, or forgets a finished one (and deletes its file when asked).
+/// Cancels a download (its partial file is deleted), or deletes a finished one.
 #[tauri::command(async)]
-pub fn downloads_remove(state: St<'_>, id: String, delete_file: bool) {
-    state.downloads.manager().remove(&id, delete_file);
+pub fn downloads_remove(state: St<'_>, id: String) {
+    state.downloads.remove(&state, &id, true);
 }
 
-/// Opens the finished file with the system's player.
+/// Deletes every download, finished or not.
 #[tauri::command(async)]
-pub fn downloads_open(app: AppHandle, state: St<'_>, id: String) -> Result<()> {
-    let path = finished_file(&state, &id)?;
-    // The name came from the server: never hand anything but a video to the system.
-    if !oneshot_flickdd::files::is_media_extension(&path) {
-        return Err(Error::Invalid("This file is not a video, so Flick will not open it.".into()));
-    }
-    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| Error::Other(e.to_string()))
+pub fn downloads_clear(state: St<'_>) {
+    state.downloads.clear(&state);
 }
 
-/// Shows the finished file in the file manager.
+/// Opens the downloads folder in the file manager.
 #[tauri::command(async)]
-pub fn downloads_reveal(app: AppHandle, state: St<'_>, id: String) -> Result<()> {
-    let path = finished_file(&state, &id)?;
-    app.opener().reveal_item_in_dir(path).map_err(|e| Error::Other(e.to_string()))
-}
-
-fn finished_file(state: &AppState, id: &str) -> Result<std::path::PathBuf> {
-    let item = state.downloads.manager().item(id).ok_or_else(|| Error::NotFound("download".into()))?;
-    item.final_path.filter(|p| p.exists()).ok_or_else(|| Error::NotFound("The file is no longer there.".into()))
+pub fn downloads_open_folder(app: AppHandle, state: St<'_>) -> Result<()> {
+    let dir = state.downloads.directory();
+    std::fs::create_dir_all(dir).map_err(|e| Error::Other(e.to_string()))?;
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| Error::Other(e.to_string()))
 }
