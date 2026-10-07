@@ -52,8 +52,8 @@ import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { onAction } from "@/nav/input";
 import { focusKey } from "@/nav/spatial";
-import { ServerBadge } from "@/components/tv/ServerBadge";
-import { useSources } from "@/lib/servers";
+import { LocalBadge, ServerBadge } from "@/components/tv/ServerBadge";
+import { useIsLocal, useSources } from "@/lib/servers";
 import { TitleBar } from "@/shell/TitleBar";
 import { toast } from "sonner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -420,6 +420,7 @@ export function PlayerView({
 
   const item = useQuery({ queryKey: ["item", itemId], queryFn: () => api.item(itemId) });
   const [source] = useSources([itemId]);
+  const local = useIsLocal(itemId);
   const markers = useQuery({ queryKey: ["markers", itemId], queryFn: () => api.markers(itemId).catch(() => [] as Marker[]), enabled: !preroll });
   const adjacent = useQuery({ queryKey: ["adjacent", itemId], queryFn: () => api.adjacent(itemId).catch(() => null), enabled: !preroll });
 
@@ -970,7 +971,7 @@ export function PlayerView({
           <div className="flex min-w-0 items-baseline gap-2 drop-shadow-[0_1px_8px_rgb(0_0_0/0.6)]">
             <span className="truncate text-[0.9375rem] font-semibold">{title}</span>
             {subtitle && <span className="truncate text-[0.8125rem] text-white/60">{subtitle}</span>}
-            {source && <ServerBadge server={source} quiet className="ml-1 text-[0.8125rem]" />}
+            {local ? <LocalBadge quiet className="ml-1 text-[0.8125rem]" /> : source && <ServerBadge server={source} quiet className="ml-1 text-[0.8125rem]" />}
           </div>
 
           <FocusGroup focusKey="player-timeline-row" className="flex items-center gap-3 text-xs font-medium text-white/70">

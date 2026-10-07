@@ -4,6 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ItemRef } from "@/ipc/bindings/ItemRef";
 import type { ServerDescriptor } from "@/ipc/bindings/ServerDescriptor";
+import { useDownloads } from "@/features/downloads/store";
 import { serversQuery } from "@/shell/navItems";
 
 export function serverIdOf(ref: ItemRef): string {
@@ -25,4 +26,10 @@ export function useSources(refs: ItemRef[]): ServerDescriptor[] {
     if (s && !out.includes(s)) out.push(s);
   }
   return out;
+}
+
+/** The item is a download kept on this computer (its library is the local one). */
+export function useIsLocal(ref: ItemRef | undefined): boolean {
+  const local = useDownloads((d) => d.status?.localServer);
+  return !!ref && !!local && serverIdOf(ref) === local;
 }

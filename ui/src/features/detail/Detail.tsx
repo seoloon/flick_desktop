@@ -24,9 +24,9 @@ import { setItemFlag, useOverridden } from "@/lib/itemMenu";
 import { audioCodecLabel, badges, bitrate, channelsLabel, remaining, resolutionLabel, videoCodecLabel } from "@/lib/format";
 import { enter, focusSpring } from "@/lib/motion";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
-import { ServerBadge } from "@/components/tv/ServerBadge";
+import { LocalBadge, ServerBadge } from "@/components/tv/ServerBadge";
 import { personPath } from "@/lib/person";
-import { useSources } from "@/lib/servers";
+import { useIsLocal, useSources } from "@/lib/servers";
 import { isPlayable, playPath } from "../player/route";
 import { percent } from "../downloads/format";
 import { downloadOf, useDownloads } from "../downloads/store";
@@ -48,6 +48,7 @@ export function Detail() {
   const localServer = useDownloads((d) => d.status?.localServer);
   const download = useDownloads((d) => (item ? downloadOf(d.items, item.id) : undefined));
   // The server that plays (the item's own reference) first, then copies elsewhere.
+  const isLocal = useIsLocal(item?.id);
   const sources = useSources(item ? [item.id, ...(item.alternates ?? [])] : []);
 
   useEffect(() => ambientFor(item), [item]);
@@ -106,7 +107,12 @@ export function Detail() {
                 </>
               }
             />
-            {sources[0] && (
+            {isLocal && (
+              <div className="flex text-sm">
+                <LocalBadge />
+              </div>
+            )}
+            {!isLocal && sources[0] && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <ServerBadge server={sources[0]} />
                 {sources.length > 1 && (
