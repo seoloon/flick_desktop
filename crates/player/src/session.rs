@@ -477,7 +477,13 @@ fn handle(inner: &Arc<Mutex<Inner>>, sink: &EventSink, rt: &tokio::runtime::Hand
                 s.started = true;
                 s.last_report = Instant::now();
                 // Report what mpv actually does, never an assumed state.
-                let paused = i.engine.as_ref().and_then(|e| e.mpv.try_get_property("pause").ok().flatten()).and_then(|n| n.as_bool()).unwrap_or(false);
+                let mut paused = i.engine.as_ref().and_then(|e| e.mpv.try_get_property("pause").ok().flatten()).and_then(|n| n.as_bool()).unwrap_or(false);
+                // A title always starts playing. The previous one ending (a short
+                // preroll) makes mpv pause for `keep-open`, and that can land after
+                // the unpause done before `loadfile`.
+                if paused && let Some(e) = &i.engine && e.mpv.set_property("pause", false).is_ok() {
+                    paused = false;
+                }
                 i.snapshot.phase = if paused { Phase::Paused } else { Phase::Playing };
                 send_report(rt, s, ReportKind::Start, PlaybackState::Playing, i.snapshot.position_ms, i.snapshot.duration_ms, None);
                 emit_state(i, sink);
