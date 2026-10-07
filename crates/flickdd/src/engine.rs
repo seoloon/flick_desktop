@@ -562,7 +562,7 @@ impl Manager {
 
     /// Section 5 of the guide: what each failure means.
     async fn on_error(&self, id: &str, f: Failure) -> Flow {
-        tracing::debug!(target: "flickdd", "a download step failed: {f}");
+        tracing::warn!(target: "flickdd", "a download step failed: {f}");
         let (status, code) = (f.status(), f.code().to_owned());
         match &f {
             Failure::NotConfigured(m) => {
@@ -646,7 +646,7 @@ impl Manager {
             Failure::Http { retry_after: Some(s), .. } => Duration::from_secs(*s),
             _ => Duration::ZERO,
         };
-        self.wait(id, backoff(fails).max(retry_after), "Connection problem, retrying").await;
+        self.wait(id, backoff(fails).max(retry_after), &format!("Connection problem ({f}), retrying")).await;
         Flow::Continue
     }
 
