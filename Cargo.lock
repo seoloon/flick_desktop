@@ -3079,6 +3079,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oneshot-flickdd"
+version = "0.4.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "oneshot-net",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "oneshot-flicksync"
 version = "0.4.0"
 dependencies = [
