@@ -292,7 +292,7 @@ impl Hub {
         }
     }
 
-    fn identity(st: &AppState) -> Identity {
+    pub fn identity(st: &AppState) -> Identity {
         let s = st.settings();
         let name = s
             .flicksync

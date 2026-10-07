@@ -10,6 +10,7 @@ import { Notice } from "@/components/tv/Feedback";
 import { Pill } from "@/components/tv/Page";
 import type { Choice } from "@/components/tv/Segmented";
 import { InfoRow, LinkRow, SelectRow, SettingsGroup, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
+import { DownloadsSettings } from "@/features/downloads/Downloads";
 import { ProfilesSettings } from "@/features/profiles/ProfilesSettings";
 import { ServerManager } from "@/features/servers/Servers";
 import { WatchSettings } from "@/features/watch/WatchSettings";
@@ -389,7 +390,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
         </>
       );
     case "downloads":
-      return <Notice>Offline downloads are not available in this version. Playback always streams from your servers.</Notice>;
+      return <DownloadsSettings />;
     case "servers":
       return (
         <>

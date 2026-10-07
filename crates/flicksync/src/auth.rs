@@ -92,7 +92,7 @@ pub fn mint_token(key: &SigningKey, who: &Identity, ttl_secs: u64, now: u64) -> 
         "server_id": key.server_id,
         "aud": "flicksync",
         "name": who.display_name.chars().take(64).collect::<String>(),
-        "perms": ["rooms:create", "rooms:join", "chat:send"],
+        "perms": ["rooms:create", "rooms:join", "chat:send", "downloads:create"],
         "iat": now,
         "exp": now + ttl_secs,
     });

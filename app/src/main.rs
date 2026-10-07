@@ -4,6 +4,7 @@ mod commands;
 #[cfg(debug_assertions)]
 mod dev;
 mod diagnostics;
+mod downloads;
 mod flicksync;
 mod images;
 mod state;
@@ -142,6 +143,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         switching: tokio::sync::Mutex::new(()),
         settings_io: Mutex::new(()),
         flicksync: flicksync::Hub::new(handle.clone()),
+        downloads: downloads::Downloads::new(handle.clone(), paths.config.clone()),
         cast: oneshot_cast::Caster::new(),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing
@@ -150,6 +152,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         state.restore_servers();
     }
     app.manage(Arc::clone(&state));
+    state.downloads.start();
     #[cfg(debug_assertions)]
     tauri::async_runtime::block_on(dev::bootstrap(Arc::clone(&state)));
 
@@ -303,6 +306,14 @@ fn main() {
             commands::flicksync::flicksync_invitation,
             commands::flicksync::flicksync_add_invitation,
             commands::flicksync::flicksync_clear_invitation,
+            commands::downloads::downloads_status,
+            commands::downloads::downloads_list,
+            commands::downloads::downloads_enqueue,
+            commands::downloads::downloads_pause,
+            commands::downloads::downloads_resume,
+            commands::downloads::downloads_remove,
+            commands::downloads::downloads_open,
+            commands::downloads::downloads_reveal,
             commands::playback::play,
             commands::playback::player_reload,
             commands::playback::player_command,

@@ -10,6 +10,7 @@
 pub mod admin;
 pub mod cast;
 pub mod catalog;
+pub mod downloads;
 pub mod flicksync;
 pub mod people;
 pub mod playback;

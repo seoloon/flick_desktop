@@ -36,6 +36,8 @@ import type {
   AdminOverview,
   AppError,
   CssRect,
+  DownloadItem,
+  DownloadsStatus,
   FlickSyncDiagnosis,
   FlickSyncStatus,
   InvitationAdded,
@@ -142,6 +144,16 @@ export const api = {
   playerViewport: (rect: CssRect) => call<void>("player_viewport", { rect }),
   playerSnapshot: () => call<PlayerSnapshot>("player_snapshot"),
   playerStats: () => call<LiveStats>("player_stats"),
+
+  // offline downloads
+  downloadsStatus: () => call<DownloadsStatus>("downloads_status"),
+  downloadsList: () => call<DownloadItem[]>("downloads_list"),
+  downloadsEnqueue: (item: ItemRef) => call<DownloadItem[]>("downloads_enqueue", { item }),
+  downloadsPause: (id: string) => call<void>("downloads_pause", { id }),
+  downloadsResume: (id: string) => call<void>("downloads_resume", { id }),
+  downloadsRemove: (id: string, deleteFile: boolean) => call<void>("downloads_remove", { id, deleteFile }),
+  downloadsOpen: (id: string) => call<void>("downloads_open", { id }),
+  downloadsReveal: (id: string) => call<void>("downloads_reveal", { id }),
 
   // watch together
   flicksyncStatus: () => call<FlickSyncStatus>("flicksync_status"),

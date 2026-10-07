@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { DownloadEvent } from "./app-types";
 import type { ClientEvent } from "./bindings/ClientEvent";
 import type { PlayerEvent } from "./bindings/PlayerEvent";
 
@@ -11,4 +12,8 @@ export type FlickSyncEvent = ClientEvent | { type: "openPlayer"; item: string };
 
 export function onFlickSyncEvent(handler: (e: FlickSyncEvent) => void): Promise<UnlistenFn> {
   return listen<FlickSyncEvent>("flicksync", (event) => handler(event.payload));
+}
+
+export function onDownloadsEvent(handler: (e: DownloadEvent) => void): Promise<UnlistenFn> {
+  return listen<DownloadEvent>("downloads", (event) => handler(event.payload));
 }

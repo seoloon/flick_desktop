@@ -70,6 +70,8 @@ pub struct AppState {
     pub metadata: Arc<oneshot_storage::cache::MetadataCache>,
     /// Watch together (optional: the app works the same without it).
     pub flicksync: crate::flicksync::Hub,
+    /// Offline downloads through Flick Server (FlickDD).
+    pub downloads: crate::downloads::Downloads,
     /// Chromecast / AirPlay receivers and the one being cast to.
     pub cast: oneshot_cast::Caster,
 }
