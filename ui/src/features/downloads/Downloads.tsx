@@ -8,7 +8,7 @@ import { InfoRow, SettingsGroup } from "@/components/tv/SettingsList";
 import { api, asError } from "@/ipc/api";
 import type { DownloadItem } from "@/ipc/app-types";
 import { FocusGroup } from "@/nav/Focusable";
-import { percent, sortDownloads, stateText } from "./format";
+import { etaText, percent, sortDownloads, stateText, totalRemainingSecs } from "./format";
 import { useDownloads } from "./store";
 
 const run = (p: Promise<unknown>) => void p.catch((e) => toast.error(asError(e).message));
@@ -57,6 +57,7 @@ export function DownloadsSettings() {
   const items = useDownloads((s) => s.items);
   const status = useDownloads((s) => s.status);
   const list = sortDownloads(Object.values(items));
+  const left = totalRemainingSecs(list);
   return (
     <>
       {status && !status.configured && (
@@ -71,6 +72,7 @@ export function DownloadsSettings() {
           </p>
         }
       >
+        {left != null && <InfoRow label="Time left for everything">{etaText(left)}</InfoRow>}
         {list.length === 0 ? <div className="px-4 py-4 text-[0.9375rem] text-muted-foreground">Nothing downloaded yet.</div> : list.map((d) => <Row key={d.id} d={d} />)}
       </SettingsGroup>
       {status && (
