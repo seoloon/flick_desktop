@@ -15,11 +15,12 @@ use oneshot_core::server::ProviderKind;
 use oneshot_core::{Error, Result};
 use oneshot_flickdd::api::{Failure, Link};
 use oneshot_flickdd::{Backend, Connection, Event, Item, Kind, Manager, NewDownload, Source};
-use oneshot_flicksync::auth::{LocalKeyTokenProvider, TokenProvider};
+use oneshot_flickserver::{mint_token, key::now_unix};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _};
 
-use crate::flicksync::{Hub, stored_invitation};
+use crate::flickserver::stored_invitation;
+use crate::flicksync::Hub;
 use crate::offline::{self, IMAGE_KINDS, LocalLibrary};
 use crate::state::AppState;
 
@@ -47,7 +48,7 @@ impl Source for AppSource {
         let invitation = stored_invitation().ok().flatten().ok_or_else(not_configured)?;
         let who = Hub::identity(&state);
         let base = invitation.base_url();
-        let jwt = LocalKeyTokenProvider::new(invitation.key, who).token().await.map_err(|_| not_configured())?;
+        let jwt = mint_token(&invitation.key, &who, 3600, now_unix());
         Ok(Connection { link: Link { http: state.http(), base }, jwt })
     }
 

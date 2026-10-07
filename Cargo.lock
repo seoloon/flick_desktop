@@ -17,6 +17,7 @@ dependencies = [
  "oneshot-catalog",
  "oneshot-core",
  "oneshot-flickdd",
+ "oneshot-flickserver",
  "oneshot-flicksync",
  "oneshot-jellyfin",
  "oneshot-mpv",
@@ -3100,6 +3101,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "oneshot-flickserver"
+version = "0.4.0"
+dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
 name = "oneshot-flicksync"
 version = "0.4.0"
 dependencies = [
@@ -3108,6 +3121,7 @@ dependencies = [
  "futures",
  "hmac",
  "httpdate",
+ "oneshot-flickserver",
  "oneshot-net",
  "parking_lot",
  "serde",

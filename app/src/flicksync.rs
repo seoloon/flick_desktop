@@ -17,7 +17,7 @@ use oneshot_core::{Error, Result};
 use oneshot_flicksync::auth::{Identity, LocalKeyTokenProvider, TokenProvider, sanitize_user_id};
 use oneshot_flicksync::clock::MonotonicClock;
 use oneshot_flicksync::diagnose::{self, Report};
-use oneshot_flicksync::invite::Invitation;
+use oneshot_flickserver::Invitation;
 use oneshot_flicksync::protocol::{MediaRef, MediaType, Provider};
 use oneshot_flicksync::sync::{LocalPlayback, SyncConfig};
 use oneshot_flicksync::{ClientEvent, FlickSyncClient, LoadError, PlaybackController, UserMessage};
@@ -30,25 +30,11 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 use url::Url;
 
+use crate::flickserver::stored_invitation;
 use crate::state::AppState;
 
 /// Keychain entry of the manual signing key from before invitation links; only ever deleted now.
 const LEGACY_KEY_ENTRY: &str = "flicksync-key";
-/// Keychain entry for the FlickSync invitation link (address + key: a secret).
-pub const INVITE_ENTRY: &str = "flicksync-invite";
-
-/// The saved invitation, if any. A link that no longer parses (the format
-/// moved on, the entry was damaged) counts as none: it is logged without its content.
-pub fn stored_invitation() -> Result<Option<Invitation>> {
-    let Some(link) = secrets::load_secret(INVITE_ENTRY)? else { return Ok(None) };
-    match Invitation::parse(&link) {
-        Ok(inv) => Ok(Some(inv)),
-        Err(e) => {
-            tracing::warn!(target: "flicksync", "the saved invitation is unusable: {e}");
-            Ok(None)
-        }
-    }
-}
 const EVENT: &str = "flicksync";
 /// How long a joining player waits for the UI to open the player screen.
 const UI_OPEN_TIMEOUT: Duration = Duration::from_secs(20);

@@ -5,6 +5,7 @@ mod commands;
 mod dev;
 mod diagnostics;
 mod downloads;
+mod flickserver;
 mod flicksync;
 mod images;
 mod offline;
@@ -305,9 +306,9 @@ fn main() {
             commands::flicksync::flicksync_resync_media,
             commands::flicksync::flicksync_debug,
             commands::flicksync::flicksync_current_item,
-            commands::flicksync::flicksync_invitation,
-            commands::flicksync::flicksync_add_invitation,
-            commands::flicksync::flicksync_clear_invitation,
+            commands::flickserver::flickserver_invitation,
+            commands::flickserver::flickserver_add_invitation,
+            commands::flickserver::flickserver_clear_invitation,
             commands::downloads::downloads_status,
             commands::downloads::downloads_list,
             commands::downloads::downloads_enqueue,

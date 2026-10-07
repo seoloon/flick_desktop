@@ -11,6 +11,7 @@ pub mod admin;
 pub mod cast;
 pub mod catalog;
 pub mod downloads;
+pub mod flickserver;
 pub mod flicksync;
 pub mod offline;
 pub mod people;
