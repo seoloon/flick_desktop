@@ -395,11 +395,7 @@ impl Manager {
     // -------------------------------------------------------------- worker
 
     async fn worker(self: Arc<Self>, id: String) {
-        loop {
-            match self.read(&id, |s| s.item.state) {
-                Some(State::Active) => {}
-                _ => break,
-            }
+        while let Some(State::Active) = self.read(&id, |s| s.item.state) {
             match self.step(&id).await {
                 Ok(Step::Done) => break,
                 Ok(Step::More) => {}

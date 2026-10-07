@@ -16,6 +16,7 @@ dependencies = [
  "oneshot-cast",
  "oneshot-catalog",
  "oneshot-core",
+ "oneshot-flickdd",
  "oneshot-flicksync",
  "oneshot-jellyfin",
  "oneshot-mpv",
