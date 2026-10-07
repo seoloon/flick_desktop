@@ -900,6 +900,21 @@ export function PlayerView({
             </FocusGroup>
           </motion.div>
         )}
+        {preroll && !pip && !error && (
+          <motion.div
+            key="skip-preroll"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="absolute right-8 bottom-[calc(var(--bar-h)+1rem)]"
+          >
+            <FocusGroup focusKey="skip" autoFocus>
+              <Button variant="primary" size="md" onClick={advancePreroll}>
+                Skip
+              </Button>
+            </FocusGroup>
+          </motion.div>
+        )}
         {showNext && next && !showSkip && !pip && (
           <NextUp
             key="next"
