@@ -11,6 +11,7 @@ import { Home } from "@/features/home/Home";
 import { ProfilePicker } from "@/features/profiles/ProfilePicker";
 import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { UpdatePrompt } from "@/features/updates/UpdatePrompt";
+import { DownloadEvents } from "@/features/downloads/DownloadEvents";
 import { WatchEvents } from "@/features/watch/WatchEvents";
 import { toggleFrame } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
@@ -102,6 +103,7 @@ export function App() {
         <BrowserRouter>
           <GlobalActions />
           <WatchEvents />
+          <DownloadEvents />
           <ItemMenu />
           <ProfileGate />
           <UpdatePrompt launchReady={shown >= 0} />

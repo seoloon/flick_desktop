@@ -61,6 +61,41 @@ export type AdminOverview = {
 };
 export type CssRect = { x: number; y: number; width: number; height: number };
 
+/** Offline downloads (app/src/downloads.rs, mirrors `oneshot_flickdd::Item`). */
+export type DownloadState = "queued" | "active" | "paused" | "done" | "failed";
+export type DownloadItem = {
+  id: string;
+  backend: "jellyfin" | "plex";
+  itemId: string;
+  /** The library item this download comes from (an `ItemRef`). */
+  itemRef: string;
+  title: string;
+  subtitle: string | null;
+  kind: "movie" | "episode" | null;
+  state: DownloadState;
+  /** Bytes safely on disk. */
+  offset: number;
+  size: number | null;
+  filename: string | null;
+  finalPath: string | null;
+  /** Why it is paused or failed. */
+  error: string | null;
+  /** What it is doing when that is not downloading (waiting, retrying). */
+  note: string | null;
+  /** Bytes per second. */
+  speed: number | null;
+  /** Finished, but the file is gone. */
+  missing: boolean;
+  createdMs: number;
+};
+export type DownloadEvent = { type: "changed"; item: DownloadItem } | { type: "removed"; id: string };
+export type DownloadsStatus = {
+  /** A Flick Server invitation link is saved. */
+  configured: boolean;
+  /** Where new downloads are written. */
+  directory: string;
+};
+
 /** Watch together (app/src/flicksync.rs). */
 export type FlickSyncStatus = {
   /** Configured and reachable: rooms can be offered. */

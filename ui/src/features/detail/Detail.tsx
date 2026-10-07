@@ -1,7 +1,7 @@
 // Title page: the artwork fills the top, the actions sit on it, then seasons
 // or children, cast, technical details and similar titles.
 import { useQuery } from "@tanstack/react-query";
-import { Check, Heart, Play, RotateCcw, Users } from "lucide-react";
+import { Check, Download, Heart, Play, RotateCcw, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -28,6 +28,8 @@ import { ServerBadge } from "@/components/tv/ServerBadge";
 import { personPath } from "@/lib/person";
 import { useSources } from "@/lib/servers";
 import { isPlayable, playPath } from "../player/route";
+import { percent } from "../downloads/format";
+import { downloadOf, useDownloads } from "../downloads/store";
 import { useWatch } from "../watch/store";
 
 export function Detail() {
@@ -42,6 +44,8 @@ export function Detail() {
   const item = useOverridden(loaded);
   const room = useWatch((w) => w.room);
   const watch = useWatch((w) => w.status);
+  const downloadsReady = useDownloads((d) => d.status?.configured ?? false);
+  const download = useDownloads((d) => (item ? downloadOf(d.items, item.id) : undefined));
   // The server that plays (the item's own reference) first, then copies elsewhere.
   const sources = useSources(item ? [item.id, ...(item.alternates ?? [])] : []);
 
@@ -64,6 +68,14 @@ export function Detail() {
   const resuming = item.user.positionMs > 0;
   const source = item.sources[0];
   // In a watch room only the host picks the title; guests are told instead of getting an error screen.
+  const downloadable = downloadsReady && ["movie", "episode", "season", "series"].includes(item.kind);
+  const startDownload = () => {
+    if (download) return navigate("/settings?s=downloads");
+    api.downloadsEnqueue(item.id).then(
+      (queued) => toast.success(queued.length > 1 ? `${queued.length} episodes added to downloads` : "Added to downloads"),
+      (e) => toast.error(asError(e).message),
+    );
+  };
   const start = (ms: number) => {
     if (room && room.hostId !== room.you) toast("Only the host can choose what the room watches.");
     else navigate(playPath(item.id, ms));
@@ -119,6 +131,16 @@ export function Detail() {
                   </Button>
                 )}
               </>
+            )}
+            {downloadable && (
+              <Button
+                size={download ? "lg" : "icon-lg"}
+                icon={download?.state === "done" && !download.missing ? Check : Download}
+                label={download ? "Downloads" : "Download"}
+                onClick={startDownload}
+              >
+                {download && (download.state === "done" ? "Downloaded" : download.state === "paused" ? "Paused" : `Downloading · ${percent(download)} %`)}
+              </Button>
             )}
             <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => toggle("played")} />
             <Button size="icon-lg" icon={Heart} iconFilled={item.user.favorite} label={item.user.favorite ? "Remove from favourites" : "Add to favourites"} onClick={() => toggle("favorite")} />
