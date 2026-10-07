@@ -11,6 +11,7 @@
     "lint": "cargo clippy --workspace --all-targets && pnpm --filter oneshot-ui typecheck",
     "bindings": "cargo test -p oneshot-core -p oneshot-playback -p oneshot-player -p oneshot-catalog --features \"oneshot-core/ts oneshot-playback/ts oneshot-player/ts oneshot-catalog/ts\" export_bindings",
     "libmpv": "node tools/ensure-libmpv.mjs",
+    "bump": "node tools/bump.mjs",
     "release": "node tools/release.mjs",
     "release:publish": "node tools/release.mjs --publish"
   },
