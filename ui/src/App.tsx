@@ -1,28 +1,16 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { LayoutGroup, MotionConfig } from "motion/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ItemMenu } from "@/components/tv/ItemMenu";
 import { Toaster } from "@/components/ui/sonner";
-import { Admin } from "@/features/admin/Admin";
-import { Debug } from "@/features/debug/Debug";
-import { Detail } from "@/features/detail/Detail";
-import { Favorites } from "@/features/favorites/Favorites";
 import { LaunchIntro } from "@/features/intro/LaunchIntro";
 import { useIntro } from "@/lib/intro";
-import { PersonPage } from "@/features/person/PersonPage";
 import { Home } from "@/features/home/Home";
-import { Libraries } from "@/features/library/Libraries";
-import { LibraryGrid } from "@/features/library/LibraryGrid";
-import { PlayerView } from "@/features/player/PlayerView";
-import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { ProfilePicker } from "@/features/profiles/ProfilePicker";
-import { GenreGrid } from "@/features/search/GenreGrid";
-import { Search } from "@/features/search/Search";
-import { Settings } from "@/features/settings/Settings";
+import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { UpdatePrompt } from "@/features/updates/UpdatePrompt";
-import { Watch } from "@/features/watch/Watch";
 import { WatchEvents } from "@/features/watch/WatchEvents";
 import { toggleFrame } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
@@ -30,6 +18,41 @@ import { goBack } from "@/lib/history";
 import { onAction, setBackFallback } from "@/nav/input";
 import { Shell } from "@/shell/Shell";
 import { queryClient } from "@/lib/queryClient";
+
+// Screens load on demand (the first paint only needs Home); they are all
+// fetched in the background once the app is idle, so navigating stays instant.
+const loaders = {
+  Admin: () => import("@/features/admin/Admin").then((m) => ({ default: m.Admin })),
+  Debug: () => import("@/features/debug/Debug").then((m) => ({ default: m.Debug })),
+  Detail: () => import("@/features/detail/Detail").then((m) => ({ default: m.Detail })),
+  Favorites: () => import("@/features/favorites/Favorites").then((m) => ({ default: m.Favorites })),
+  PersonPage: () => import("@/features/person/PersonPage").then((m) => ({ default: m.PersonPage })),
+  Libraries: () => import("@/features/library/Libraries").then((m) => ({ default: m.Libraries })),
+  LibraryGrid: () => import("@/features/library/LibraryGrid").then((m) => ({ default: m.LibraryGrid })),
+  PlayerView: () => import("@/features/player/PlayerView").then((m) => ({ default: m.PlayerView })),
+  GenreGrid: () => import("@/features/search/GenreGrid").then((m) => ({ default: m.GenreGrid })),
+  Search: () => import("@/features/search/Search").then((m) => ({ default: m.Search })),
+  Settings: () => import("@/features/settings/Settings").then((m) => ({ default: m.Settings })),
+  Watch: () => import("@/features/watch/Watch").then((m) => ({ default: m.Watch })),
+};
+const Admin = lazy(loaders.Admin);
+const Debug = lazy(loaders.Debug);
+const Detail = lazy(loaders.Detail);
+const Favorites = lazy(loaders.Favorites);
+const PersonPage = lazy(loaders.PersonPage);
+const Libraries = lazy(loaders.Libraries);
+const LibraryGrid = lazy(loaders.LibraryGrid);
+const PlayerView = lazy(loaders.PlayerView);
+const GenreGrid = lazy(loaders.GenreGrid);
+const Search = lazy(loaders.Search);
+const Settings = lazy(loaders.Settings);
+const Watch = lazy(loaders.Watch);
+
+function preloadScreens() {
+  const run = () => Object.values(loaders).forEach((load) => void load());
+  if ("requestIdleCallback" in window) requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 1500);
+}
 
 /** A new item remounts the player (fresh session state). */
 function PlayerRoute() {
@@ -72,6 +95,7 @@ export function App() {
   // runs underneath and loads while it plays.
   const run = useIntro((s) => s.run);
   const [shown, setShown] = useState(-1);
+  useEffect(preloadScreens, []);
   return (
     <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion={intensity === 0 ? "always" : "user"}>
@@ -84,6 +108,7 @@ export function App() {
           {/* One layout group: a profile's avatar flies from the picker to the sidebar. */}
           <LayoutGroup>
             <Guarded>
+            <Suspense fallback={null}>
             <Routes>
               <Route path="/play" element={<PlayerRoute />} />
               <Route path="/profiles" element={<ProfilePicker />} />
@@ -104,6 +129,7 @@ export function App() {
                 <Route path="/debug" element={<Debug />} />
               </Route>
             </Routes>
+            </Suspense>
             </Guarded>
           </LayoutGroup>
         </BrowserRouter>
