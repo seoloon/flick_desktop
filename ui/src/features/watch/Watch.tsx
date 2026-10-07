@@ -170,7 +170,7 @@ export function Watch() {
           title="Watch together"
           icon={<Users className="size-14 text-white/70" />}
           actions={
-            <Button variant="primary" onClick={() => navigate("/settings?s=watch")}>
+            <Button variant="primary" onClick={() => navigate("/settings?s=flickserver")}>
               Set Up
             </Button>
           }

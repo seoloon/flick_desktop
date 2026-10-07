@@ -1,7 +1,7 @@
 // Title page: the artwork fills the top, the actions sit on it, then seasons
 // or children, cast, technical details and similar titles.
 import { useQuery } from "@tanstack/react-query";
-import { Check, Download, Heart, Play, RotateCcw, Users } from "lucide-react";
+import { ArrowDownToLine, Check, Download, Heart, Play, RotateCcw, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -45,6 +45,7 @@ export function Detail() {
   const room = useWatch((w) => w.room);
   const watch = useWatch((w) => w.status);
   const downloadsReady = useDownloads((d) => d.status?.configured ?? false);
+  const localServer = useDownloads((d) => d.status?.localServer);
   const download = useDownloads((d) => (item ? downloadOf(d.items, item.id) : undefined));
   // The server that plays (the item's own reference) first, then copies elsewhere.
   const sources = useSources(item ? [item.id, ...(item.alternates ?? [])] : []);
@@ -68,9 +69,11 @@ export function Detail() {
   const resuming = item.user.positionMs > 0;
   const source = item.sources[0];
   // In a watch room only the host picks the title; guests are told instead of getting an error screen.
-  const downloadable = downloadsReady && ["movie", "episode", "season", "series"].includes(item.kind);
+  const downloaded = download?.state === "done" && !download.missing;
+  const inProgress = !!download && !downloaded && download.state !== "done";
+  const downloadable = downloadsReady && !!item && !(localServer && item.id.startsWith(`${localServer}:`)) && ["movie", "episode", "season", "series"].includes(item.kind);
   const startDownload = () => {
-    if (download) return navigate("/settings?s=downloads");
+    if (download && !download.missing) return navigate("/settings?s=flickserver");
     api.downloadsEnqueue(item.id).then(
       (queued) => toast.success(queued.length > 1 ? `${queued.length} episodes added to downloads` : "Added to downloads"),
       (e) => toast.error(asError(e).message),
@@ -134,12 +137,13 @@ export function Detail() {
             )}
             {downloadable && (
               <Button
-                size={download ? "lg" : "icon-lg"}
-                icon={download?.state === "done" && !download.missing ? Check : Download}
-                label={download ? "Downloads" : "Download"}
+                size={inProgress ? "lg" : "icon-lg"}
+                icon={downloaded ? ArrowDownToLine : Download}
+                label={downloaded ? "Downloaded: open in Flick Server settings" : inProgress ? "Downloads" : "Download"}
+                className={downloaded ? "bg-white/25" : undefined}
                 onClick={startDownload}
               >
-                {download && (download.state === "done" ? "Downloaded" : download.state === "paused" ? "Paused" : `Downloading · ${percent(download)} %`)}
+                {inProgress && (download.state === "paused" ? "Paused" : `Downloading · ${percent(download)} %`)}
               </Button>
             )}
             <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => toggle("played")} />

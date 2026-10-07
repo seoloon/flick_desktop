@@ -151,9 +151,11 @@ export const api = {
   downloadsEnqueue: (item: ItemRef) => call<DownloadItem[]>("downloads_enqueue", { item }),
   downloadsPause: (id: string) => call<void>("downloads_pause", { id }),
   downloadsResume: (id: string) => call<void>("downloads_resume", { id }),
-  downloadsRemove: (id: string, deleteFile: boolean) => call<void>("downloads_remove", { id, deleteFile }),
-  downloadsOpen: (id: string) => call<void>("downloads_open", { id }),
-  downloadsReveal: (id: string) => call<void>("downloads_reveal", { id }),
+  downloadsRemove: (id: string) => call<void>("downloads_remove", { id }),
+  downloadsClear: () => call<void>("downloads_clear"),
+  downloadsOpenFolder: () => call<void>("downloads_open_folder"),
+  /** True when no server answers: Flick then shows the downloaded titles only. */
+  offlineCheck: () => call<boolean>("offline_check"),
 
   // watch together
   flicksyncStatus: () => call<FlickSyncStatus>("flicksync_status"),

@@ -37,10 +37,9 @@ const sections = [
   ["audio", "Audio"],
   ["video", "Video & HDR"],
   ["subtitles", "Subtitles"],
-  ["downloads", "Downloads"],
   ["servers", "Servers"],
   ["metadata", "Metadata"],
-  ["watch", "Watch Together"],
+  ["flickserver", "Flick Server"],
   ["profiles", "Profiles"],
   ["network", "Network & Cache"],
   ["controls", "Controls"],
@@ -50,7 +49,7 @@ const sections = [
 type Section = (typeof sections)[number][0];
 
 // Sections that were merged into another; old links and saved URLs still land.
-const MOVED: Record<string, Section> = { hdr: "video", cache: "network", performance: "appearance", keyboard: "controls", controller: "controls", notifications: "privacy", debug: "advanced" };
+const MOVED: Record<string, Section> = { hdr: "video", cache: "network", performance: "appearance", keyboard: "controls", controller: "controls", notifications: "privacy", debug: "advanced", watch: "flickserver", downloads: "flickserver" };
 const sectionFromParam = (raw: string | null): Section => {
   if (!raw) return "general";
   if (sections.some(([id]) => id === raw)) return raw as Section;
@@ -389,8 +388,6 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
           </SettingsGroup>
         </>
       );
-    case "downloads":
-      return <DownloadsSettings />;
     case "servers":
       return (
         <>
@@ -405,8 +402,13 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
       return <ProfilesSettings />;
     case "metadata":
       return <TmdbSettings />;
-    case "watch":
-      return <WatchSettings s={s} />;
+    case "flickserver":
+      return (
+        <>
+          <WatchSettings s={s} />
+          <DownloadsSettings />
+        </>
+      );
     case "network":
       return (
         <>
