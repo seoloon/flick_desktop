@@ -254,6 +254,14 @@ impl Manager {
         self.pump();
     }
 
+    /// Cancels everything and deletes every downloaded file.
+    pub fn clear(self: &Arc<Self>) {
+        let ids: Vec<String> = self.inner.lock().slots.iter().map(|s| s.item.id.clone()).collect();
+        for id in ids {
+            self.remove(&id, true);
+        }
+    }
+
     /// Takes a download out of the queue and cleans up after it.
     fn discard(self: &Arc<Self>, id: &str) -> Option<Item> {
         let slot = {
@@ -479,7 +487,8 @@ impl Manager {
 
         let mut got = 0u64;
         let (mut last_emit, mut window, mut window_bytes) = (Instant::now(), Instant::now(), 0u64);
-        let mut speed: Option<u64> = None;
+        // Carried over from the previous segment: a segment lasts well under a second at the server's cap.
+        let mut speed: Option<u64> = self.read(id, |s| s.item.speed).flatten();
         while let Some(chunk) = api::next_chunk(&mut seg).await? {
             // Never past the end of the file, whatever the server sends.
             let room = grant.size.saturating_sub(offset);
@@ -491,7 +500,7 @@ impl Manager {
             offset += chunk.len() as u64;
             got += chunk.len() as u64;
             window_bytes += chunk.len() as u64;
-            if window.elapsed() >= Duration::from_millis(750) {
+            if window.elapsed() >= Duration::from_millis(300) {
                 let now = (window_bytes as f64 / window.elapsed().as_secs_f64()) as u64;
                 speed = Some(speed.map_or(now, |old| (old + now * 2) / 3));
                 (window, window_bytes) = (Instant::now(), 0);

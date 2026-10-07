@@ -263,7 +263,7 @@ impl AppState {
         r.profile.prefs.apply(&mut effective);
         self.apply_effective_settings(effective);
         self.restore_servers();
-        let live: HashSet<ServerId> = self.catalog.providers().iter().map(|p| p.descriptor().id).collect();
+        let live: HashSet<ServerId> = self.catalog.servers().iter().map(|p| p.descriptor().id).collect();
         tracing::info!(target: "provider", profile = %r.profile.name, "profile active");
         Ok(r.accounts
             .iter()

@@ -10,6 +10,7 @@
 mod merge;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use oneshot_core::ids::ItemRef;
@@ -69,13 +70,17 @@ pub struct ServerLibraries {
 #[derive(Debug)]
 pub struct Catalog {
     providers: RwLock<Vec<Arc<dyn MediaProvider>>>,
+    /// The downloaded titles, as a library of their own. Always reachable by id; it is
+    /// browsed (home, search) only in offline mode, when it is the one provider asked.
+    local: RwLock<Option<Arc<dyn MediaProvider>>>,
+    offline: AtomicBool,
     cache: Arc<MetadataCache>,
     ttl_secs: RwLock<u32>,
 }
 
 impl Catalog {
     pub fn new(cache: Arc<MetadataCache>, ttl_secs: u32) -> Self {
-        Self { providers: RwLock::new(Vec::new()), cache, ttl_secs: RwLock::new(ttl_secs) }
+        Self { providers: RwLock::new(Vec::new()), local: RwLock::new(None), offline: AtomicBool::new(false), cache, ttl_secs: RwLock::new(ttl_secs) }
     }
 
     pub fn set_ttl(&self, ttl_secs: u32) {
@@ -101,11 +106,36 @@ impl Catalog {
         *self.providers.write() = providers;
     }
 
-    pub fn providers(&self) -> Vec<Arc<dyn MediaProvider>> {
+    /// Registers the provider of downloaded titles.
+    pub fn set_local(&self, provider: Arc<dyn MediaProvider>) {
+        *self.local.write() = Some(provider);
+    }
+
+    /// Offline mode: the servers are out of reach, so only downloaded titles are browsed.
+    pub fn set_offline(&self, offline: bool) {
+        self.offline.store(offline, Ordering::Relaxed);
+    }
+
+    pub fn is_offline(&self) -> bool {
+        self.offline.load(Ordering::Relaxed)
+    }
+
+    /// The connected servers, whatever the mode.
+    pub fn servers(&self) -> Vec<Arc<dyn MediaProvider>> {
         self.providers.read().clone()
     }
 
+    /// What is browsed: the servers, or in offline mode the downloads alone.
+    pub fn providers(&self) -> Vec<Arc<dyn MediaProvider>> {
+        if self.is_offline() { self.local.read().iter().cloned().collect() } else { self.servers() }
+    }
+
     pub fn provider(&self, id: ServerId) -> Result<Arc<dyn MediaProvider>> {
+        if let Some(local) = self.local.read().as_ref()
+            && local.descriptor().id == id
+        {
+            return Ok(Arc::clone(local));
+        }
         self.providers
             .read()
             .iter()

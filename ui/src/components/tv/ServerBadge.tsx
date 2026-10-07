@@ -1,6 +1,7 @@
 // Where a title comes from: the provider's logo and the server's name. The
 // small logos keep their brand colours, like channel badges on Apple TV:
 // they are content, not chrome.
+import { HardDrive } from "lucide-react";
 import { useId } from "react";
 import type { ProviderKind } from "@/ipc/bindings/ProviderKind";
 import type { ServerDescriptor } from "@/ipc/bindings/ServerDescriptor";
@@ -35,6 +36,16 @@ export function ServerBadge({ server, quiet, className }: { server: ServerDescri
     <span className={cn("inline-flex min-w-0 items-center gap-1.5", quiet ? "text-white/60" : "text-white/90", className)} title={`${server.name} · ${server.kind === "plex" ? "Plex" : "Jellyfin"}`}>
       <ProviderLogo kind={server.kind} className="size-[1.05em]" />
       <span className="truncate font-medium">{server.name}</span>
+    </span>
+  );
+}
+
+/** A title played from the files downloaded on this computer. */
+export function LocalBadge({ quiet, className }: { quiet?: boolean; className?: string }) {
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", quiet ? "text-white/60" : "text-white/90", className)} title="Downloaded on this computer">
+      <HardDrive className="size-[1.05em] shrink-0" />
+      <span className="truncate font-medium">Local</span>
     </span>
   );
 }

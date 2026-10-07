@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DownloadItem } from "@/ipc/app-types";
-import { bytesText, percent, sortDownloads, stateText } from "./format";
+import { bytesText, etaText, percent, remainingSecs, totalRemainingSecs, sortDownloads, stateText } from "./format";
 
 const item = (o: Partial<DownloadItem>): DownloadItem => ({
   id: "a",
@@ -40,11 +40,30 @@ describe("download text", () => {
 
   it("says what is going on", () => {
     expect(stateText(item({ state: "queued" }))).toBe("Waiting to start");
-    expect(stateText(item({ offset: 1024, size: 4096, speed: 2048 }))).toBe("1.0 KB of 4.0 KB · 2.0 KB/s");
+    expect(stateText(item({ offset: 1024, size: 4096, speed: 2048 }))).toBe("1.0 KB of 4.0 KB · 2.0 KB/s · 2 s left");
     expect(stateText(item({ note: "Connection problem, retrying (3 s)" }))).toBe("Connection problem, retrying (3 s)");
     expect(stateText(item({ state: "paused", offset: 50, size: 100 }))).toBe("Paused · 50 %");
     expect(stateText(item({ state: "failed", error: "No." }))).toBe("No.");
     expect(stateText(item({ state: "done", size: 1024, missing: true }))).toBe("The file is no longer there");
+  });
+
+  it("estimates the time left", () => {
+    expect(etaText(0)).toBe("1 s");
+    expect(etaText(45)).toBe("45 s");
+    expect(etaText(61)).toBe("2 min");
+    expect(etaText(3900)).toBe("1 h 05");
+    expect(remainingSecs(item({ offset: 100, size: 1100, speed: 100 }))).toBe(10);
+    expect(remainingSecs(item({ offset: 100, size: 1100, speed: null }))).toBeNull();
+    expect(remainingSecs(item({ state: "paused", offset: 100, size: 1100, speed: 100 }))).toBeNull();
+  });
+
+  it("estimates the time left for the whole queue", () => {
+    const running = item({ id: "a", offset: 0, size: 1000, speed: 100 });
+    const waiting = item({ id: "b", state: "queued", size: 1000 });
+    expect(totalRemainingSecs([running, waiting])).toBe(20);
+    expect(totalRemainingSecs([item({ id: "c", state: "done", size: 5 })])).toBeNull();
+    expect(totalRemainingSecs([running, item({ id: "d", state: "queued", size: null })])).toBeNull();
+    expect(totalRemainingSecs([waiting])).toBeNull();
   });
 
   it("lists running downloads first", () => {

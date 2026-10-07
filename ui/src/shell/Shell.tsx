@@ -11,6 +11,7 @@ import { onAction } from "@/nav/input";
 import { focusKey, NAV_KEY, SCREEN_KEY } from "@/nav/spatial";
 import { useScrollFade } from "@/nav/useScrollFade";
 import { useSmoothWheel } from "@/nav/smoothWheel";
+import { StatusBars } from "@/features/downloads/StatusBars";
 import { AmbientBackdrop } from "./AmbientBackdrop";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
@@ -166,6 +167,7 @@ export function Shell() {
       </main>
       <ScrollEdge side="top" />
       <ScrollEdge side="bottom" />
+      <StatusBars />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { ProfilePicker } from "@/features/profiles/ProfilePicker";
 import { ProfileGate } from "@/features/profiles/ProfileGate";
 import { UpdatePrompt } from "@/features/updates/UpdatePrompt";
 import { DownloadEvents } from "@/features/downloads/DownloadEvents";
+import { OfflineWatcher } from "@/features/downloads/OfflineWatcher";
 import { WatchEvents } from "@/features/watch/WatchEvents";
 import { toggleFrame } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
@@ -104,6 +105,7 @@ export function App() {
           <GlobalActions />
           <WatchEvents />
           <DownloadEvents />
+          <OfflineWatcher />
           <ItemMenu />
           <ProfileGate />
           <UpdatePrompt launchReady={shown >= 0} />

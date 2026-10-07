@@ -92,8 +92,10 @@ export type DownloadEvent = { type: "changed"; item: DownloadItem } | { type: "r
 export type DownloadsStatus = {
   /** A Flick Server invitation link is saved. */
   configured: boolean;
-  /** Where new downloads are written. */
+  /** Where downloads are written (the app's own data folder). */
   directory: string;
+  /** The library finished downloads belong to: `<localServer>:<download id>` is a title. */
+  localServer: string;
 };
 
 /** Watch together (app/src/flicksync.rs). */

@@ -105,6 +105,10 @@ async fn download(req: oneshot_net::reqwest::RequestBuilder) -> Result<Vec<u8>> 
 /// Fetches (or reads from cache) the image bytes, of a live connection only
 /// (the disk cache also holds other profiles' artwork).
 pub async fn load(state: &AppState, image: &ImageRef, size: ImageSize) -> Result<Vec<u8>> {
+    // A downloaded title keeps its own pictures; there is no server to ask.
+    if image.item.server == crate::offline::LOCAL_SERVER {
+        return state.downloads.local_image(&image.item.key, image.kind).await;
+    }
     let provider = state.catalog.provider(image.item.server)?;
     let key = cache_key(image, size);
     cached_or_fetch(state, &key, async {

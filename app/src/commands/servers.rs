@@ -26,7 +26,7 @@ pub struct ServerEntry {
 
 #[tauri::command(async)]
 pub fn servers_list(state: St<'_>, all: Option<bool>) -> Vec<ServerEntry> {
-    let connected: Vec<ServerId> = state.catalog.providers().iter().map(|p| p.descriptor().id).collect();
+    let connected: Vec<ServerId> = state.catalog.servers().iter().map(|p| p.descriptor().id).collect();
     let members = if all.unwrap_or(false) { None } else { state.active_members() };
     state
         .servers

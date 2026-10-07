@@ -15,9 +15,9 @@ import { ambientFor } from "@/lib/ambient";
 import { episodeLabel, progress } from "@/lib/format";
 import { openItemMenu, useOverridden } from "@/lib/itemMenu";
 import { focusSpring } from "@/lib/motion";
-import { useSources } from "@/lib/servers";
+import { useIsLocal, useSources } from "@/lib/servers";
 import { cn } from "@/lib/utils";
-import { ServerBadge } from "./ServerBadge";
+import { LocalBadge, ServerBadge } from "./ServerBadge";
 import { useTv } from "@/nav/Focusable";
 import { onStick } from "@/nav/input";
 import { navSection } from "@/shell/navItems";
@@ -115,6 +115,7 @@ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: Ca
   const open = () => (onSelect ? onSelect(item) : navigate(detailPath(item.id), { state: { navSection: navSection(pathname, search, state) } }));
   const pct = progress(item);
   const [source] = useSources([item.id]);
+  const local = useIsLocal(item.id);
   const thumb = shape === "thumb";
   const art = thumb ? (item.images.thumb ?? item.images.backdrop ?? item.images.poster) : item.images.poster;
   const title = thumb ? (item.episode?.seriesTitle ?? item.title) : item.title;
@@ -157,14 +158,14 @@ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: Ca
         <Artwork image={art} size={thumb ? "large" : "card"} alt={title} />
         {/* Specular sheen */}
         <motion.div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: sheen }} animate={{ opacity: lifted ? 1 : 0 }} transition={{ duration: 0.25 }} />
-        {source && (
+        {(source || local) && (
           <motion.span
             className="glass absolute top-2 left-2 max-w-[calc(100%-3rem)] rounded-full px-2 py-0.5 text-[0.6875rem]"
             initial={false}
             animate={{ opacity: lifted ? 1 : 0, y: lifted ? 0 : -4 }}
             transition={{ duration: 0.2 }}
           >
-            <ServerBadge server={source} />
+            {local ? <LocalBadge /> : source && <ServerBadge server={source} />}
           </motion.span>
         )}
         {item.user.played && (

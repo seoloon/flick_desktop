@@ -167,7 +167,7 @@ pub fn profiles_configure(state: St<'_>, enabled: bool, mode: ProfileMode, ask_o
         state.restore_servers();
     } else if !was_enabled || mode != old_mode {
         // Keep the person where they are: enter the profile holding what is loaded.
-        let loaded: HashSet<ServerId> = state.catalog.providers().iter().map(|p| p.descriptor().id).collect();
+        let loaded: HashSet<ServerId> = state.catalog.servers().iter().map(|p| p.descriptor().id).collect();
         match profiles::best_match(&state.resolved_profiles(), &loaded) {
             Some(id) => {
                 state.activate_profile(id)?;
