@@ -319,6 +319,10 @@ impl Catalog {
         self.provider(id.server)?.similar(id, limit).await
     }
 
+    pub async fn prerolls(&self, id: &ItemRef) -> Result<Vec<ItemRef>> {
+        self.provider(id.server)?.prerolls(id).await
+    }
+
     pub async fn adjacent(&self, id: &ItemRef) -> Result<Adjacent> {
         self.provider(id.server)?.adjacent_episodes(id).await
     }

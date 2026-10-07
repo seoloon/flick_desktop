@@ -3,6 +3,9 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Adjacent } from "./bindings/Adjacent";
 import type { Aggregated } from "./bindings/Aggregated";
 import type { CapabilityReport } from "./bindings/CapabilityReport";
+import type { CastCommand } from "./bindings/CastCommand";
+import type { CastDevice } from "./bindings/CastDevice";
+import type { CastStatus } from "./bindings/CastStatus";
 import type { DebugInfo } from "./bindings/DebugInfo";
 import type { RoomState } from "./bindings/RoomState";
 import type { GenreQuery } from "./bindings/GenreQuery";
@@ -108,6 +111,13 @@ export const api = {
   similar: (id: ItemRef) => call<MediaItem[]>("similar", { id }),
   adjacent: (id: ItemRef) => call<Adjacent>("adjacent", { id }),
   markers: (id: ItemRef) => call<Marker[]>("markers", { id }),
+  castDevices: () => call<CastDevice[]>("cast_devices"),
+  castStart: (device: string, item: ItemRef, startMs: number) => call<void>("cast_start", { device, item, startMs }),
+  castCommand: (command: CastCommand) => call<void>("cast_command", { command }),
+  castStatus: () => call<CastStatus>("cast_status"),
+  /** Ends the cast; where it had got to (ms). */
+  castStop: () => call<number | null>("cast_stop"),
+  prerolls: (id: ItemRef) => call<ItemRef[]>("prerolls", { id }).catch(() => [] as ItemRef[]),
   search: (term: string) => call<Aggregated<MediaItem[]>>("search", { term }),
   genres: (kind: ItemKind) => call<Aggregated<string[]>>("genres", { kind }),
   byGenre: (query: GenreQuery) => call<Aggregated<MediaItem[]>>("by_genre", { query }),

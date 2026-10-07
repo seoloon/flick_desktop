@@ -8,6 +8,7 @@
 //! (a seek or a resize applied out of order would be wrong), and window state.
 
 pub mod admin;
+pub mod cast;
 pub mod catalog;
 pub mod flicksync;
 pub mod people;

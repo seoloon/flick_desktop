@@ -43,6 +43,12 @@ pub trait MediaProvider: Send + Sync + std::fmt::Debug {
     async fn adjacent_episodes(&self, id: &ItemRef) -> Result<Adjacent>;
     async fn markers(&self, id: &ItemRef) -> Result<Vec<Marker>>;
 
+    /// Clips the server wants played before `id` (cinema intros, prerolls
+    /// managed by tools like neXroll), in order. Default: none.
+    async fn prerolls(&self, _id: &ItemRef) -> Result<Vec<ItemRef>> {
+        Ok(Vec::new())
+    }
+
     async fn set_played(&self, id: &ItemRef, played: bool) -> Result<()>;
     async fn set_favorite(&self, id: &ItemRef, favorite: bool) -> Result<()>;
 

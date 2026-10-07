@@ -1,0 +1,35 @@
+[package]
+name = "oneshot-cast"
+description = "Casting: Chromecast (CASTV2) and AirPlay receivers, discovery, and the local relay that gives them a stream"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+# Generates TypeScript bindings for IPC types: `cargo test --features ts export_bindings`
+ts = ["dep:ts-rs"]
+
+[dependencies]
+ts-rs = { workspace = true, optional = true }
+async-trait.workspace = true
+oneshot-core.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "time", "sync", "rt"] }
+tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+mdns-sd = "0.21"
+plist = "1"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[dev-dependencies]
+wiremock.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "time", "sync", "rt", "macros"] }
+
+[lints]
+workspace = true

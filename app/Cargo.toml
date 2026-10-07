@@ -17,6 +17,7 @@ oneshot-playback.workspace = true
 oneshot-player.workspace = true
 oneshot-storage.workspace = true
 oneshot-catalog.workspace = true
+oneshot-cast.workspace = true
 oneshot-flicksync.workspace = true
 async-trait.workspace = true
 oneshot-net.workspace = true

@@ -6,4 +6,8 @@ export type PlayRequest = { item: ItemRef | null,
 /**
  * Specific version; `None` = first offer.
  */
-sourceId: string | null, startMs: number | null, audio: TrackRequest, subtitle: TrackRequest, };
+sourceId: string | null, startMs: number | null, audio: TrackRequest, subtitle: TrackRequest, 
+/**
+ * Prerolls: played, never reported to the server.
+ */
+silent: boolean, };

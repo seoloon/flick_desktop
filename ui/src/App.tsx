@@ -35,7 +35,11 @@ import { queryClient } from "@/lib/queryClient";
 function PlayerRoute() {
   const [params] = useSearchParams();
   const item = params.get("item");
-  return item ? <PlayerView key={`${item}:${params.get("start") ?? ""}`} itemId={item} startMs={Number(params.get("start") ?? 0) || 0} /> : null;
+  if (!item) return null;
+  // Prerolls play first: `main` is the title they lead to, `rest` the clips still to come.
+  const main = params.get("main");
+  const preroll = main ? { main, rest: (params.get("rest") ?? "").split(",").filter(Boolean) } : undefined;
+  return <PlayerView key={`${item}:${params.get("start") ?? ""}`} itemId={item} startMs={Number(params.get("start") ?? 0) || 0} lookForPrerolls={params.get("pre") !== "0"} preroll={preroll} resumeCast={params.get("cast") === "1"} />;
 }
 
 /** A render error shows a message instead of a blank window; navigating resets it. */

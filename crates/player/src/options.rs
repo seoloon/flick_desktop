@@ -15,6 +15,10 @@ fn s(v: impl Into<String>) -> Node {
     Node::String(v.into())
 }
 
+/// Subtitle size factor while in Picture in Picture (mpv sizes subtitles by
+/// window height, and that window is about a quarter of the screen wide).
+pub const PIP_SUBTITLE_SCALE: f64 = 2.2;
+
 /// Properties that depend only on settings (applied at engine start and
 /// whenever settings change).
 pub fn base_properties(settings: &Settings) -> PropertyList {

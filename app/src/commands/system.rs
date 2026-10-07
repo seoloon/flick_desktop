@@ -103,6 +103,8 @@ pub fn set_fullscreen(window: WebviewWindow, fullscreen: bool) -> Result<()> {
 pub fn window_pip(window: WebviewWindow, state: St<'_>, enter: bool) -> Result<()> {
     let err = |e: tauri::Error| Error::Other(e.to_string());
     let mut saved = state.pip_restore.lock();
+    // Subtitles follow the window size: bigger in the small window, back to normal after.
+    state.player.set_pip(enter, &state.settings());
     if enter {
         if saved.is_some() {
             return Ok(());

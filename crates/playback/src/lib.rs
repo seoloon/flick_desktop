@@ -7,7 +7,7 @@
 
 mod profile;
 mod reasons;
-mod tracks;
+pub mod tracks;
 
 use oneshot_core::capabilities::{AudioDevice, CapabilityReport, DisplayCapabilities, HdrState};
 use oneshot_core::playback::{
@@ -33,6 +33,8 @@ pub struct DecisionInput<'a> {
     pub settings: &'a Settings,
     pub audio: TrackRequest,
     pub subtitle: TrackRequest,
+    /// Language the title was made in (ISO 639-1), if known.
+    pub original_language: Option<&'a str>,
 }
 
 /// The source cannot be played with the current settings/server policy.
@@ -75,7 +77,7 @@ pub fn decide(input: &DecisionInput<'_>) -> Result<PlaybackDecision, Unplayable>
     let mut log = Log::default();
 
     let video = source.primary_video();
-    let audio = tracks::select_audio(source, input.audio, &settings.playback.preferred_audio_languages);
+    let audio = tracks::select_audio(source, input.audio, &settings.playback.preferred_audio_languages, input.original_language);
     let subtitle = tracks::select_subtitle(source, input.subtitle, &settings.subtitles, audio);
 
     // --- 1. Local decodability -------------------------------------------

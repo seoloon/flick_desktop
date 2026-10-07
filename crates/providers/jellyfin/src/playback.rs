@@ -117,13 +117,13 @@ pub async fn stream(p: &JellyfinProvider, req: &StreamRequest) -> Result<StreamT
             Ok(StreamTarget { url, headers, external_subtitles })
         }
         DeliveryRequest::Remux { .. } | DeliveryRequest::Transcode { .. } => {
-            let (video_copy, audio_copy, max_bitrate, max_width) = match &req.delivery {
-                DeliveryRequest::Transcode { video, audio, max_bitrate, max_width, .. } => {
-                    (video.is_none(), audio.is_none(), *max_bitrate, *max_width)
+            let (video_copy, audio_copy, max_bitrate, max_width, wanted) = match &req.delivery {
+                DeliveryRequest::Transcode { video, audio, max_bitrate, max_width, audio_channels, .. } => {
+                    (video.is_none(), audio.is_none(), *max_bitrate, *max_width, (video.clone(), audio.clone(), *audio_channels))
                 }
-                _ => (true, true, None, None),
+                _ => (true, true, None, None, (None, None, None)),
             };
-            let mut body = request_body(p, &device_profile(&transcode_profile(max_bitrate, max_width)), max_bitrate);
+            let mut body = request_body(p, &device_profile(&transcode_profile(max_bitrate, max_width, wanted)), max_bitrate);
             body.enable_direct_play = false;
             body.enable_direct_stream = matches!(req.delivery, DeliveryRequest::Remux { .. });
             body.allow_video_stream_copy = video_copy;
@@ -152,18 +152,25 @@ pub async fn stream(p: &JellyfinProvider, req: &StreamRequest) -> Result<StreamT
 /// Profile for transcode requests: the transcoding profile is what matters;
 /// direct play entries are irrelevant because direct play is disabled.
 /// `max_width` makes the server scale down (16:9 height implied).
-fn transcode_profile(max_bitrate: Option<u64>, max_width: Option<u32>) -> ClientProfile {
+/// `wanted` narrows the output codecs and channels when the caller asks for
+/// specific ones (a receiver that only decodes H.264 and stereo AAC).
+fn transcode_profile(
+    max_bitrate: Option<u64>,
+    max_width: Option<u32>,
+    wanted: (Option<oneshot_core::stream::VideoCodec>, Option<oneshot_core::stream::AudioCodec>, Option<u8>),
+) -> ClientProfile {
     use oneshot_core::stream::{AudioCodec, SubtitleFormat, VideoCodec};
+    let (video, audio, channels) = wanted;
     ClientProfile {
         name: "Flick (transcode)".into(),
         max_bitrate,
-        video_codecs: vec![VideoCodec::Hevc, VideoCodec::H264],
-        audio_codecs: vec![AudioCodec::Aac, AudioCodec::Ac3, AudioCodec::Eac3],
+        video_codecs: video.map_or_else(|| vec![VideoCodec::Hevc, VideoCodec::H264], |v| vec![v]),
+        audio_codecs: audio.filter(|a| matches!(a, AudioCodec::Aac | AudioCodec::Ac3 | AudioCodec::Eac3)).map_or_else(|| vec![AudioCodec::Aac, AudioCodec::Ac3, AudioCodec::Eac3], |a| vec![a]),
         containers: vec!["ts".into()],
         subtitle_formats: vec![SubtitleFormat::Srt, SubtitleFormat::Ass, SubtitleFormat::WebVtt],
         max_width: max_width.unwrap_or(7680),
         max_height: max_width.map_or(4320, |w| w * 9 / 16),
-        max_audio_channels: 8,
+        max_audio_channels: channels.unwrap_or(8),
     }
 }
 

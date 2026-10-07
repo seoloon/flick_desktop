@@ -204,6 +204,9 @@ pub struct MediaItem {
     pub title: String,
     pub sort_title: Option<String>,
     pub original_title: Option<String>,
+    /// Language the title was made in (ISO 639-1), when the server's metadata says.
+    #[serde(default)]
+    pub original_language: Option<String>,
     pub tagline: Option<String>,
     pub overview: Option<String>,
     pub year: Option<i32>,
@@ -237,6 +240,7 @@ impl MediaItem {
             title: title.into(),
             sort_title: None,
             original_title: None,
+            original_language: None,
             tagline: None,
             overview: None,
             year: None,

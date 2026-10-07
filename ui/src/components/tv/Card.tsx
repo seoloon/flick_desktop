@@ -4,7 +4,7 @@
 // under a pointer it also tilts toward the cursor (tvOS parallax).
 import { Check } from "lucide-react";
 import { motion, useMotionTemplate, useMotionValue, useSpring } from "motion/react";
-import { type PointerEvent, useState } from "react";
+import { type PointerEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { ItemRef } from "@/ipc/bindings/ItemRef";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
@@ -19,6 +19,7 @@ import { useSources } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 import { ServerBadge } from "./ServerBadge";
 import { useTv } from "@/nav/Focusable";
+import { onStick } from "@/nav/input";
 import { navSection } from "@/shell/navItems";
 
 export function detailPath(id: ItemRef) {
@@ -86,6 +87,23 @@ export function MediaCard({ item: listed, shape, focusKey, fluid, onSelect }: Ca
     lx.set(px * 100);
     ly.set(py * 100);
   };
+  // With a controller the left stick plays the pointer's part on the focused card.
+  useEffect(() => {
+    if (!tv.showFocus) return;
+    const off = onStick((x, y) => {
+      ry.set(x * MAX_TILT);
+      rx.set(-y * MAX_TILT);
+      lx.set(x ? 50 + x * 50 : 30);
+      ly.set(y || x ? 50 + y * 50 : 0);
+    });
+    return () => {
+      off();
+      rx.set(0);
+      ry.set(0);
+      lx.set(30);
+      ly.set(0);
+    };
+  }, [tv.showFocus, rx, ry, lx, ly]);
   const onLeave = () => {
     setHover(false);
     rx.set(0);

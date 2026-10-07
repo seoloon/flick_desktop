@@ -384,6 +384,18 @@ impl MediaProvider for JellyfinProvider {
         }
     }
 
+    async fn prerolls(&self, id: &ItemRef) -> Result<Vec<ItemRef>> {
+        self.check_server(id)?;
+        // Intro providers (Cinema Mode, neXroll) answer here; a server without
+        // any returns an empty list.
+        let path = format!("Users/{}/Items/{}/Intros", self.user_id(), id.key);
+        match self.get::<QueryResult<BaseItemDto>>(&path, &[]).await {
+            Ok(r) => Ok(r.items.iter().filter(|d| d.id != id.key).map(|d| ItemRef::new(self.server(), &d.id)).collect()),
+            Err(Error::NotFound(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn set_played(&self, id: &ItemRef, played: bool) -> Result<()> {
         self.check_server(id)?;
         let method = if played { Method::POST } else { Method::DELETE };

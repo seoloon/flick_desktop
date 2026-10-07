@@ -98,6 +98,8 @@ pub fn item(server: ServerId, m: &Metadata) -> MediaItem {
     let mut item = MediaItem::new(ItemRef::new(server, &m.rating_key), k, m.title.clone());
     item.sort_title = m.title_sort.clone();
     item.original_title = m.original_title.clone();
+    let countries: Vec<String> = m.countries.iter().map(|c| c.tag.clone()).collect();
+    item.original_language = oneshot_core::text::guess_original_language(m.original_title.as_deref(), &countries);
     item.tagline = m.tagline.clone();
     item.overview = m.summary.clone().filter(|s| !s.is_empty());
     item.year = m.year;

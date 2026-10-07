@@ -11,6 +11,7 @@ pub mod options;
 pub mod presenter;
 pub mod reconcile;
 mod session;
+pub use session::original_language;
 pub mod state;
 pub mod tracks;
 
@@ -63,6 +64,9 @@ pub struct PlayRequest {
     pub audio: TrackRequest,
     #[serde(default)]
     pub subtitle: TrackRequest,
+    /// Prerolls: played, never reported to the server.
+    #[serde(default)]
+    pub silent: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,6 +94,8 @@ pub(crate) struct Inner {
     pub snapshot: PlayerSnapshot,
     pub session: Option<session::Session>,
     pub viewport: Option<Viewport>,
+    /// Picture in Picture: the window is tiny, subtitles are enlarged to stay readable.
+    pub pip: bool,
 }
 
 /// Playback timing read live from mpv, for the watch-together sync.
@@ -123,6 +129,7 @@ impl Player {
             snapshot: PlayerSnapshot::default(),
             session: None,
             viewport: None,
+            pip: false,
         };
         Self { config, sink, inner: Arc::new(Mutex::new(inner)) }
     }
@@ -243,6 +250,13 @@ impl Player {
         }
     }
 
+    /// Picture in Picture changes: subtitles are sized for the window, which
+    /// is a fraction of the screen, so they are scaled up to remain readable.
+    pub fn set_pip(&self, on: bool, settings: &Settings) {
+        self.inner.lock().pip = on;
+        self.apply_settings(settings);
+    }
+
     /// Applies settings that can change at runtime (styles, hwdec, volume…).
     /// While a title plays, its volume and audio filters stay the session's
     /// (see [`options::live_properties`]).
@@ -254,6 +268,10 @@ impl Player {
             None => options::base_properties(settings),
         };
         for (name, value) in props {
+            let value = match (name, &value) {
+                ("sub-scale", Node::Double(v)) if inner.pip => Node::Double(v * options::PIP_SUBTITLE_SCALE),
+                _ => value,
+            };
             if let Err(e) = engine.mpv.set_property(name, value) {
                 tracing::warn!(target: "player", "apply {name}: {e}");
             }
@@ -276,6 +294,7 @@ impl Player {
             start_ms: Some(inner.snapshot.position_ms),
             audio,
             subtitle,
+            silent: false,
         })
     }
 

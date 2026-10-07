@@ -152,6 +152,25 @@ export function installKeyboard() {
 const REPEAT_DELAY = 380;
 const REPEAT_RATE = 110;
 
+// The left stick's raw position (-1..1), for things that follow it like a
+// pointer: the focused card tilts toward it as it would under a mouse.
+type StickListener = (x: number, y: number) => void;
+const stickListeners = new Set<StickListener>();
+let stickX = 0;
+let stickY = 0;
+
+export function onStick(listener: StickListener): () => void {
+  stickListeners.add(listener);
+  return () => void stickListeners.delete(listener);
+}
+
+function setStick(x: number, y: number) {
+  if (x === stickX && y === stickY) return;
+  stickX = x;
+  stickY = y;
+  stickListeners.forEach((l) => l(x, y));
+}
+
 export function installGamepad(deadzone: () => number, swapConfirm: () => boolean, enabled: () => boolean) {
   const held = new Map<string, number>(); // key -> next fire time
   const fire = (key: string, pressed: boolean, action: Action, now: number) => {
@@ -179,14 +198,18 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
     if (!Array.from(pads).some((p) => p?.connected)) {
       running = false;
       held.clear();
+      setStick(0, 0);
       return;
     }
+    let sx = 0;
+    let sy = 0;
     for (const pad of enabled() ? pads : []) {
       if (!pad || pad.mapping !== "standard") continue;
       const b = (i: number) => pad.buttons[i]?.pressed ?? false;
       const dz = deadzone();
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
+      if (Math.hypot(ax, ay) > Math.hypot(sx, sy)) [sx, sy] = [ax, ay];
       const [confirm, cancel] = swapConfirm() ? [1, 0] : [0, 1];
       fire(`${pad.index}:up`, b(12) || ay < -dz, { type: "move", dir: "up" }, now);
       fire(`${pad.index}:down`, b(13) || ay > dz, { type: "move", dir: "down" }, now);
@@ -199,6 +222,8 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
       fire(`${pad.index}:rb`, b(5), { type: "seek", seconds: 10 }, now);
       fire(`${pad.index}:menu`, b(8), { type: "menu" }, now);
     }
+    // A stick resting near the centre drifts a little: below this it is still.
+    setStick(Math.hypot(sx, sy) < 0.12 ? 0 : sx, Math.hypot(sx, sy) < 0.12 ? 0 : sy);
     requestAnimationFrame(loop);
   };
   const start = () => {

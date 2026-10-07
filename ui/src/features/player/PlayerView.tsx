@@ -12,6 +12,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  Cast,
   ChevronLeft,
   ListVideo,
   Maximize,
@@ -37,6 +38,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/tv/Button";
 import { Spinner } from "@/components/tv/Feedback";
 import { api, asError } from "@/ipc/api";
+import type { CastDevice } from "@/ipc/bindings/CastDevice";
 import type { Marker } from "@/ipc/bindings/Marker";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import type { PlayerCommand } from "@/ipc/bindings/PlayerCommand";
@@ -58,6 +60,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChatBanner } from "../watch/ChatBanner";
 import { RoomPanel, type RoomTab } from "../watch/RoomPanel";
 import { useWatch } from "../watch/store";
+import { CastMenu, CastOverlay, useCastSession } from "./CastPanel";
 import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
@@ -375,7 +378,30 @@ function PipOverlay({
   );
 }
 
-export function PlayerView({ itemId, startMs }: { itemId: string; startMs: number }) {
+/** Window state handed from one playback to the next when an episode follows
+ * another: the player is remounted per item, but the window must not leave
+ * fullscreen (or Picture in Picture) in between. */
+const handoff = { pending: false, active: false, fullscreen: false, pip: false, frameBeforePip: false };
+
+/** How long the server gets to name the prerolls before the title starts anyway. */
+const PREROLL_LOOKUP_MS = 3000;
+
+export function PlayerView({
+  itemId,
+  startMs,
+  lookForPrerolls = false,
+  preroll,
+  resumeCast = false,
+}: {
+  itemId: string;
+  startMs: number;
+  /** Ask the server for prerolls before starting (a fresh start of a title). */
+  lookForPrerolls?: boolean;
+  /** This playback is a preroll: the title (and the clips after this one) it leads to. */
+  preroll?: { main: string; rest: string[] };
+  /** A cast is already running: this is its next title, nothing plays here. */
+  resumeCast?: boolean;
+}) {
   const navigate = useNavigate();
   const settings = useSettings();
   // In a watch room the host chooses what plays next: nothing starts by itself.
@@ -394,8 +420,8 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
 
   const item = useQuery({ queryKey: ["item", itemId], queryFn: () => api.item(itemId) });
   const [source] = useSources([itemId]);
-  const markers = useQuery({ queryKey: ["markers", itemId], queryFn: () => api.markers(itemId).catch(() => [] as Marker[]) });
-  const adjacent = useQuery({ queryKey: ["adjacent", itemId], queryFn: () => api.adjacent(itemId).catch(() => null) });
+  const markers = useQuery({ queryKey: ["markers", itemId], queryFn: () => api.markers(itemId).catch(() => [] as Marker[]), enabled: !preroll });
+  const adjacent = useQuery({ queryKey: ["adjacent", itemId], queryFn: () => api.adjacent(itemId).catch(() => null), enabled: !preroll });
 
   const [chrome, setChrome] = useState(true);
   const [menu, setMenu] = useState(false);
@@ -410,18 +436,34 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   /** The Room and Chat buttons: open that tab, switch to it, or close the panel when it is already showing. */
   const togglePanel = (tab: RoomTab) => {
     setMenu(false);
+    setCastOpen(false);
     setEpisodes(false);
     setRoomTab(tab);
     setRoomOpen(!(roomOpen && roomTab === tab));
   };
+  const [castOpen, setCastOpen] = useState(false);
+  const cast = useCastSession(resumeCast);
+  const castActive = useRef(false);
+  castActive.current = cast.active;
   const menuActions: MenuActions = useRef(null);
+  useEffect(() => {
+    if (menu || episodes || roomOpen) setCastOpen(false);
+  }, [menu, episodes, roomOpen]);
   // Window fullscreen for this playback only; Flick Frame stays what the user chose.
-  const [fullscreen, setFullscreen] = useState(false);
-  const fullscreenRef = useRef(false);
-  const [pip, setPip] = useState(false);
-  const pipRef = useRef(false);
+  const [fullscreen, setFullscreen] = useState(handoff.active && handoff.fullscreen);
+  const fullscreenRef = useRef(handoff.active && handoff.fullscreen);
+  const [pip, setPip] = useState(handoff.active && handoff.pip);
+  const pipRef = useRef(handoff.active && handoff.pip);
   // Flick Frame is off while in Picture in Picture, and back on when leaving it.
-  const frameBeforePip = useRef(false);
+  const frameBeforePip = useRef(handoff.active && handoff.frameBeforePip);
+  /** Switch to another item without giving the window back in between. */
+  const switchTo = useCallback(
+    (id: string, startMs = 0, extra: Record<string, string> = { pre: "0" }) => {
+      handoff.pending = true;
+      navigate(playPath(id, startMs, extra), { replace: true });
+    },
+    [navigate],
+  );
   const [hover, setHover] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [nextDismissed, setNextDismissed] = useState(false);
@@ -430,7 +472,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const menuRef = useRef(menu);
-  menuRef.current = menu || episodes || roomOpen;
+  menuRef.current = menu || episodes || roomOpen || castOpen;
 
   const poke = useCallback(() => {
     setChrome(true);
@@ -450,8 +492,16 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     setFullscreen(next);
     void api.setFullscreen(next).catch(() => undefined);
   }, []);
+  /** A preroll is over (or skipped): the next clip, then the title itself. */
+  const advancePreroll = useCallback(() => {
+    if (!preroll) return;
+    if (preroll.rest.length) switchTo(preroll.rest[0]!, 0, { pre: "0", main: preroll.main, rest: preroll.rest.slice(1).join(",") });
+    else switchTo(preroll.main);
+  }, [preroll, switchTo]);
+  const advancePrerollRef = useRef(advancePreroll);
+  advancePrerollRef.current = advancePreroll;
   // "Fullscreen on play": once, when this playback opens (Flick Frame is already fullscreen).
-  const autoFullscreen = useRef(false);
+  const autoFullscreen = useRef(handoff.active);
   useEffect(() => {
     if (autoFullscreen.current || !settings) return;
     autoFullscreen.current = true;
@@ -478,6 +528,14 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   // (which restores a fullscreen window), then out of the player's fullscreen.
   useEffect(
     () => () => {
+      if (handoff.pending) {
+        // Another playback takes over right away: it inherits the window as is.
+        Object.assign(handoff, { pending: false, active: true, fullscreen: fullscreenRef.current, pip: pipRef.current, frameBeforePip: frameBeforePip.current });
+        return;
+      }
+      handoff.active = false;
+      // Leaving the player ends the cast too.
+      if (castActive.current) void api.castStop().catch(() => undefined);
       void (async () => {
         if (pipRef.current) await api.windowPip(false).catch(() => undefined);
         if (frameBeforePip.current) await setFrame(true, false);
@@ -518,15 +576,29 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
     window.addEventListener("resize", fit);
     window.addEventListener("mousemove", poke);
     poke();
-    api
-      .play({ item: itemId, sourceId: null, startMs: startMs || null, audio: { type: "auto" }, subtitle: { type: "auto" } })
-      .catch((e) => {
-        // A guest opening something the room is not watching: say so and go back.
-        if (useWatch.getState().room && asError(e).message.startsWith("Only the host")) {
-          toast(asError(e).message);
-          navigate(-1);
-        } else store.setError(asError(e).message);
-      });
+    const start = async () => {
+      // The cast carries on by itself: nothing to play here.
+      if (resumeCast) return;
+      if (lookForPrerolls && !preroll && !startMs && !useWatch.getState().room) {
+        // The server's prerolls (neXroll, cinema intros) lead into the title.
+        const found = await Promise.race([api.prerolls(itemId), new Promise<string[]>((r) => window.setTimeout(() => r([]), PREROLL_LOOKUP_MS))]);
+        if (!alive) return;
+        if (found.length) {
+          switchTo(found[0]!, 0, { pre: "0", main: itemId, rest: found.slice(1).join(",") });
+          return;
+        }
+      }
+      await api.play({ item: itemId, sourceId: null, startMs: startMs || null, audio: { type: "auto" }, subtitle: { type: "auto" }, silent: !!preroll });
+    };
+    start().catch((e) => {
+      // A preroll that cannot play must not stand in the way of the title.
+      if (preroll) return void advancePrerollRef.current();
+      // A guest opening something the room is not watching: say so and go back.
+      if (useWatch.getState().room && asError(e).message.startsWith("Only the host")) {
+        toast(asError(e).message);
+        navigate(-1);
+      } else store.setError(asError(e).message);
+    });
     requestAnimationFrame(() => focusKey(TIMELINE_KEY));
     return () => {
       alive = false;
@@ -576,10 +648,10 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
 
   // ---- next episode ----------------------------------------------------------
   const creditsStart = markers.data?.find((m) => m.kind === "credits")?.startMs;
-  const showNext = !!next && !nextDismissed && !!duration && settings?.notifications.nextEpisode !== false && pos >= (creditsStart ?? duration - NEXT_UP_WINDOW);
+  const showNext = !cast.active && !!next && !nextDismissed && !!duration && settings?.notifications.nextEpisode !== false && pos >= (creditsStart ?? duration - NEXT_UP_WINDOW);
   const playNext = useCallback(() => {
-    if (next) navigate(playPath(next.id, 0), { replace: true });
-  }, [next, navigate]);
+    if (next) switchTo(next.id);
+  }, [next, switchTo]);
 
   useEffect(() => {
     if (showNext && !inRoom && settings?.playback.autoplayNext && countdown === null) setCountdown(settings.playback.autoplayCountdownSecs);
@@ -596,9 +668,54 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
   }, [countdown, playNext]);
   useEffect(() => {
     if (!ended) return;
-    if (next && !inRoom && settings?.playback.autoplayNext) playNext();
+    if (preroll) advancePreroll();
+    else if (next && !inRoom && settings?.playback.autoplayNext) playNext();
     else leave();
-  }, [ended, next, settings, playNext, leave]);
+  }, [ended, next, settings, playNext, leave, preroll, advancePreroll]);
+
+  // ---- casting ---------------------------------------------------------------
+  const castState = cast.status?.state;
+  const castToggle = useCallback(() => cast.command({ type: castState === "paused" ? "resume" : "pause" }), [cast.command, castState]);
+  const castPosition = cast.status?.positionMs ?? 0;
+  const castDuration = cast.status?.durationMs ?? null;
+  const castSkip = useCallback(
+    (deltaMs: number) => {
+      const target = Math.max(0, castPosition + deltaMs);
+      cast.command({ type: "seek", ms: Math.round(castDuration ? Math.min(target, castDuration) : target) });
+    },
+    [cast.command, castPosition, castDuration],
+  );
+  /** Ends the cast: back to this window's own player (at the same place), or out of the player. */
+  const stopCasting = useCallback(
+    async (resume: boolean) => {
+      const position = await cast.stop();
+      if (!resume) return leave();
+      api
+        .play({ item: itemId, sourceId: null, startMs: position || null, audio: { type: "auto" }, subtitle: { type: "auto" }, silent: !!preroll })
+        .catch((e) => store.setError(asError(e).message));
+    },
+    [cast.stop, leave, itemId, preroll, store],
+  );
+  const castFrom = (device: CastDevice) => {
+    setCastOpen(false);
+    void cast.start(device, itemId, store.position.get());
+  };
+  // The cast title is over: the next episode goes to the same receiver, or the player closes.
+  const castEnding = useRef(false);
+  useEffect(() => {
+    if (castState !== "ended" || castEnding.current) return;
+    castEnding.current = true;
+    const device = cast.status?.device;
+    if (next && canPick && device && settings?.playback.autoplayNext) {
+      api
+        .castStart(device.id, next.id, 0)
+        .then(() => switchTo(next.id, 0, { pre: "0", cast: "1" }))
+        .catch((e) => {
+          toast(asError(e).message);
+          void stopCasting(false);
+        });
+    } else void stopCasting(false);
+  }, [castState, cast.status?.device, next, canPick, settings, switchTo, stopCasting]);
 
   // ---- remote/keyboard -------------------------------------------------------
   useEffect(() => {
@@ -611,8 +728,25 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         else return false;
         return true;
       }
+      // A receiver is playing: the keys drive it, nothing local.
+      if (cast.active) {
+        if (a.type === "playPause" || a.type === "activate") castToggle();
+        else if (a.type === "seek") castSkip(a.seconds * 1000);
+        else if (a.type === "move" && (a.dir === "left" || a.dir === "right")) castSkip(a.dir === "left" ? -SEEK_STEP : SEEK_STEP);
+        else if (a.type === "back") void stopCasting(false);
+        else return false;
+        return true;
+      }
       const wasHidden = !chrome;
       poke();
+      if (castOpen) {
+        if (a.type === "back") {
+          setCastOpen(false);
+          requestAnimationFrame(() => focusKey(TIMELINE_KEY));
+          return true;
+        }
+        return a.type === "playPause" ? (cmd({ type: "togglePause" }), true) : false;
+      }
       if (roomOpen) {
         if (a.type === "back") {
           setRoomOpen(false);
@@ -675,12 +809,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           return false;
       }
     });
-  }, [chrome, menu, episodes, roomOpen, pip, poke, seekBy, leave, setPipMode]);
+  }, [chrome, menu, episodes, roomOpen, castOpen, cast.active, pip, poke, seekBy, leave, setPipMode, castToggle, castSkip, stopCasting]);
 
   const it = item.data;
   const title = it?.episode ? (it.episode.seriesTitle ?? it.title) : (it?.title ?? "");
   const subtitle = it?.episode ? `${episodeLabel(it)} · ${it.title}` : it?.year ? String(it.year) : "";
-  const visible = !pip && (chrome || phase !== "playing" || menu || episodes || roomOpen);
+  const visible = !pip && (chrome || phase !== "playing" || menu || episodes || roomOpen || castOpen);
   const scrubbing = scrub !== null;
 
   return (
@@ -801,6 +935,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
         >
           <AnimatePresence>
             {menu && <PlayerMenu key="menu" store={store} actions={menuActions} source={source} />}
+            {castOpen && <CastMenu key="cast" busy={cast.starting} onPick={castFrom} />}
             {roomOpen && room && (
               <ErrorBoundary key="room" area="room panel" inline>
                 <RoomPanel room={room} tab={roomTab} />
@@ -812,7 +947,7 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
                 series={it.episode.series}
                 season={it.episode.season}
                 currentId={itemId}
-                onPick={(id) => (id === itemId ? setEpisodes(false) : navigate(playPath(id, 0), { replace: true }))}
+                onPick={(id) => (id === itemId ? setEpisodes(false) : switchTo(id))}
               />
             )}
           </AnimatePresence>
@@ -835,11 +970,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
             </div>
             <div className="flex items-center gap-1.5">
               {canPick && adjacent.data?.previous && (
-                <Button variant="ghost" size="icon-sm" icon={SkipBack} label="Previous episode" onClick={() => navigate(playPath(adjacent.data!.previous!.id), { replace: true })} />
+                <Button variant="ghost" size="icon-sm" icon={SkipBack} label="Previous episode" onClick={() => switchTo(adjacent.data!.previous!.id)} />
               )}
               <Button variant="ghost" size="icon-sm" icon={RotateCcw} label="Back 10 seconds" onClick={() => seekBy(-SEEK_STEP)} />
               <Button variant="ghost" size="icon" icon={phase === "paused" ? Play : Pause} iconFilled label={phase === "paused" ? "Play" : "Pause"} onClick={() => cmd({ type: "togglePause" })} />
               <Button variant="ghost" size="icon-sm" icon={RotateCw} label="Forward 10 seconds" onClick={() => seekBy(SEEK_STEP)} />
+              {preroll && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Skip" onClick={advancePreroll} />}
               {canPick && next && <Button variant="ghost" size="icon-sm" icon={SkipForward} label="Next episode" onClick={playNext} />}
             </div>
             <div className="flex items-center justify-end gap-1">
@@ -852,6 +988,21 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
                     <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-white ring-2 ring-black/60" aria-label="Unread messages" />
                   )}
                 </Button>
+              )}
+              {!room && !preroll && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  icon={Cast}
+                  label="Cast"
+                  onClick={() => {
+                    setMenu(false);
+                    setEpisodes(false);
+                    setRoomOpen(false);
+                    setCastOpen((c) => !c);
+                  }}
+                  className={cn(castOpen && "bg-white/20 text-white")}
+                />
               )}
               {canPick && it?.episode?.series && (
                 <Button
@@ -892,6 +1043,12 @@ export function PlayerView({ itemId, startMs }: { itemId: string; startMs: numbe
           </FocusGroup>
         </motion.footer>
       )}
+
+      <AnimatePresence>
+        {cast.active && cast.status && (
+          <CastOverlay key="cast-overlay" status={cast.status} title={title} subtitle={subtitle} onToggle={castToggle} onSkip={castSkip} onStop={() => void stopCasting(true)} />
+        )}
+      </AnimatePresence>
 
       {error && (
         <div className="absolute inset-0 grid place-items-center bg-black/70">

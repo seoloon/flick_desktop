@@ -56,6 +56,11 @@ pub async fn adjacent(state: St<'_>, id: ItemRef) -> Result<Adjacent> {
 }
 
 #[tauri::command]
+pub async fn prerolls(state: St<'_>, id: ItemRef) -> Result<Vec<ItemRef>> {
+    state.catalog.prerolls(&id).await
+}
+
+#[tauri::command]
 pub async fn markers(state: St<'_>, id: ItemRef) -> Result<Vec<Marker>> {
     state.catalog.provider(id.server)?.markers(&id).await
 }

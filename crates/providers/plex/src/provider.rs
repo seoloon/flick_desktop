@@ -308,6 +308,36 @@ impl MediaProvider for PlexProvider {
         Ok(map::markers(&self.metadata(&id.key).await?))
     }
 
+    async fn prerolls(&self, id: &ItemRef) -> Result<Vec<ItemRef>> {
+        self.check(id)?;
+        // Plex hands prerolls (neXroll, cinema trailers) out as the "extras
+        // prefix" of a play queue: whatever precedes the title is the prefix.
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Identity {
+            machine_identifier: String,
+        }
+        let machine = self.get::<Envelope<Identity>>("identity", &[]).await?.container.machine_identifier;
+        let q = [
+            ("type", "video".to_owned()),
+            ("uri", format!("server://{machine}/com.plexapp.plugins.library/library/metadata/{}", id.key)),
+            ("continuous", "0".into()),
+            ("repeat", "0".into()),
+            ("shuffle", "0".into()),
+            ("own", "1".into()),
+            ("extrasPrefixCount", "5".into()),
+        ];
+        let resp = self.request(Method::POST, "playQueues", &q)?.send().await.map_err(oneshot_net::map_err)?;
+        let queue: Envelope<Container> = oneshot_net::json(resp).await?;
+        Ok(queue
+            .container
+            .metadata
+            .iter()
+            .take_while(|m| m.rating_key != id.key)
+            .map(|m| ItemRef::new(self.server(), &m.rating_key))
+            .collect())
+    }
+
     async fn set_played(&self, id: &ItemRef, played: bool) -> Result<()> {
         self.check(id)?;
         let path = if played { ":/scrobble" } else { ":/unscrobble" };

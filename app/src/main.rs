@@ -142,6 +142,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         switching: tokio::sync::Mutex::new(()),
         settings_io: Mutex::new(()),
         flicksync: flicksync::Hub::new(handle.clone()),
+        cast: oneshot_cast::Caster::new(),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing
     // is loaded until someone is chosen). Off: every connection, as before.
@@ -267,6 +268,12 @@ fn main() {
             commands::catalog::similar,
             commands::catalog::adjacent,
             commands::catalog::markers,
+            commands::catalog::prerolls,
+            commands::cast::cast_devices,
+            commands::cast::cast_start,
+            commands::cast::cast_command,
+            commands::cast::cast_status,
+            commands::cast::cast_stop,
             commands::catalog::search,
             commands::catalog::favorites,
             commands::people::tmdb_status,

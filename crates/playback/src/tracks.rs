@@ -37,7 +37,10 @@ pub fn same_language(a: &str, b: &str) -> bool {
     norm(a) == norm(b)
 }
 
-pub fn select_audio<'a>(source: &'a MediaSource, request: TrackRequest, languages: &[String]) -> Option<&'a AudioStream> {
+/// `original`: the language the title was made in, used when no preferred
+/// language is set ("Original"): the file's first track is often a dub.
+pub fn select_audio<'a>(source: &'a MediaSource, request: TrackRequest, languages: &[String], original: Option<&str>) -> Option<&'a AudioStream> {
+    let languages: Vec<&str> = if languages.is_empty() { original.into_iter().collect() } else { languages.iter().map(String::as_str).collect() };
     match request {
         TrackRequest::Off => None,
         TrackRequest::Index(i) => source.audio.iter().find(|a| a.index == i).or_else(|| source.default_audio()),

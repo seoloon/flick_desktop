@@ -16,9 +16,78 @@ pub fn find_genre<'a>(genres: &'a [String], wanted: &str) -> Option<&'a String> 
     genres.iter().find(|g| normalize_name(g) == key)
 }
 
+/// The language a title was made in, as far as the server's own metadata
+/// tells: the script of its original title (kana → Japanese, hangul →
+/// Korean, …), else the language of its first production country. `None`
+/// when that does not settle it (a Latin title from a multilingual country).
+pub fn guess_original_language(original_title: Option<&str>, countries: &[String]) -> Option<String> {
+    let first_country = countries.first().map(|c| c.trim().to_lowercase());
+    let country = |names: &[&str]| first_country.as_deref().is_some_and(|c| names.contains(&c));
+    if let Some(title) = original_title {
+        let (mut han, mut other) = (false, None);
+        for c in title.chars() {
+            match c as u32 {
+                0x3040..=0x30FF | 0x31F0..=0x31FF => return Some("ja".into()),
+                0xAC00..=0xD7AF | 0x1100..=0x11FF => return Some("ko".into()),
+                0x3400..=0x4DBF | 0x4E00..=0x9FFF => han = true,
+                0x0400..=0x04FF if other.is_none() => other = Some(if country(&["ukraine"]) { "uk" } else { "ru" }),
+                0x0E00..=0x0E7F => other = other.or(Some("th")),
+                0x0600..=0x06FF => other = other.or(Some("ar")),
+                0x0590..=0x05FF => other = other.or(Some("he")),
+                0x0370..=0x03FF => other = other.or(Some("el")),
+                0x0900..=0x097F => other = other.or(Some("hi")),
+                _ => {}
+            }
+        }
+        if han {
+            return Some(if country(&["japan", "jp"]) { "ja" } else { "zh" }.into());
+        }
+        if let Some(l) = other {
+            return Some(l.into());
+        }
+    }
+    let table: [(&[&str], &str); 22] = [
+        (&["japan", "jp"], "ja"),
+        (&["south korea", "korea", "kr"], "ko"),
+        (&["china", "taiwan", "hong kong", "cn", "tw", "hk"], "zh"),
+        (&["united states of america", "united states", "usa", "us", "united kingdom", "uk", "gb", "australia", "new zealand", "ireland"], "en"),
+        (&["france", "fr"], "fr"),
+        (&["germany", "de"], "de"),
+        (&["spain", "mexico", "argentina", "es", "mx", "ar"], "es"),
+        (&["italy", "it"], "it"),
+        (&["russia", "ru"], "ru"),
+        (&["brazil", "portugal", "br", "pt"], "pt"),
+        (&["thailand", "th"], "th"),
+        (&["sweden", "se"], "sv"),
+        (&["denmark", "dk"], "da"),
+        (&["norway", "no"], "no"),
+        (&["finland", "fi"], "fi"),
+        (&["netherlands", "nl"], "nl"),
+        (&["poland", "pl"], "pl"),
+        (&["turkey", "tr"], "tr"),
+        (&["ukraine", "ua"], "uk"),
+        (&["greece", "gr"], "el"),
+        (&["israel", "il"], "he"),
+        (&["india", "in"], "hi"),
+    ];
+    table.iter().find(|(names, _)| country(names)).map(|(_, l)| (*l).to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn original_language_comes_from_the_title_script_then_the_country() {
+        let c = |s: &str| vec![s.to_owned()];
+        assert_eq!(guess_original_language(Some("鬼滅の刃"), &c("Japan")).as_deref(), Some("ja"));
+        assert_eq!(guess_original_language(Some("寄生虫"), &c("South Korea")).as_deref(), Some("zh"));
+        assert_eq!(guess_original_language(Some("기생충"), &[]).as_deref(), Some("ko"));
+        assert_eq!(guess_original_language(Some("Inception"), &c("United States of America")).as_deref(), Some("en"));
+        assert_eq!(guess_original_language(None, &c("France")).as_deref(), Some("fr"));
+        assert_eq!(guess_original_language(Some("Inception"), &c("Canada")), None);
+        assert_eq!(guess_original_language(None, &[]), None);
+    }
 
     #[test]
     fn genres_are_found_by_their_normalized_name() {

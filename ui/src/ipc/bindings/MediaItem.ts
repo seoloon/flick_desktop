@@ -8,7 +8,11 @@ import type { ItemRef } from "./ItemRef";
 import type { MediaSource } from "./MediaSource";
 import type { UserState } from "./UserState";
 
-export type MediaItem = { id: ItemRef, kind: ItemKind, title: string, sortTitle: string | null, originalTitle: string | null, tagline: string | null, overview: string | null, year: number | null, premiereDate: string | null, runtimeMs: number | null, officialRating: string | null, communityRating: number | null, criticRating: number | null, genres: Array<string>, studios: Array<string>, credits: Array<Credit>, images: ImageSet, user: UserState, episode: EpisodeInfo | null, externalIds: ExternalIds, childCount: number | null, addedAt: string | null, 
+export type MediaItem = { id: ItemRef, kind: ItemKind, title: string, sortTitle: string | null, originalTitle: string | null, 
+/**
+ * Language the title was made in (ISO 639-1), when the server's metadata says.
+ */
+originalLanguage: string | null, tagline: string | null, overview: string | null, year: number | null, premiereDate: string | null, runtimeMs: number | null, officialRating: string | null, communityRating: number | null, criticRating: number | null, genres: Array<string>, studios: Array<string>, credits: Array<Credit>, images: ImageSet, user: UserState, episode: EpisodeInfo | null, externalIds: ExternalIds, childCount: number | null, addedAt: string | null, 
 /**
  * Technical sources; only populated on detail fetches.
  */

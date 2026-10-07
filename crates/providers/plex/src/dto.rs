@@ -142,6 +142,8 @@ pub struct Metadata {
     pub grandparent_art: Option<String>,
     #[serde(rename = "Genre", default)]
     pub genres: Vec<Tag>,
+    #[serde(rename = "Country", default)]
+    pub countries: Vec<Tag>,
     #[serde(rename = "Director", default)]
     pub directors: Vec<Tag>,
     #[serde(rename = "Writer", default)]

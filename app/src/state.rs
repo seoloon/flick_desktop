@@ -70,6 +70,8 @@ pub struct AppState {
     pub metadata: Arc<oneshot_storage::cache::MetadataCache>,
     /// Watch together (optional: the app works the same without it).
     pub flicksync: crate::flicksync::Hub,
+    /// Chromecast / AirPlay receivers and the one being cast to.
+    pub cast: oneshot_cast::Caster,
 }
 
 /// How the main window looked before it shrank into picture-in-picture.

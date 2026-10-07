@@ -118,6 +118,17 @@ pub(crate) async fn start(
     result
 }
 
+/// The language the title was made in. An episode takes its series': the
+/// server rarely knows an episode's own original title.
+pub async fn original_language(provider: &dyn MediaProvider, item: &ItemRef) -> Option<String> {
+    let it = provider.item(item).await.ok()?;
+    if it.original_language.is_some() {
+        return it.original_language;
+    }
+    let series = it.episode?.series?;
+    provider.item(&series).await.ok()?.original_language
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn negotiate_and_load(
     inner: &Arc<Mutex<Inner>>,
@@ -129,6 +140,10 @@ async fn negotiate_and_load(
     item: ItemRef,
     request: PlayRequest,
 ) -> Result<PlaybackDecision> {
+    let mut settings = settings;
+    if request.silent {
+        settings.privacy.report_progress = false;
+    }
     let profile = client_profile(caps, &settings);
     let info = provider.playback_info(&item, &profile).await?;
     let offer = match &request.source_id {
@@ -137,6 +152,7 @@ async fn negotiate_and_load(
     }
     .ok_or_else(|| Error::Playback("the server returned no playable version".into()))?;
 
+    let original_language = original_language(&*provider, &item).await;
     let decision = decide(&DecisionInput {
         offer,
         caps,
@@ -144,6 +160,7 @@ async fn negotiate_and_load(
         settings: &settings,
         audio: request.audio,
         subtitle: request.subtitle,
+        original_language: original_language.as_deref(),
     })
     .map_err(|u| Error::Playback(u.to_string()))?;
     tracing::info!(target: "playback", item = %item, label = ?decision.label, video = ?decision.video, audio = ?decision.audio,

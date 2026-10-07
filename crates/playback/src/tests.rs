@@ -145,8 +145,29 @@ fn run(offer: &SourceOffer, caps: &CapabilityReport, settings: &Settings) -> Pla
         settings,
         audio: TrackRequest::Auto,
         subtitle: TrackRequest::Auto,
+        original_language: None,
     })
     .expect("playable")
+}
+
+#[test]
+fn original_audio_follows_the_language_the_title_was_made_in() {
+    let c = caps(HdrState::Unsupported, vec![device("spk", 2, &[])]);
+    let o = offer(
+        video(VideoCodec::H264, 1920, 1080, 8, DynamicRange::Sdr),
+        vec![audio(1, AudioCodec::Aac, 2, "fre", None), audio(2, AudioCodec::Aac, 2, "jpn", None)],
+        vec![],
+    );
+    let s = Settings::default();
+    let pick = |original| {
+        decide(&DecisionInput { offer: &o, caps: &c, display_id: None, settings: &s, audio: TrackRequest::Auto, subtitle: TrackRequest::Auto, original_language: original })
+            .expect("playable")
+            .audio_stream
+    };
+    assert_eq!(pick(Some("ja")), Some(2));
+    // Unknown, or not among the tracks: the file's own default.
+    assert_eq!(pick(None), Some(1));
+    assert_eq!(pick(Some("ko")), Some(1));
 }
 
 fn has(d: &PlaybackDecision, code: &str) -> bool {
@@ -354,7 +375,7 @@ fn unplayable_when_transcode_disabled() {
     let mut s = Settings::default();
     s.playback.allow_transcode = false;
     let o = offer(video(VideoCodec::Other("prores".into()), 1920, 1080, 10, DynamicRange::Sdr), vec![], vec![]);
-    let err = decide(&DecisionInput { offer: &o, caps: &c, display_id: None, settings: &s, audio: TrackRequest::Auto, subtitle: TrackRequest::Auto })
+    let err = decide(&DecisionInput { offer: &o, caps: &c, display_id: None, settings: &s, audio: TrackRequest::Auto, subtitle: TrackRequest::Auto, original_language: None })
         .unwrap_err();
     assert!(err.reasons.iter().any(|r| r.severity == ReasonSeverity::Blocking));
 }
@@ -395,7 +416,7 @@ fn pgs_is_rendered_locally_in_direct_play_but_burned_when_transcoding() {
     let subs = vec![subtitle(3, SubtitleFormat::Pgs, "fr", false)];
     let o = offer(video(VideoCodec::H264, 1920, 1080, 8, DynamicRange::Sdr), vec![audio(1, AudioCodec::Aac, 2, "en", None)], subs.clone());
     let pick = |o: &SourceOffer, s: &Settings| {
-        decide(&DecisionInput { offer: o, caps: &c, display_id: None, settings: s, audio: TrackRequest::Auto, subtitle: TrackRequest::Index(3) })
+        decide(&DecisionInput { offer: o, caps: &c, display_id: None, settings: s, audio: TrackRequest::Auto, subtitle: TrackRequest::Index(3), original_language: None })
             .unwrap()
     };
     assert_eq!(pick(&o, &Settings::default()).subtitles, SubtitlePlan::Local { index: 3, external: false });

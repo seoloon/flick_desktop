@@ -140,6 +140,7 @@ pub fn item(server: ServerId, dto: &BaseItemDto) -> MediaItem {
     let mut item = MediaItem::new(ItemRef::new(server, &dto.id), k, dto.name.clone().unwrap_or_default());
     item.sort_title = dto.sort_name.clone();
     item.original_title = dto.original_title.clone().filter(|o| Some(o) != dto.name.as_ref());
+    item.original_language = oneshot_core::text::guess_original_language(dto.original_title.as_deref(), &dto.production_locations);
     item.tagline = dto.taglines.first().cloned();
     item.overview = dto.overview.clone();
     item.year = dto.production_year;
