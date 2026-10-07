@@ -24,6 +24,21 @@ pub fn sanitize_filename(name: &str) -> String {
     if reserved { format!("_{out}") } else { out }
 }
 
+/// Containers a downloaded file may keep. The name comes from the server and the
+/// finished file is opened by the system: anything else must never keep its extension.
+pub const MEDIA_EXTENSIONS: &[&str] = &["mkv", "mp4", "m4v", "avi", "mov", "webm", "ts", "m2ts", "wmv", "flv", "mpg", "mpeg"];
+
+pub fn is_media_extension(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| MEDIA_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// A safe name for a downloaded video: sanitized, and ending in a known video
+/// container (`.mkv` is appended when the server's extension is missing or not one).
+pub fn media_filename(name: &str) -> String {
+    let name = sanitize_filename(name);
+    if is_media_extension(Path::new(&name)) { name } else { format!("{name}.mkv") }
+}
+
 /// `dir/name`, or `dir/name (2).ext`, `(3)`…: the first path that does not exist.
 pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
     let name = sanitize_filename(name);
@@ -72,6 +87,17 @@ mod tests {
         assert_eq!(sanitize_filename("LPT1"), "_LPT1");
         assert_eq!(sanitize_filename("com10.txt"), "com10.txt");
         assert!(sanitize_filename(&"x".repeat(400)).len() <= 150);
+    }
+
+    #[test]
+    fn only_video_extensions_survive() {
+        assert_eq!(media_filename("Movie.MKV"), "Movie.MKV");
+        assert_eq!(media_filename("Movie.mp4"), "Movie.mp4");
+        assert_eq!(media_filename("setup.exe"), "setup.exe.mkv");
+        assert_eq!(media_filename("run.bat"), "run.bat.mkv");
+        assert_eq!(media_filename("shortcut.lnk"), "shortcut.lnk.mkv");
+        assert_eq!(media_filename("noext"), "noext.mkv");
+        assert!(is_media_extension(Path::new("a.webm")) && !is_media_extension(Path::new("a.exe")));
     }
 
     #[test]

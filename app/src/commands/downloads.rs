@@ -66,6 +66,10 @@ pub fn downloads_remove(state: St<'_>, id: String, delete_file: bool) {
 #[tauri::command(async)]
 pub fn downloads_open(app: AppHandle, state: St<'_>, id: String) -> Result<()> {
     let path = finished_file(&state, &id)?;
+    // The name came from the server: never hand anything but a video to the system.
+    if !oneshot_flickdd::files::is_media_extension(&path) {
+        return Err(Error::Invalid("This file is not a video, so Flick will not open it.".into()));
+    }
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| Error::Other(e.to_string()))
 }
 

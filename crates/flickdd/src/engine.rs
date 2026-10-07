@@ -547,7 +547,7 @@ impl Manager {
             return Err(Failure::Network("the downloaded file has the wrong size".into()));
         }
         let dir = temp.parent().map(Path::to_path_buf).unwrap_or_else(|| self.source.directory());
-        let target = files::unique_path(&dir, &grant.filename);
+        let target = files::unique_path(&dir, &files::media_filename(&grant.filename));
         tokio::fs::rename(&temp, &target).await.map_err(|e| Failure::Disk(e.to_string()))?;
         self.update(id, true, |s| {
             s.item.state = State::Done;
