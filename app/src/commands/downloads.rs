@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::flicksync::stored_invitation;
+use crate::flickserver::stored_invitation;
 use crate::offline::LOCAL_SERVER;
 use crate::state::AppState;
 

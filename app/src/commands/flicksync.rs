@@ -6,15 +6,11 @@ use std::sync::Arc;
 use oneshot_core::ids::ItemRef;
 use oneshot_core::{Error, Result};
 use oneshot_flicksync::DebugInfo;
-use oneshot_flicksync::diagnose::Report;
-use oneshot_flicksync::invite::Invitation;
 use oneshot_flicksync::protocol::ControlMode;
 use oneshot_flicksync::room::RoomState;
-use oneshot_storage::secrets;
-use serde::Serialize;
 use tauri::State;
 
-use crate::flicksync::{INVITE_ENTRY, Status, into_core_error, stored_invitation};
+use crate::flicksync::{Status, into_core_error};
 use crate::state::AppState;
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -23,12 +19,6 @@ type St<'a> = State<'a, Arc<AppState>>;
 #[tauri::command]
 pub async fn flicksync_status(state: St<'_>) -> Result<Status> {
     Ok(state.flicksync.status(&state).await)
-}
-
-/// Settings › Watch Together › "Test connection": which step fails, and why.
-#[tauri::command]
-pub async fn flicksync_diagnose(state: St<'_>) -> Result<Report> {
-    Ok(state.flicksync.diagnose(&state).await)
 }
 
 #[tauri::command]
@@ -99,55 +89,4 @@ pub fn flicksync_debug(state: St<'_>) -> Option<DebugInfo> {
 #[tauri::command(async)]
 pub fn flicksync_current_item(state: St<'_>) -> Option<ItemRef> {
     state.flicksync.current_item()
-}
-
-// ------------------------------------------------- invitation link
-
-/// What the UI may know about the saved invitation: never the key.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InvitationInfo {
-    /// `host[:port][/prefix]`.
-    pub address: String,
-    pub tls: bool,
-    /// Plain HTTP across the Internet: tokens would travel in the clear.
-    pub insecure_remote: bool,
-}
-
-impl From<&Invitation> for InvitationInfo {
-    fn from(i: &Invitation) -> Self {
-        Self { address: i.address(), tls: i.tls(), insecure_remote: i.is_insecure_remote() }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InvitationAdded {
-    pub info: InvitationInfo,
-    /// Kept only when the server answers and is ready; otherwise nothing was saved.
-    pub saved: bool,
-    pub report: Report,
-}
-
-#[tauri::command(async)]
-pub fn flicksync_invitation() -> Result<Option<InvitationInfo>> {
-    Ok(stored_invitation()?.as_ref().map(InvitationInfo::from))
-}
-
-/// Checks a pasted link against its server, and keeps it (in the keychain) when
-/// the server answers and is ready. A bad link is an error with a sentence for the user.
-#[tauri::command]
-pub async fn flicksync_add_invitation(state: St<'_>, link: String) -> Result<InvitationAdded> {
-    let invitation = Invitation::parse(&link).map_err(|e| Error::Invalid(e.message().into()))?;
-    let report = state.flicksync.check_invitation(&state, &invitation).await;
-    let saved = report.reachable_and_ready();
-    if saved {
-        secrets::store_secret(INVITE_ENTRY, &invitation.link())?;
-    }
-    Ok(InvitationAdded { info: InvitationInfo::from(&invitation), saved, report })
-}
-
-#[tauri::command(async)]
-pub fn flicksync_clear_invitation() -> Result<()> {
-    secrets::delete_secret(INVITE_ENTRY)
 }

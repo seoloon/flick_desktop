@@ -159,7 +159,7 @@ export const api = {
 
   // watch together
   flicksyncStatus: () => call<FlickSyncStatus>("flicksync_status"),
-  flicksyncDiagnose: () => call<FlickSyncDiagnosis>("flicksync_diagnose"),
+  flickserverDiagnose: () => call<FlickSyncDiagnosis>("flickserver_diagnose"),
   flicksyncCreate: (hostOnly: boolean) => call<RoomState>("flicksync_create", { hostOnly }),
   flicksyncJoin: (code: string) => call<RoomState>("flicksync_join", { code }),
   flicksyncLeave: () => call<void>("flicksync_leave"),
@@ -170,9 +170,9 @@ export const api = {
   flicksyncCloseRoom: () => call<void>("flicksync_close_room"),
   flicksyncResyncMedia: () => call<void>("flicksync_resync_media"),
   flicksyncDebug: () => call<DebugInfo | null>("flicksync_debug"),
-  flicksyncInvitation: () => call<InvitationInfo | null>("flicksync_invitation"),
-  flicksyncAddInvitation: (link: string) => call<InvitationAdded>("flicksync_add_invitation", { link }),
-  flicksyncClearInvitation: () => call<void>("flicksync_clear_invitation"),
+  flickserverInvitation: () => call<InvitationInfo | null>("flickserver_invitation"),
+  flickserverAddInvitation: (link: string) => call<InvitationAdded>("flickserver_add_invitation", { link }),
+  flickserverClearInvitation: () => call<void>("flickserver_clear_invitation"),
 
   // system
   settingsGet: () => call<Settings>("settings_get"),

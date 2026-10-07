@@ -20,6 +20,7 @@ oneshot-catalog.workspace = true
 oneshot-cast.workspace = true
 oneshot-flicksync.workspace = true
 oneshot-flickdd.workspace = true
+oneshot-flickserver.workspace = true
 async-trait.workspace = true
 oneshot-net.workspace = true
 oneshot-jellyfin.workspace = true

@@ -14,7 +14,6 @@ pub mod clock;
 pub mod connection;
 pub mod diagnose;
 pub mod errors;
-pub mod invite;
 pub mod protocol;
 pub mod room;
 pub mod sync;

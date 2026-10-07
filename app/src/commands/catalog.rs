@@ -21,7 +21,17 @@ pub async fn home(state: St<'_>) -> Result<Aggregated<Vec<HomeRow>>> {
 
 #[tauri::command]
 pub async fn libraries(state: St<'_>) -> Result<Aggregated<Vec<ServerLibraries>>> {
-    Ok(state.catalog.libraries().await)
+    let mut all = state.catalog.libraries().await;
+    // Downloads are a block of their own, shown only when there is something in it.
+    // (Offline, the downloads already are the catalogue.)
+    if !state.catalog.is_offline()
+        && let Some(local) = state.catalog.local()
+        && let Ok(libraries) = local.libraries().await
+        && !libraries.is_empty()
+    {
+        all.data.push(ServerLibraries { server: local.descriptor().clone(), libraries });
+    }
+    Ok(all)
 }
 
 #[tauri::command]

@@ -111,6 +111,11 @@ impl Catalog {
         *self.local.write() = Some(provider);
     }
 
+    /// The provider of downloaded titles, whatever the mode.
+    pub fn local(&self) -> Option<Arc<dyn MediaProvider>> {
+        self.local.read().clone()
+    }
+
     /// Offline mode: the servers are out of reach, so only downloaded titles are browsed.
     pub fn set_offline(&self, offline: bool) {
         self.offline.store(offline, Ordering::Relaxed);

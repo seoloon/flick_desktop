@@ -1,0 +1,18 @@
+[package]
+name = "oneshot-flickserver"
+description = "Flick Server: the invitation link (address + key) and the sign-in tokens shared by FlickSync and FlickDD"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+base64 = "0.22"
+hmac = "0.12"
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

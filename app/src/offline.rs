@@ -82,7 +82,7 @@ impl LocalLibrary {
             id: LOCAL_SERVER,
             // There is no local kind: this only labels where an id comes from.
             kind: ProviderKind::Jellyfin,
-            name: "Downloads".into(),
+            name: "Local".into(),
             remote_id: "local".into(),
             base_url: file,
             alternate_urls: Vec::new(),
@@ -168,6 +168,9 @@ impl MediaProvider for LocalLibrary {
 
     async fn libraries(&self) -> Result<Vec<Library>> {
         let count = self.entries().len() as u32;
+        if count == 0 {
+            return Ok(Vec::new());
+        }
         Ok(vec![Library { id: Self::me("all"), name: "Downloads".into(), kind: LibraryKind::Mixed, item_count: Some(count), image: None }])
     }
 

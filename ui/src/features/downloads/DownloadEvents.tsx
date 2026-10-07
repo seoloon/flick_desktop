@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { onDownloadsEvent } from "@/ipc/events";
+import { queryClient } from "@/lib/queryClient";
 import { refreshDownloads, useDownloads } from "./store";
 
 export function DownloadEvents() {
@@ -12,6 +13,10 @@ export function DownloadEvents() {
     void onDownloadsEvent((e) => {
       const before = e.type === "changed" ? useDownloads.getState().items[e.item.id] : undefined;
       useDownloads.getState().apply(e);
+      // The Local block of Libraries appears, changes or goes away with the downloads.
+      if (e.type === "removed" || (before && before.state !== e.item.state && (e.item.state === "done" || before.state === "done"))) {
+        void queryClient.invalidateQueries({ queryKey: ["libraries"] });
+      }
       if (e.type === "changed" && before && before.state !== e.item.state) {
         if (e.item.state === "done") toast.success(`Downloaded: ${e.item.title}`, { description: e.item.subtitle ?? undefined });
         else if (e.item.state === "failed") toast.error(`Download failed: ${e.item.title}`, { description: e.item.error ?? undefined });

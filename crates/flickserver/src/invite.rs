@@ -1,12 +1,15 @@
-//! FlickSync invitation links: one string that carries the server's address
+//! Flick Server invitation links: one string that carries the server's address
 //! and the key its users sign in with.
 //!
 //! ```text
-//! flicksync://<host>[:<port>][/<prefix>]/?v=1&tls=<0|1>#k=<base64url(kid:server_id:secret)>
+//! flickserver://<host>[:<port>][/<prefix>]/?v=1&tls=<0|1>#k=<base64url(kid:server_id:secret)>
 //! ```
 //!
-//! `<prefix>` is the path under which a reverse proxy serves FlickSync
-//! (`/sync`); every API path is appended to the base URL, prefix included.
+//! `<prefix>` is the path under which a reverse proxy serves the server
+//! (`/services`); every API path is appended to the base URL, prefix included.
+//! The link belongs to the server as a whole, not to one of its features. Links
+//! from before the rename (`flicksync://`) are still read, and written back as
+//! `flickserver://`.
 //!
 //! The key sits in the fragment so it is never sent over HTTP nor seen by a
 //! proxy. The link **is** a secret: it is parsed here, kept in the OS keychain
@@ -21,9 +24,11 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use url::Url;
 
-use crate::auth::SigningKey;
+use crate::key::SigningKey;
 
-const SCHEME: &str = "flicksync://";
+const SCHEME: &str = "flickserver://";
+/// What links were called before the server had a name of its own.
+const LEGACY_SCHEME: &str = "flicksync://";
 const VERSION: &str = "1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -50,8 +55,8 @@ impl InviteError {
     /// What to tell the person who pasted the link.
     pub fn message(self) -> &'static str {
         match self {
-            Self::NotAnInvitation => "This isn't a FlickSync invitation link.",
-            Self::UnsupportedVersion => "This link comes from a newer version of FlickSync. Update Flick.",
+            Self::NotAnInvitation => "This isn't a Flick Server invitation link.",
+            Self::UnsupportedVersion => "This link comes from a newer version of Flick Server. Update Flick.",
             Self::MissingKey | Self::BadKey => "The link is incomplete: copy it again in full.",
             Self::BadAddress | Self::BadPath | Self::BadVersion | Self::BadTls => "The link is damaged: copy it again in full, or ask for a new one.",
         }
@@ -71,7 +76,8 @@ pub struct Invitation {
 impl Invitation {
     pub fn parse(s: &str) -> Result<Self, InviteError> {
         // Copy-paste brings spaces and line breaks along.
-        let rest = s.trim().strip_prefix(SCHEME).ok_or(InviteError::NotAnInvitation)?;
+        let s = s.trim();
+        let rest = s.strip_prefix(SCHEME).or_else(|| s.strip_prefix(LEGACY_SCHEME)).ok_or(InviteError::NotAnInvitation)?;
         let (before, fragment) = rest.split_once('#').ok_or(InviteError::MissingKey)?;
         let (location, query) = before.split_once('?').unwrap_or((before, ""));
         let (authority, prefix) = match location.split_once('/') {
@@ -204,10 +210,10 @@ mod tests {
     use super::*;
 
     const KEY: &str = "main:default:0123456789abcdef0123456789abcdef0123456789abcdef";
-    const LINK: &str = "flicksync://sync.example.com/?v=1&tls=1#k=bWFpbjpkZWZhdWx0OjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg";
+    const LINK: &str = "flickserver://sync.example.com/?v=1&tls=1#k=bWFpbjpkZWZhdWx0OjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg";
 
     fn link(authority: &str, query: &str, fragment: &str) -> String {
-        format!("flicksync://{authority}{query}#{fragment}")
+        format!("flickserver://{authority}{query}#{fragment}")
     }
 
     fn k() -> String {
@@ -221,6 +227,14 @@ mod tests {
         assert!(inv.tls());
         assert_eq!((inv.key.kid.as_str(), inv.key.server_id.as_str()), ("main", "default"));
         assert_eq!(inv.base_url().as_str(), "https://sync.example.com/");
+        assert_eq!(inv.link(), LINK);
+    }
+
+    #[test]
+    fn links_from_before_the_rename_are_read_and_written_with_the_new_scheme() {
+        let legacy = LINK.replace("flickserver://", "flicksync://");
+        let inv = Invitation::parse(&legacy).unwrap();
+        assert_eq!(inv.host(), "sync.example.com");
         assert_eq!(inv.link(), LINK);
     }
 
@@ -252,7 +266,7 @@ mod tests {
     fn refused_links_say_why() {
         let ok = |q: &str| Invitation::parse(&link("a.example", q, &k()));
         assert_eq!(Invitation::parse("https://a.example").unwrap_err(), InviteError::NotAnInvitation);
-        assert_eq!(Invitation::parse("flicksync://a.example/?v=1&tls=1").unwrap_err(), InviteError::MissingKey);
+        assert_eq!(Invitation::parse("flickserver://a.example/?v=1&tls=1").unwrap_err(), InviteError::MissingKey);
         assert_eq!(Invitation::parse(&link("a.example", "/?v=1&tls=1", "other=1")).unwrap_err(), InviteError::MissingKey);
         assert_eq!(ok("/?v=2&tls=1").unwrap_err(), InviteError::UnsupportedVersion);
         assert_eq!(ok("/?tls=1").unwrap_err(), InviteError::BadVersion);
@@ -262,12 +276,12 @@ mod tests {
 
     #[test]
     fn a_proxy_prefix_is_kept_in_the_base_url_the_address_and_the_link() {
-        let sync = format!("flicksync://flick.example.com/sync/?v=1&tls=1#{}", k());
+        let sync = format!("flickserver://flick.example.com/services/?v=1&tls=1#{}", k());
         let inv = Invitation::parse(&sync).unwrap();
         assert_eq!(inv.host(), "flick.example.com");
-        assert_eq!(inv.address(), "flick.example.com/sync");
-        assert_eq!(inv.base_url().as_str(), "https://flick.example.com/sync/");
-        assert_eq!(inv.base_url().join("api/v1/rooms").unwrap().as_str(), "https://flick.example.com/sync/api/v1/rooms", "joins stay under the prefix");
+        assert_eq!(inv.address(), "flick.example.com/services");
+        assert_eq!(inv.base_url().as_str(), "https://flick.example.com/services/");
+        assert_eq!(inv.base_url().join("api/v1/rooms").unwrap().as_str(), "https://flick.example.com/services/api/v1/rooms", "joins stay under the prefix");
         assert_eq!(inv.link(), sync);
         // Several segments, a port, and a missing trailing slash (tolerated, written back with it).
         let deep = Invitation::parse(&link("a.example:8443", "/x/y.z_~-1?v=1&tls=0", &k())).unwrap();
