@@ -3,10 +3,11 @@
 // separately; each part shows as soon as it is ready.
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { BackButton } from "@/components/tv/BackButton";
 import { Button } from "@/components/tv/Button";
+import { ClampedText } from "@/components/tv/ClampedText";
 import { CardPlaceholder } from "@/components/tv/Card";
 import { Notice } from "@/components/tv/Feedback";
 import { Shelf } from "@/components/tv/Shelf";
@@ -34,22 +35,6 @@ function lightFrom(photo: PersonPhoto): [string, () => Promise<Palette>] | null 
   return url ? [url, () => api.palette(img.item, img.kind, img.tag)] : null;
 }
 
-/** Whether a clamped paragraph hides lines (so More is worth showing). */
-function useOverflow<E extends HTMLElement>(text: string | null | undefined) {
-  const ref = useRef<E>(null);
-  const [overflows, setOverflows] = useState(false);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [text]);
-  return { ref, overflows };
-}
-
 export function PersonPage() {
   const navigate = useNavigate();
   const { ref = "" } = useParams();
@@ -62,7 +47,6 @@ export function PersonPage() {
   const basics = useQuery({ queryKey: ["person-server", person], queryFn: () => api.personServer(person, name) });
   const details = useQuery({ queryKey: ["person", person, language], queryFn: () => api.personDetails(person, name, from, language), staleTime: Infinity });
   const items = useQuery({ queryKey: ["person-items", person], queryFn: () => api.personItems(person, name) });
-  const [more, setMore] = useState(false);
   const [broken, setBroken] = useState<string[]>([]);
 
   const d = details.data ?? basics.data;
@@ -74,7 +58,6 @@ export function PersonPage() {
   const src = photo ? photoUrl(photo) : undefined;
   const line = d ? lifeLine(d, new Date()) : null;
   const shownName = d?.name ?? name;
-  const bio = useOverflow<HTMLParagraphElement>(d?.biography);
 
   // The previous title's artwork must not linger; the person's photo lights the page.
   useEffect(() => ambientReset(), [person]);
@@ -104,15 +87,8 @@ export function PersonPage() {
           </div>
         </motion.div>
         {d?.biography && (
-          <div className="flex max-w-3xl flex-col items-start gap-2">
-            <p ref={bio.ref} className={more ? "text-[1.0625rem] leading-relaxed whitespace-pre-line text-white/80" : "line-clamp-5 text-[1.0625rem] leading-relaxed text-white/80"}>
-              {d.biography}
-            </p>
-            {(bio.overflows || more) && (
-              <Button size="sm" variant="ghost" onClick={() => setMore(!more)}>
-                {more ? "Less" : "More"}
-              </Button>
-            )}
+          <div className="max-w-3xl">
+            <ClampedText text={d.biography} clamp="line-clamp-5" className="text-[1.0625rem] leading-relaxed text-white/80" />
           </div>
         )}
         {details.data?.tmdb === "noKey" && (
