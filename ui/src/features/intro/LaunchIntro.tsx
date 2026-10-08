@@ -6,12 +6,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { useIntro } from "@/lib/intro";
 import { onAction, onKey } from "@/nav/input";
-import { FLICK_INTRO, FlickIntro, type FlickIntroProps } from "./FlickIntro";
+import { FLICK_INTRO, FlickIntro } from "./FlickIntro";
 
 type LaunchIntroProps = {
   /** Called once the intro has played and faded (or right away when it is skipped). */
   onDone: () => void;
-  variant?: FlickIntroProps["variant"];
   /** Skip it, e.g. when Performance > Animations is 0. Reduced motion always skips. */
   skip?: boolean;
 };
@@ -20,7 +19,7 @@ type LaunchIntroProps = {
 const FADE = { duration: 0.3, ease: [0.4, 0, 0.2, 1] } as const;
 
 /** Full-window launch animation; unmount it in `onDone`. */
-export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIntroProps) {
+export function LaunchIntro({ onDone, skip = false }: LaunchIntroProps) {
   const ref = useRef<PlayerRef>(null);
   const [skipped] = useState(() => skip || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   // Held while the window goes fullscreen: the player is already there,
@@ -76,7 +75,6 @@ export function LaunchIntro({ onDone, variant = "word", skip = false }: LaunchIn
           <Player
             ref={ref}
             component={FlickIntro}
-            inputProps={{ variant }}
             durationInFrames={FLICK_INTRO.durationInFrames}
             fps={FLICK_INTRO.fps}
             compositionWidth={size.width}
