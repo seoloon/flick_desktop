@@ -54,7 +54,8 @@ export function Sidebar() {
 }
 
 // Collapsed, the wordmark is clipped to its mark: the mark stays put and the
-// lettering slides under the edge, in step with the sidebar's own width.
+// lettering slides under the edge and fades (its first letter reaches under
+// the mark's top bar), in step with the sidebar's own width.
 const brandWidths = {
   "--wordmark-w": `calc(var(--wordmark-h) * ${WORDMARK_WIDTH / WORDMARK_HEIGHT})`,
   "--mark-w": `calc(var(--wordmark-h) * ${MARK_WIDTH / WORDMARK_HEIGHT})`,
@@ -65,7 +66,7 @@ function Brand() {
     <div className="mb-5 flex items-center px-3 pt-2">
       <span
         style={brandWidths}
-        className="block w-(--wordmark-w) overflow-hidden transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] [--wordmark-h:1.2rem] in-data-[sidebar=collapsed]:w-(--mark-w)"
+        className="block w-(--wordmark-w) overflow-hidden transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] [--wordmark-h:1.2rem] in-data-[sidebar=collapsed]:w-(--mark-w) [&_.wordmark-letters]:transition-opacity [&_.wordmark-letters]:duration-300 in-data-[sidebar=collapsed]:[&_.wordmark-letters]:opacity-0"
       >
         <FlickWordmark title="Flick" className="h-(--wordmark-h) w-auto max-w-none" />
       </span>
