@@ -8,6 +8,7 @@ import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/tv/Button";
 import { MediaCard } from "@/components/tv/Card";
+import { ClampedText } from "@/components/tv/ClampedText";
 import { CenteredSpinner, EmptyState } from "@/components/tv/Feedback";
 import { HeroBackdrop, MetaLine, TitleArt } from "@/components/tv/Hero";
 import { BackButton } from "@/components/tv/BackButton";
@@ -155,7 +156,11 @@ export function Detail() {
             <Button size="icon-lg" icon={Check} label={item.user.played ? "Mark as unwatched" : "Mark as watched"} className={item.user.played ? "bg-white/25" : undefined} onClick={() => toggle("played")} />
             <Button size="icon-lg" icon={Heart} iconFilled={item.user.favorite} label={item.user.favorite ? "Remove from favourites" : "Add to favourites"} onClick={() => toggle("favorite")} />
           </FocusGroup>
-          {item.overview && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...enter, delay: 0.1 }} className="line-clamp-4 max-w-2xl text-[1.0625rem] leading-relaxed text-white/80 text-pretty">{item.overview}</motion.p>}
+          {item.overview && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...enter, delay: 0.1 }} className="max-w-2xl">
+              <ClampedText text={item.overview} clamp="line-clamp-4" className="text-[1.0625rem] leading-relaxed text-white/80 text-pretty" />
+            </motion.div>
+          )}
         </motion.div>
       </section>
 
