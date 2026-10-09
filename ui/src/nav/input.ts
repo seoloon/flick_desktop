@@ -17,6 +17,7 @@ export type Action =
   | { type: "back" }
   | { type: "playPause" }
   | { type: "seek"; seconds: number }
+  | { type: "tab"; delta: -1 | 1 }
   | { type: "menu" };
 
 /** How the user is driving the UI: focus visuals only show for `keys`. */
@@ -152,29 +153,34 @@ export function installKeyboard() {
 const REPEAT_DELAY = 380;
 const REPEAT_RATE = 110;
 
-// The right stick's raw position (-1..1), for things that follow it like a
-// pointer: the focused card tilts toward it as it would under a mouse. The left
-// stick navigates and does not tilt anything.
-type StickListener = (x: number, y: number) => void;
-const stickListeners = new Set<StickListener>();
-let stickX = 0;
-let stickY = 0;
+// The right stick scrolls like a mouse wheel: the scroller under the focused
+// element (else the screen) moves in proportion to the stick's deflection.
+const SCROLL_SPEED = 1400; // px/s at full deflection
 
-export function onStick(listener: StickListener): () => void {
-  stickListeners.add(listener);
-  return () => void stickListeners.delete(listener);
+function scrollerFor(el: Element | null): HTMLElement | null {
+  for (let n = el as HTMLElement | null; n && n !== document.body; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 1) return n;
+  }
+  return document.querySelector<HTMLElement>("main");
 }
 
-function setStick(x: number, y: number) {
-  if (x === stickX && y === stickY) return;
-  stickX = x;
-  stickY = y;
-  stickListeners.forEach((l) => l(x, y));
+function scrollBy(y: number, dt: number) {
+  const el = scrollerFor(document.activeElement);
+  if (!el) return;
+  hideCursor();
+  el.scrollTop += y * SCROLL_SPEED * (dt / 1000);
+}
+
+// A controller in use hides the mouse cursor; moving the mouse brings it back
+// (see showCursorThenHide in lib/mode.ts).
+function hideCursor() {
+  document.documentElement.dataset.cursor = "hidden";
 }
 
 export function installGamepad(deadzone: () => number, swapConfirm: () => boolean, enabled: () => boolean) {
   const held = new Map<string, number>(); // key -> next fire time
-  const fire = (key: string, pressed: boolean, action: Action, now: number) => {
+  const fire = (key: string, pressed: boolean, action: Action, now: number, fallback?: Action) => {
     if (!pressed) {
       held.delete(key);
       return;
@@ -182,7 +188,8 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
     const next = held.get(key);
     if (next === undefined) {
       setModality("keys");
-      dispatch(action);
+      hideCursor();
+      if (!dispatch(action) && fallback) dispatch(fallback);
       held.set(key, now + REPEAT_DELAY);
     } else if (now >= next && action.type === "move") {
       dispatch(action);
@@ -193,16 +200,17 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
   // endless loop would wake the WebView 60–120 times a second for nothing
   // (battery on laptops). Browsers report a pad once a button is pressed.
   let running = false;
+  let prev = 0;
   const connected = () => Array.from(navigator.getGamepads?.() ?? []).some((p) => p?.connected);
   const loop = (now: number) => {
     const pads = navigator.getGamepads?.() ?? [];
     if (!Array.from(pads).some((p) => p?.connected)) {
       running = false;
       held.clear();
-      setStick(0, 0);
       return;
     }
-    let sx = 0;
+    const dt = Math.min(now - prev, 50);
+    prev = now;
     let sy = 0;
     for (const pad of enabled() ? pads : []) {
       if (!pad || pad.mapping !== "standard") continue;
@@ -210,9 +218,8 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
       const dz = deadzone();
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
-      const rx = pad.axes[2] ?? 0;
       const ry = pad.axes[3] ?? 0;
-      if (Math.hypot(rx, ry) > Math.hypot(sx, sy)) [sx, sy] = [rx, ry];
+      if (Math.abs(ry) > Math.abs(sy)) sy = ry;
       const [confirm, cancel] = swapConfirm() ? [1, 0] : [0, 1];
       fire(`${pad.index}:up`, b(12) || ay < -dz, { type: "move", dir: "up" }, now);
       fire(`${pad.index}:down`, b(13) || ay > dz, { type: "move", dir: "down" }, now);
@@ -221,12 +228,13 @@ export function installGamepad(deadzone: () => number, swapConfirm: () => boolea
       fire(`${pad.index}:a`, b(confirm), { type: "activate" }, now);
       fire(`${pad.index}:b`, b(cancel), { type: "back" }, now);
       fire(`${pad.index}:start`, b(9), { type: "playPause" }, now);
-      fire(`${pad.index}:lb`, b(4), { type: "seek", seconds: -10 }, now);
-      fire(`${pad.index}:rb`, b(5), { type: "seek", seconds: 10 }, now);
+      // Bumpers seek in the player and switch tabs in Flick Frame.
+      fire(`${pad.index}:lb`, b(4), { type: "seek", seconds: -10 }, now, { type: "tab", delta: -1 });
+      fire(`${pad.index}:rb`, b(5), { type: "seek", seconds: 10 }, now, { type: "tab", delta: 1 });
       fire(`${pad.index}:menu`, b(8), { type: "menu" }, now);
     }
     // A stick resting near the centre drifts a little: below this it is still.
-    setStick(Math.hypot(sx, sy) < 0.12 ? 0 : sx, Math.hypot(sx, sy) < 0.12 ? 0 : sy);
+    if (Math.abs(sy) > Math.max(0.12, deadzone() * 0.5)) scrollBy(sy, dt);
     requestAnimationFrame(loop);
   };
   const start = () => {

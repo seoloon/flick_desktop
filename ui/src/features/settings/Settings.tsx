@@ -456,7 +456,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
             <InfoRow label="Menu key">Toggle Flick Frame</InfoRow>
             <InfoRow label="Media keys">Play/pause, fast forward and rewind from remotes that send them.</InfoRow>
           </SettingsGroup>
-          <SettingsGroup title="Game Controller" note={<p>D-pad or left stick moves, A opens, B goes back, Start plays or pauses, bumpers skip 10 seconds, View toggles Flick Frame.</p>}>
+          <SettingsGroup title="Game Controller" note={<p>D-pad or left stick moves, A opens, B goes back, Start plays or pauses, right stick scrolls, bumpers skip 10 seconds (or switch tabs in Flick Frame), View toggles Flick Frame.</p>}>
             <ToggleRow label="Use game controllers" checked={s.controller.enabled} onChange={(v) => set((x) => (x.controller.enabled = v))} />
             <SliderRow label="Stick dead zone" value={s.controller.deadzone} min={0.1} max={0.8} step={0.05} format={pct} onChange={(v) => set((x) => (x.controller.deadzone = v))} />
             <ToggleRow label="Swap A and B" hint="Nintendo-style confirm button." checked={s.controller.swapConfirm} onChange={(v) => set((x) => (x.controller.swapConfirm = v))} />

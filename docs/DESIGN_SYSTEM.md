@@ -105,7 +105,7 @@ composants `tv/` les habillent pour la télécommande.
 - Retour : ferme le dialogue ou le panneau, sinon remonte l'historique. Sur un
   écran de premier niveau, il renvoie d'abord à la navigation (comme Menu sur
   tvOS). Revenir sur une page restaure l'élément focalisé et le défilement.
-- Manette : D-pad/stick, A/B (inversables), Start, LB/RB ±10 s, View = Maxi
+- Manette : D-pad/stick gauche, stick droit = scroll, A/B (inversables), Start, LB/RB ±10 s (onglets en Flick Frame), View = Maxi
   Frame.
 
 ## Cadre

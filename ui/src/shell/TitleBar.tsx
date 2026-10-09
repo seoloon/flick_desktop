@@ -11,7 +11,7 @@
 // (`hide_traffic_lights` in app/src/main.rs). The same glass capsule as on
 // Windows holds redrawn traffic lights, in the same top right spot.
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Copy, Minimize2, Minus, Square, X } from "lucide-react";
 import { motion } from "motion/react";
 import { type CSSProperties, type MouseEvent, type ReactNode, type WheelEvent, useEffect, useState } from "react";
 import { useMode } from "@/lib/mode";
@@ -122,7 +122,22 @@ function Light({ label, color, onClick, focused, children }: { label: string; co
 function MacControls({ hidden }: { hidden: boolean }) {
   const { focused, fullscreen } = useWindowState();
   const win = getCurrentWindow();
-  const off = hidden || fullscreen; // native fullscreen has no traffic lights
+  const off = hidden;
+  // Native fullscreen has no traffic lights: one button gets back out.
+  if (fullscreen) {
+    return (
+      <motion.div
+        className="glass fixed top-2.5 right-2.5 z-50 flex items-center rounded-full p-1"
+        animate={{ opacity: off ? 0 : 1, y: off ? -8 : 0 }}
+        transition={{ duration: 0.25 }}
+        style={{ pointerEvents: off ? "none" : "auto" }}
+      >
+        <Control label="Exit full screen" onClick={() => void win.setFullscreen(false)}>
+          <Minimize2 strokeWidth={2.2} />
+        </Control>
+      </motion.div>
+    );
+  }
   return (
     <motion.div
       className="glass group/lights fixed top-2.5 right-2.5 z-50 flex h-9 items-center gap-2 rounded-full px-3.5"

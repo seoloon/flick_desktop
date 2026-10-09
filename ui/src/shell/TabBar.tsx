@@ -2,7 +2,7 @@
 // slides away once you scroll into the content; moving focus up brings it back.
 import { Minimize2 } from "lucide-react";
 import { motion } from "motion/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { focusSpring, panelSpring, pillSpring } from "@/lib/motion";
 import { toggleFrame } from "@/lib/mode";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { FlickMark } from "@/components/tv/FlickMark";
 import { TabBarProfile } from "@/features/profiles/ProfileSwitcher";
 import { FocusGroup, useTv } from "@/nav/Focusable";
+import { onAction } from "@/nav/input";
 import { NAV_KEY } from "@/nav/spatial";
 import { useNavItems } from "./navItems";
 
@@ -21,6 +22,16 @@ export function TabBar({ scrolled }: { scrolled: boolean }) {
   const hidden = scrolled && !focusInside;
   const navigate = useNavigate();
   const active = items.find((i) => i.active);
+  // Controller bumpers (L1/R1, LB/RB) step through the tabs.
+  const activeIndex = items.findIndex((i) => i.active);
+  useEffect(() => {
+    return onAction((a) => {
+      if (a.type !== "tab") return false;
+      const next = items[(Math.max(activeIndex, 0) + a.delta + items.length) % items.length];
+      if (next) navigate(next.href);
+      return true;
+    });
+  }, [items, activeIndex, navigate]);
   return (
     <motion.div
       className="pointer-events-none fixed inset-x-0 top-0 z-30 flex justify-center pt-6"
