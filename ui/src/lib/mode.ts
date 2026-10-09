@@ -14,7 +14,9 @@ function showCursorThenHide() {
   window.clearTimeout(cursorTimer);
   if (useMode.getState().frame) cursorTimer = window.setTimeout(() => (root.dataset.cursor = "hidden"), 2500);
 }
-window.addEventListener("mousemove", showCursorThenHide, { passive: true });
+// Scrolling or focus changes under a still cursor make the browser fire
+// synthetic mousemoves with no movement: only a real move shows the cursor.
+window.addEventListener("mousemove", (e) => (e.movementX || e.movementY) && showCursorThenHide(), { passive: true });
 
 /** `moveWindow: false` only switches the layout: the caller already moved the
  * window (Picture in Picture leaves and restores fullscreen by itself). */
