@@ -28,6 +28,8 @@ use tokio::task::JoinHandle;
 use crate::api::{self, Failure, Grant, Link};
 use crate::files;
 use crate::item::{Item, NewDownload, State};
+use crate::relay::Target;
+use crate::seal::Seal;
 
 /// Downloads running at once. The server allows 10 grants per user, shared by all their devices.
 pub const MAX_ACTIVE: usize = 3;
@@ -54,6 +56,11 @@ pub trait Source: Send + Sync {
     async fn connect(&self) -> Result<Connection, Failure>;
     /// Where new downloads are written.
     fn directory(&self) -> PathBuf;
+    /// The app's master key for encrypting what is downloaded from now on;
+    /// `None` leaves new files as they come. Each download derives its own key from it.
+    fn seal_key(&self) -> Option<[u8; 32]> {
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +201,7 @@ impl Manager {
         }
         let item = Item::new(req, PathBuf::new(), now_ms());
         let temp = self.source.directory().join(format!("{}.part", item.id));
-        let item = Item { temp_path: temp, ..item };
+        let item = Item { temp_path: temp, sealed: self.source.seal_key().is_some(), ..item };
         {
             let mut g = self.inner.lock();
             g.slots.push(Slot { item: item.clone(), grant: None, link: None, fails: 0, changes: 0, task: None });
@@ -203,6 +210,15 @@ impl Manager {
         self.emit(&item);
         self.pump();
         self.item(&item.id).unwrap_or(item)
+    }
+
+    /// The file of a finished download and how to read it, for the relay.
+    /// `None` when it is not there, or sealed while the key cannot be read.
+    pub fn playable(&self, id: &str) -> Option<Target> {
+        let item = self.item(id).filter(|i| i.state == State::Done)?;
+        let path = item.final_path?;
+        let seal = Seal::derive(&self.source.seal_key()?, &item.id);
+        item.sealed.then_some(Target { path, seal })
     }
 
     pub fn item(&self, id: &str) -> Option<Item> {
@@ -471,10 +487,16 @@ impl Manager {
 
     /// One segment: `Range: bytes=<offset>-<offset + chunk - 1>`, written to the partial file.
     async fn segment(&self, id: &str) -> Result<(), Failure> {
-        let Some((grant, link, mut offset, temp)) =
-            self.read(id, |s| Some((s.grant.clone()?, s.link.clone()?, s.item.offset, s.item.temp_path.clone()))).flatten()
+        let Some((grant, link, mut offset, temp, sealed)) =
+            self.read(id, |s| Some((s.grant.clone()?, s.link.clone()?, s.item.offset, s.item.temp_path.clone(), s.item.sealed))).flatten()
         else {
             return Ok(());
+        };
+        let seal = if sealed {
+            let key = self.source.seal_key().ok_or_else(|| Failure::Disk("Flick cannot read the key that protects its downloads.".into()))?;
+            Some(Seal::derive(&key, id))
+        } else {
+            None
         };
         if offset > 0 && files::size_of(&temp).await < offset {
             // The partial file lost bytes: start over rather than extend it with zeros.
@@ -496,7 +518,15 @@ impl Manager {
             if chunk.is_empty() {
                 break;
             }
-            file.write_all(chunk).await.map_err(|e| Failure::Disk(e.to_string()))?;
+            let written = match &seal {
+                Some(seal) => {
+                    let mut sealed = chunk.to_vec();
+                    seal.apply(offset, &mut sealed);
+                    file.write_all(&sealed).await
+                }
+                None => file.write_all(chunk).await,
+            };
+            written.map_err(|e| Failure::Disk(e.to_string()))?;
             offset += chunk.len() as u64;
             got += chunk.len() as u64;
             window_bytes += chunk.len() as u64;

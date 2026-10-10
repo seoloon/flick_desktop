@@ -16,6 +16,7 @@ use oneshot_core::{Error, Result};
 use oneshot_flickdd::api::{Failure, Link};
 use oneshot_flickdd::{Backend, Connection, Event, Item, Kind, Manager, NewDownload, Source};
 use oneshot_flickserver::{mint_token, key::now_unix};
+use oneshot_storage::secrets;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager as _};
 
@@ -55,6 +56,47 @@ impl Source for AppSource {
     fn directory(&self) -> PathBuf {
         self.dir.clone()
     }
+
+    fn seal_key(&self) -> Option<[u8; 32]> {
+        match master_key() {
+            Ok(key) => Some(key),
+            Err(e) => {
+                tracing::warn!(target: "downloads", "downloads cannot be encrypted: {e}");
+                None
+            }
+        }
+    }
+}
+
+/// Entry of the downloads' master key in the credential vault.
+const KEY_ENTRY: &str = "downloads:key";
+
+/// The key every download's own key comes from. It lives in the same vault
+/// entry as the other secrets, so the system asks for the password once for
+/// all of them. Created on first use; the key is lost with the vault, and
+/// then so are the files it sealed (they could not be played anyway).
+fn master_key() -> Result<[u8; 32]> {
+    if let Some(hex) = secrets::load_secret(KEY_ENTRY)? {
+        if let Some(key) = parse_key(&hex) {
+            return Ok(key);
+        }
+        tracing::warn!(target: "downloads", "the stored downloads key is damaged: a new one replaces it");
+    }
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).map_err(|e| Error::Storage(format!("no randomness for the downloads key: {e}")))?;
+    secrets::store_secret(KEY_ENTRY, &key.iter().map(|b| format!("{b:02x}")).collect::<String>())?;
+    Ok(key)
+}
+
+fn parse_key(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 || !hex.is_ascii() {
+        return None;
+    }
+    let mut key = [0u8; 32];
+    for (i, b) in key.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(key)
 }
 
 pub struct Downloads {
@@ -235,4 +277,19 @@ fn request(st: &AppState, item: &MediaItem) -> Result<NewDownload> {
         _ => (item.title.clone(), item.year.map(|y| y.to_string()), Kind::Movie),
     };
     Ok(NewDownload { backend, item_id: item.id.key.clone(), item_ref: item.id.to_string(), title, subtitle, kind: Some(kind) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_key;
+
+    #[test]
+    fn a_key_round_trips_through_hex_and_damage_is_refused() {
+        let key: [u8; 32] = std::array::from_fn(|i| (i * 9) as u8);
+        let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(parse_key(&hex), Some(key));
+        assert_eq!(parse_key(&hex[..62]), None);
+        assert_eq!(parse_key(&"zz".repeat(32)), None);
+        assert_eq!(parse_key(&"é".repeat(32)), None);
+    }
 }

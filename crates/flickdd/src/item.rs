@@ -90,6 +90,10 @@ pub struct Item {
     pub temp_path: PathBuf,
     #[serde(default)]
     pub final_path: Option<PathBuf>,
+    /// The file on disk is encrypted (see [`crate::seal`]). Fixed when the
+    /// download is created: files from before stay as they are.
+    #[serde(default)]
+    pub sealed: bool,
     /// Why it is paused or failed, in a sentence for the user.
     #[serde(default)]
     pub error: Option<String>,
@@ -123,6 +127,7 @@ impl Item {
             mime: None,
             temp_path,
             final_path: None,
+            sealed: false,
             error: None,
             note: None,
             speed: None,

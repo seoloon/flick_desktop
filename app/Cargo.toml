@@ -39,6 +39,7 @@ tracing-subscriber.workspace = true
 url.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+getrandom = "0.3"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 

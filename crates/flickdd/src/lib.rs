@@ -5,6 +5,8 @@
 //!   failures they can end in.
 //! * [`item`]: what is persisted and shown for one download.
 //! * [`files`]: file names and the partial file.
+//! * [`seal`] and [`relay`]: files are encrypted as they are written, and
+//!   played back through a loopback relay that decrypts them.
 //! * [`engine`]: the [`Manager`], which runs the resumable algorithm of
 //!   `docs/flickdd-integration.md` for a queue of downloads.
 //!
@@ -15,7 +17,11 @@ pub mod api;
 pub mod engine;
 pub mod files;
 pub mod item;
+pub mod relay;
+pub mod seal;
 
 pub use api::Failure;
 pub use engine::{Connection, Event, EventSink, Manager, Source};
+pub use relay::{Relay, Target};
+pub use seal::Seal;
 pub use item::{Backend, Item, Kind, NewDownload, State};

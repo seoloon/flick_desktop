@@ -23,6 +23,7 @@ fn content(size: usize) -> Vec<u8> {
 struct TestSource {
     base: Url,
     dir: PathBuf,
+    key: Option<[u8; 32]>,
 }
 
 #[async_trait]
@@ -33,6 +34,10 @@ impl Source for TestSource {
 
     fn directory(&self) -> PathBuf {
         self.dir.clone()
+    }
+
+    fn seal_key(&self) -> Option<[u8; 32]> {
+        self.key
     }
 }
 
@@ -72,6 +77,10 @@ struct Harness {
 }
 
 async fn harness(size: usize, etag: &'static str, hook: impl Fn(usize) -> Option<ResponseTemplate> + Send + Sync + 'static) -> Harness {
+    harness_with(size, etag, hook, None).await
+}
+
+async fn harness_with(size: usize, etag: &'static str, hook: impl Fn(usize) -> Option<ResponseTemplate> + Send + Sync + 'static, key: Option<[u8; 32]>) -> Harness {
     let server = MockServer::start().await;
     let data = content(size);
     let creates = Arc::new(AtomicUsize::new(0));
@@ -105,7 +114,7 @@ async fn harness(size: usize, etag: &'static str, hook: impl Fn(usize) -> Option
         .await;
 
     let dir = tempfile::tempdir().unwrap();
-    let source = Arc::new(TestSource { base: Url::parse(&format!("{}/", server.uri())).unwrap(), dir: dir.path().join("downloads") });
+    let source = Arc::new(TestSource { base: Url::parse(&format!("{}/", server.uri())).unwrap(), dir: dir.path().join("downloads"), key });
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink_events = Arc::clone(&events);
     let manager = Manager::open(source, dir.path().join("downloads.json"), Arc::new(move |e| sink_events.lock().push(e)), tokio::runtime::Handle::current());
@@ -181,7 +190,7 @@ async fn a_forbidden_account_fails_without_retrying() {
         .mount(&server)
         .await;
     let dir = tempfile::tempdir().unwrap();
-    let source = Arc::new(TestSource { base: Url::parse(&format!("{}/", server.uri())).unwrap(), dir: dir.path().join("d") });
+    let source = Arc::new(TestSource { base: Url::parse(&format!("{}/", server.uri())).unwrap(), dir: dir.path().join("d"), key: None });
     let manager = Manager::open(source, dir.path().join("downloads.json"), Arc::new(|_| {}), tokio::runtime::Handle::current());
     let it = manager.enqueue(&request());
     for _ in 0..100 {
@@ -229,4 +238,30 @@ async fn the_same_title_is_not_queued_twice() {
     let b = h.manager.enqueue(&request());
     assert_eq!(a.id, b.id);
     assert_eq!(h.manager.list().len(), 1);
+}
+
+#[tokio::test]
+async fn a_sealed_download_is_unreadable_on_disk_and_plays_through_the_relay() {
+    let key = [9u8; 32];
+    let h = harness_with(3500, "\"e1\"", |_| None, Some(key)).await;
+    let it = h.manager.enqueue(&request());
+    let done = until(&h, &it.id, State::Done, 10).await;
+    assert!(done.sealed);
+    let on_disk = std::fs::read(done.final_path.as_ref().unwrap()).unwrap();
+    assert_eq!(on_disk.len(), 3500, "no header: the file is as long as the video");
+    assert_ne!(on_disk, content(3500));
+    // What the relay hands the player is the original.
+    let target = h.manager.playable(&it.id).expect("a sealed file is playable");
+    let mut back = on_disk;
+    target.seal.apply(0, &mut back);
+    assert_eq!(back, content(3500));
+}
+
+#[tokio::test]
+async fn a_plain_download_is_not_served_by_the_relay() {
+    let h = harness(3500, "\"e1\"", |_| None).await;
+    let it = h.manager.enqueue(&request());
+    let done = until(&h, &it.id, State::Done, 10).await;
+    assert!(!done.sealed);
+    assert!(h.manager.playable(&it.id).is_none());
 }

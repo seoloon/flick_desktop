@@ -20,7 +20,8 @@ use oneshot_core::provider::{Adjacent, MediaProvider};
 use oneshot_core::query::{HomeRow, HomeRowKind, ItemQuery, Page};
 use oneshot_core::server::{Library, LibraryKind, ProviderKind, ServerDescriptor, ServerStatus, UserProfile};
 use oneshot_core::{Error, Result};
-use oneshot_flickdd::{Item, Manager, State};
+use oneshot_flickdd::relay::Resolver;
+use oneshot_flickdd::{Item, Manager, Relay, State};
 use url::Url;
 use uuid::Uuid;
 
@@ -61,6 +62,8 @@ pub struct LocalLibrary {
     manager: Arc<Manager>,
     dir: PathBuf,
     descriptor: ServerDescriptor,
+    /// Decrypts sealed downloads for the player; started by the first one played.
+    relay: Arc<tokio::sync::OnceCell<Relay>>,
 }
 
 impl std::fmt::Debug for LocalLibrary {
@@ -91,7 +94,7 @@ impl LocalLibrary {
             disabled: false,
             home_member: false,
         };
-        Self { manager, dir, descriptor }
+        Self { manager, dir, descriptor, relay: Arc::default() }
     }
 
     fn me(id: &str) -> ItemRef {
@@ -266,7 +269,21 @@ impl MediaProvider for LocalLibrary {
 
     async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget> {
         let entry = self.entry(&request.item.key).ok_or_else(|| Error::NotFound("This download is no longer on this computer.".into()))?;
-        let path = entry.download.final_path.ok_or_else(|| Error::NotFound("file".into()))?;
+        let path = entry.download.final_path.clone().ok_or_else(|| Error::NotFound("file".into()))?;
+        if entry.download.sealed {
+            // Encrypted on disk: the player reads it through the relay, which decrypts as it goes.
+            if self.manager.playable(&request.item.key).is_none() {
+                return Err(Error::Playback("Flick cannot read the key that protects its downloads.".into()));
+            }
+            let manager = Arc::clone(&self.manager);
+            let relay = self
+                .relay
+                .get_or_try_init(|| async move { Relay::start(Arc::new(move |id: &str| manager.playable(id)) as Resolver).await })
+                .await
+                .map_err(|e| Error::Playback(format!("cannot open a download: {e}")))?;
+            let url = Url::parse(&relay.url(&request.item.key)).map_err(|e| Error::Playback(e.to_string()))?;
+            return Ok(StreamTarget { url, headers: Vec::new(), external_subtitles: Vec::new() });
+        }
         let url = Url::from_file_path(&path).map_err(|()| Error::Playback("the file path is not usable".into()))?;
         Ok(StreamTarget { url, headers: Vec::new(), external_subtitles: Vec::new() })
     }
