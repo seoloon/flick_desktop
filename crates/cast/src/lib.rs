@@ -105,6 +105,8 @@ pub struct CastMedia {
     pub title: String,
     pub start_ms: u64,
     pub duration_ms: Option<u64>,
+    /// Set when the original file is not playable as it is: the app converts it for the receiver.
+    pub convert: Option<transcode::Convert>,
 }
 
 /// What the receiver last said, as the protocols give it.
@@ -142,6 +144,8 @@ pub struct Caster {
     store: Option<std::sync::Arc<dyn PairingStore>>,
     /// A pairing waiting for its PIN: the device and the open connection.
     pairing: tokio::sync::Mutex<Option<(String, link::Link)>>,
+    /// Where ffmpeg is looked for after `ONESHOT_FFMPEG`.
+    ffmpeg_dirs: Vec<std::path::PathBuf>,
 }
 
 /// Where the credentials of paired receivers live (the app keeps them in its credential vault).
@@ -165,7 +169,18 @@ impl Default for Caster {
 
 impl Caster {
     pub fn new() -> Self {
-        Self { discovery: Discovery::default(), proxy: proxy::Proxy::default(), active: tokio::sync::Mutex::new(None), last: Mutex::new(CastStatus::default()), store: None, pairing: tokio::sync::Mutex::new(None) }
+        Self { discovery: Discovery::default(), proxy: proxy::Proxy::default(), active: tokio::sync::Mutex::new(None), last: Mutex::new(CastStatus::default()), store: None, pairing: tokio::sync::Mutex::new(None), ffmpeg_dirs: Vec::new() }
+    }
+
+    /// Where ffmpeg is looked for (the folders libmpv is searched in), after `ONESHOT_FFMPEG`.
+    pub fn with_ffmpeg_dirs(mut self, dirs: Vec<std::path::PathBuf>) -> Self {
+        self.ffmpeg_dirs = dirs;
+        self
+    }
+
+    /// Whether ffmpeg is there to convert a title.
+    pub fn can_convert(&self) -> bool {
+        transcode::locate(&self.ffmpeg_dirs).is_some()
     }
 
     /// Remembers pairings in `store`.
@@ -205,13 +220,20 @@ impl Caster {
         self.stop().await;
         let addr = device.addr()?;
         let local = local_address_towards(addr)?;
-        let relayed = self.proxy.serve(&media.url, media.headers.clone(), local, http).await?;
+        let relayed = if media.convert.is_none() { Some(self.proxy.serve(&media.url, media.headers.clone(), local, http.clone()).await?) } else { None };
         *self.last.lock() = CastStatus { device: Some(device.clone()), state: CastState::Loading, position_ms: media.start_ms, duration_ms: media.duration_ms, ..Default::default() };
         let loaded = match device.kind {
-            CastKind::Chromecast => chromecast::Chromecast::start(addr, &relayed, &media).await.map(|r| Box::new(r) as Box<dyn Receiver>),
+            CastKind::Chromecast => match relayed.as_ref() {
+                Some(relayed) => chromecast::Chromecast::start(addr, relayed, &media).await.map(|r| Box::new(r) as Box<dyn Receiver>),
+                None => Err(Error::Invalid(oneshot_core::codes::CAST_OTHER.tag("A Chromecast does not take a converted stream."))),
+            },
             CastKind::AirPlay => {
                 let creds = self.store.as_ref().and_then(|s| s.load(&device.id)).and_then(|c| hap::Credentials::decode(&c));
-                let started = airplay::AirPlay::start(addr, &relayed, &media, creds.as_ref()).await;
+                let started = match (&media.convert, &relayed) {
+                    (Some(convert), _) => self.start_converted(addr, local, convert.clone(), &media, http, creds.as_ref()).await,
+                    (None, Some(relayed)) => airplay::AirPlay::start(addr, relayed, &media, creds.as_ref()).await.map(|r| Box::new(r) as Box<dyn Receiver>),
+                    (None, None) => unreachable!("a direct cast always has its relay"),
+                };
                 // A pairing the receiver no longer honours is forgotten: the PIN is asked again.
                 if started.as_ref().is_err_and(|e| e.code() == oneshot_core::codes::AUTH_AIRPLAY_PAIRING.id)
                     && creds.is_some()
@@ -219,7 +241,7 @@ impl Caster {
                 {
                     store.forget(&device.id);
                 }
-                started.map(|r| Box::new(r) as Box<dyn Receiver>)
+                started
             }
         };
         match loaded {
@@ -233,6 +255,16 @@ impl Caster {
                 Err(e)
             }
         }
+    }
+
+    /// Converts the title with ffmpeg and plays the result on the receiver.
+    async fn start_converted(&self, addr: SocketAddr, local: IpAddr, convert: transcode::Convert, media: &CastMedia, http: reqwest::Client, creds: Option<&hap::Credentials>) -> Result<Box<dyn Receiver>> {
+        let ffmpeg = transcode::locate(&self.ffmpeg_dirs).ok_or_else(transcode::missing_error)?;
+        let session = transcode::Session::start(ffmpeg, convert, &media.url, media.headers.clone(), local, http, media.start_ms).await?;
+        // The receiver's own timeline begins where the conversion does.
+        let hls = CastMedia { url: session.playlist_url(), content_type: "application/x-mpegURL".into(), start_ms: 0, duration_ms: None, convert: None, headers: Vec::new(), title: media.title.clone() };
+        let airplay = airplay::AirPlay::start(addr, &hls.url, &hls, creds).await?;
+        Ok(Box::new(transcode::Converting::new(airplay, session, media.duration_ms)))
     }
 
     pub async fn command(&self, command: CastCommand) -> Result<()> {
