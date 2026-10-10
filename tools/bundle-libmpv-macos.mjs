@@ -99,4 +99,9 @@ for (const f of readdirSync(dest)) {
     process.exit(1);
   }
 }
+// Burning a text subtitle into an AirPlay conversion needs the `subtitles` filter (libass); Homebrew's
+// ffmpeg is built without it. Bitmap subtitles (overlay) and everything else work.
+if (!run(join(dest, "ffmpeg"), ["-hide_banner", "-filters"]).includes(" subtitles ")) {
+  console.warn("warning: this ffmpeg has no `subtitles` filter (no libass): casting a title with a text subtitle to AirPlay will fail to convert.");
+}
 console.log(`libmpv and ffmpeg bundled: ${copied.size} files in third_party/mpv/macos-arm64`);
