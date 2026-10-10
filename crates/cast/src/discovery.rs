@@ -99,10 +99,12 @@ pub(crate) fn describe(kind: CastKind, fullname: &str, prop: &dyn Fn(&str) -> Op
             Some(CastDevice { id: format!("cc:{id}"), name, kind, model, host, port })
         }
         CastKind::AirPlay => {
-            // Bit 0 of the features is "video": speakers do not set it.
+            // Speakers set none of the video bits: 0 (video), 3 (FairPlay video), 4 (video volume
+            // control), 5 (HLS). Apple devices set bit 0; a Samsung TV only sets bit 4.
+            const VIDEO: u64 = 0b11_1001;
             let features = prop("features").or_else(|| prop("ft"));
-            let low = features.as_deref().and_then(|f| f.split(',').next()).and_then(|f| u64::from_str_radix(f.trim_start_matches("0x"), 16).ok());
-            if low.is_some_and(|low| low & 1 == 0) {
+            let low = features.as_deref().and_then(|f| f.split(',').next()).and_then(|f| u64::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok());
+            if low.is_some_and(|low| low & VIDEO == 0) {
                 return None;
             }
             let id = prop("deviceid").unwrap_or_else(|| fullname.to_owned());
@@ -137,8 +139,18 @@ mod tests {
     }
 
     #[test]
+    fn a_samsung_tv_that_does_not_set_the_video_bit_is_kept_and_a_homepod_is_not() {
+        // Captured with `dns-sd -Z _airplay._tcp`: Samsung says "video" with bit 4, not bit 0.
+        let tv = props(&[("deviceid", "64:1C:AE:9F:61:EC"), ("features", "0x7F8AD0,0x38BCB46"), ("model", "UNU7120"), ("manufacturer", "Samsung")]);
+        let d = describe(CastKind::AirPlay, "Samsung 7 Series (40)._airplay._tcp.local.", &tv, "10.0.0.5".into(), 53121).unwrap();
+        assert_eq!(d.name, "Samsung 7 Series (40)");
+        let homepod = props(&[("deviceid", "EE:FF"), ("features", "0x445F8A00,0x1C340"), ("model", "AudioAccessory1,1")]);
+        assert!(describe(CastKind::AirPlay, "HomePod._airplay._tcp.local.", &homepod, "10.0.0.6".into(), 7000).is_none());
+    }
+
+    #[test]
     fn airplay_speakers_are_left_out() {
-        let speaker = props(&[("deviceid", "AA:BB"), ("features", "0x4A7FDFD4,0x3C155FDE")]);
+        let speaker = props(&[("deviceid", "AA:BB"), ("features", "0x445F8A00,0x1C340")]);
         assert!(describe(CastKind::AirPlay, "HomePod._airplay._tcp.local.", &speaker, "10.0.0.3".into(), 7000).is_none());
         let tv = props(&[("deviceid", "CC:DD"), ("features", "0x5A7FFFF7,0x1E"), ("model", "AppleTV6,2")]);
         let d = describe(CastKind::AirPlay, "Salon._airplay._tcp.local.", &tv, "10.0.0.4".into(), 7000).unwrap();
