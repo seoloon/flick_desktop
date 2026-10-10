@@ -78,11 +78,18 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
     let audio = tracks::select_audio(source, TrackRequest::Auto, &settings.playback.preferred_audio_languages, original.as_deref());
     let subtitle = tracks::select_subtitle(source, TrackRequest::Auto, &settings.subtitles, audio);
     let mut convert = None;
+    let mut subtitle_file = None;
     let delivery = if airplay {
         // The original file in every case: when the receiver cannot play it, ffmpeg converts it here.
-        // A text subtitle needs ffmpeg's libass; without it the title is cast with no subtitle rather than not at all.
-        let text_ok = state.cast.can_burn_text_subtitles();
+        // A text subtitle is read from the server (it extracted it), never out of the title: the filter would
+        // read the whole film over the network. Without that file, or without libass, there is no text subtitle.
+        let wanted_file = match subtitle {
+            Some(s) if !oneshot_cast::transcode::burnable(s, false) => provider.subtitle_file(&item, &source.id, s.index).await,
+            _ => None,
+        };
+        let text_ok = wanted_file.is_some() && state.cast.can_burn_text_subtitles();
         let burnt = subtitle.filter(|s| oneshot_cast::transcode::burnable(s, text_ok));
+        subtitle_file = wanted_file.filter(|_| text_ok);
         match oneshot_cast::transcode::plan(source, audio, burnt).map_err(|_| Error::Playback(oneshot_core::codes::CAST_FORMAT.tag("AirPlay cannot play this title: it has no video Flick can convert. Watch it in Flick, or cast it to a Chromecast.")))? {
             oneshot_cast::transcode::Plan::Direct => {}
             oneshot_cast::transcode::Plan::Convert(c) => {
@@ -120,7 +127,7 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
 
     let title = state.catalog.item(&item).await.map(|i| i.episode.as_ref().and_then(|e| e.series_title.clone()).map_or(i.title.clone(), |s| format!("{s} · {}", i.title))).unwrap_or_default();
     let content_type = if target.url.path().ends_with(".m3u8") { "application/x-mpegURL" } else { "video/mp4" };
-    let media = CastMedia { url: target.url, headers: target.headers, content_type: content_type.into(), title, start_ms, duration_ms: source.duration_ms, convert };
+    let media = CastMedia { url: target.url, headers: target.headers, content_type: content_type.into(), title, start_ms, duration_ms: source.duration_ms, convert, subtitle_file };
 
     // The relay streams the whole title: a per-request total timeout would cut it after `timeout_secs`.
     let relay_http = oneshot_net::streaming_client(&settings.network)?;

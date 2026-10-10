@@ -107,6 +107,8 @@ pub struct CastMedia {
     pub duration_ms: Option<u64>,
     /// Set when the original file is not playable as it is: the app converts it for the receiver.
     pub convert: Option<transcode::Convert>,
+    /// With `convert`: the text subtitle to burn in, as a file on the server (in the title's folder).
+    pub subtitle_file: Option<Url>,
 }
 
 /// What the receiver last said, as the protocols give it.
@@ -265,9 +267,9 @@ impl Caster {
     /// Converts the title with ffmpeg and plays the result on the receiver.
     async fn start_converted(&self, addr: SocketAddr, local: IpAddr, convert: transcode::Convert, media: &CastMedia, http: reqwest::Client, creds: Option<&hap::Credentials>) -> Result<Box<dyn Receiver>> {
         let ffmpeg = transcode::locate(&self.ffmpeg_dirs).ok_or_else(transcode::missing_error)?;
-        let session = transcode::Session::start(ffmpeg, convert, &media.url, media.headers.clone(), local, http, media.start_ms).await?;
+        let session = transcode::Session::start(ffmpeg, convert, &media.url, media.subtitle_file.as_ref(), media.headers.clone(), local, http, media.start_ms).await?;
         // The receiver's own timeline begins where the conversion does.
-        let hls = CastMedia { url: session.playlist_url(), content_type: "application/x-mpegURL".into(), start_ms: 0, duration_ms: None, convert: None, headers: Vec::new(), title: media.title.clone() };
+        let hls = CastMedia { url: session.playlist_url(), content_type: "application/x-mpegURL".into(), start_ms: 0, duration_ms: None, convert: None, subtitle_file: None, headers: Vec::new(), title: media.title.clone() };
         let airplay = airplay::AirPlay::start(addr, &hls.url, &hls, creds).await?;
         Ok(Box::new(transcode::Converting::new(airplay, session, media.duration_ms)))
     }

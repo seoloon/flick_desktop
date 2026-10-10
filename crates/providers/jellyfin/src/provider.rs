@@ -413,6 +413,10 @@ impl MediaProvider for JellyfinProvider {
         crate::playback::playback_info(self, id, profile).await
     }
 
+    async fn subtitle_file(&self, item: &ItemRef, source_id: &str, index: u32) -> Option<url::Url> {
+        self.url(&format!("Videos/{}/{source_id}/Subtitles/{index}/0/Stream.srt", item.key)).ok()
+    }
+
     async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget> {
         self.check_server(&request.item)?;
         crate::playback::stream(self, request).await

@@ -48,7 +48,10 @@ pub fn args(c: &Convert, input: &str, start_ms: u64, dir: &Path) -> Vec<String> 
         if let Some(b) = c.burn.as_ref().filter(|b| !b.bitmap) {
             // The subtitles filter reads the title itself from its start: shift the clock to the title's.
             filters.push(format!("setpts=PTS+{start}/TB"));
-            filters.push(format!("subtitles=filename={}:si={}", filter_value(input), b.position));
+            filters.push(match &b.file {
+                Some(file) => format!("subtitles=filename={}", filter_value(file)),
+                None => format!("subtitles=filename={}:si={}", filter_value(input), b.position),
+            });
             filters.push("setpts=PTS-STARTPTS".into());
         }
         if c.deinterlace {
@@ -146,14 +149,24 @@ mod tests {
 
     #[test]
     fn a_text_subtitle_goes_through_the_subtitles_filter_in_the_input_timeline() {
-        let c = Convert { video: VideoPlan::H264, burn: Some(Burn { position: 2, bitmap: false }), ..convert() };
+        let c = Convert { video: VideoPlan::H264, burn: Some(Burn { position: 2, bitmap: false, file: None }), ..convert() };
         let a = joined(&c, 90_000);
         assert!(a.contains("-vf setpts=PTS+90.000/TB,subtitles=filename='http\\://127.0.0.1\\:9/c/t/f.mkv':si=2,setpts=PTS-STARTPTS"), "{a}");
     }
 
     #[test]
+    fn a_text_subtitle_file_from_the_server_is_read_instead_of_the_whole_title() {
+        // The filter would read the entire title from its start to collect the subtitles: a file avoids that.
+        let burn = Burn { position: 2, bitmap: false, file: Some("http://127.0.0.1:9/c/t/7/Subtitles/2/0/Stream.srt".into()) };
+        let c = Convert { video: VideoPlan::H264, burn: Some(burn), ..convert() };
+        let a = joined(&c, 90_000);
+        assert!(a.contains("subtitles=filename='http\\://127.0.0.1\\:9/c/t/7/Subtitles/2/0/Stream.srt',setpts=PTS-STARTPTS"), "{a}");
+        assert!(!a.contains(":si="), "{a}");
+    }
+
+    #[test]
     fn a_bitmap_subtitle_is_overlaid() {
-        let c = Convert { video: VideoPlan::H264, burn: Some(Burn { position: 1, bitmap: true }), ..convert() };
+        let c = Convert { video: VideoPlan::H264, burn: Some(Burn { position: 1, bitmap: true, file: None }), ..convert() };
         let a = joined(&c, 0);
         assert!(a.contains("-filter_complex [0:v:0][0:s:1]overlay[v] -map [v]"), "{a}");
         assert!(!a.contains("-map 0:v:0"), "{a}");

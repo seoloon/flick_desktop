@@ -93,6 +93,12 @@ pub trait MediaProvider: Send + Sync + std::fmt::Debug {
 
     async fn playback_info(&self, id: &ItemRef, profile: &ClientProfile) -> Result<PlaybackInfo>;
     async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget>;
+    /// One text subtitle track as a file of its own, extracted by the server, in the same folder as the
+    /// title's direct stream (so a relay of the title reaches it). `None` when the server cannot.
+    /// A conversion that burns subtitles in reads this instead of the whole title.
+    async fn subtitle_file(&self, _item: &ItemRef, _source_id: &str, _index: u32) -> Option<Url> {
+        None
+    }
     async fn report(&self, report: &PlaybackReport) -> Result<()>;
 
     /// Authenticated URL for an image. Internal: never sent to the WebView.

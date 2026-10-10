@@ -25,10 +25,33 @@ pub(crate) struct Session {
     base_ms: u64,
 }
 
+/// Where a file that sits in the title's folder on the server (a subtitle the server extracted) is on the
+/// relay that serves the title, which adds the server's credentials. `None` for a file anywhere else.
+pub(crate) fn relay_file(relayed: &Url, upstream: &Url, file: &Url) -> Option<Url> {
+    let folder = |path: &str| path.rfind('/').map_or(String::new(), |i| path[..=i].to_owned());
+    if (file.scheme(), file.host_str(), file.port_or_known_default()) != (upstream.scheme(), upstream.host_str(), upstream.port_or_known_default()) {
+        return None;
+    }
+    let rest = file.path().strip_prefix(&folder(upstream.path()))?;
+    let mut url = relayed.clone();
+    url.set_path(&format!("{}{rest}", folder(relayed.path())));
+    url.set_query(file.query());
+    Some(url)
+}
+
 impl Session {
-    pub async fn start(ffmpeg: PathBuf, convert: Convert, upstream: &Url, headers: Vec<(String, String)>, local: IpAddr, http: reqwest::Client, start_ms: u64) -> Result<Self> {
+    /// `subtitle_file`: a text subtitle on the server, in the title's folder, for the conversion to burn in.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn start(ffmpeg: PathBuf, mut convert: Convert, upstream: &Url, subtitle_file: Option<&Url>, headers: Vec<(String, String)>, local: IpAddr, http: reqwest::Client, start_ms: u64) -> Result<Self> {
         let source = Proxy::default();
         let input = source.serve(upstream, headers, IpAddr::from([127, 0, 0, 1]), http).await?;
+        if let Some(burn) = convert.burn.as_mut().filter(|b| !b.bitmap) {
+            burn.file = subtitle_file.and_then(|file| relay_file(&input, upstream, file)).map(String::from);
+        }
+        // No file for a text subtitle: none is burnt, rather than reading the whole title to find it.
+        if convert.burn.as_ref().is_some_and(|b| !b.bitmap && b.file.is_none()) {
+            convert.burn = None;
+        }
         let dir = tempfile::Builder::new().prefix("flick-airplay-").tempdir().map_err(|e| oneshot_core::Error::Storage(oneshot_core::codes::CAST_CONVERT_FAILED.tag(format!("Flick could not prepare a folder for the conversion ({e})."))))?;
         let files = Proxy::default();
         let base = files.serve_dir(dir.path().to_path_buf(), local).await?;
@@ -76,5 +99,30 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.job = None;
         self.files.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn a_file_next_to_the_title_on_the_server_is_reached_through_the_same_relay() {
+        let upstream = url("https://media.example/jf/Videos/abc/stream?static=true&api_key=K");
+        let relayed = url("http://127.0.0.1:5000/c/tok/stream");
+        let subtitle = url("https://media.example/jf/Videos/abc/src1/Subtitles/3/0/Stream.srt");
+        assert_eq!(relay_file(&relayed, &upstream, &subtitle).unwrap().as_str(), "http://127.0.0.1:5000/c/tok/src1/Subtitles/3/0/Stream.srt");
+    }
+
+    #[test]
+    fn a_file_elsewhere_or_on_another_host_is_not_relayed() {
+        let upstream = url("https://media.example/jf/Videos/abc/stream");
+        let relayed = url("http://127.0.0.1:5000/c/tok/stream");
+        assert!(relay_file(&relayed, &upstream, &url("https://media.example/jf/Other/x.srt")).is_none());
+        assert!(relay_file(&relayed, &upstream, &url("https://elsewhere.example/jf/Videos/abc/x.srt")).is_none());
     }
 }

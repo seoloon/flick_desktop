@@ -20,6 +20,10 @@ pub struct Burn {
     pub position: usize,
     /// PGS, VobSub, DVB: drawn with an overlay; text goes through the `subtitles` filter.
     pub bitmap: bool,
+    /// A text subtitle as a file of its own (the server extracted it), set when the conversion starts.
+    /// Without it the `subtitles` filter reads the whole title to collect the subtitles: a 4 GB film over
+    /// the network never starts.
+    pub file: Option<String>,
 }
 
 /// How ffmpeg is to produce the HLS stream. Positions are places in the source's track lists.
@@ -66,8 +70,8 @@ pub fn plan(source: &MediaSource, audio: Option<&AudioStream>, subtitle: Option<
     let burn = subtitle.filter(|s| !s.external).and_then(|s| {
         let position = source.subtitles.iter().position(|x| x.index == s.index)?;
         match s.format {
-            SubtitleFormat::Srt | SubtitleFormat::Ass | SubtitleFormat::WebVtt => Some(Burn { position, bitmap: false }),
-            SubtitleFormat::Pgs | SubtitleFormat::VobSub | SubtitleFormat::Dvb => Some(Burn { position, bitmap: true }),
+            SubtitleFormat::Srt | SubtitleFormat::Ass | SubtitleFormat::WebVtt => Some(Burn { position, bitmap: false, file: None }),
+            SubtitleFormat::Pgs | SubtitleFormat::VobSub | SubtitleFormat::Dvb => Some(Burn { position, bitmap: true, file: None }),
             SubtitleFormat::Other => None,
         }
     });
@@ -178,9 +182,9 @@ mod tests {
     fn a_burnt_subtitle_forces_an_encode_and_bitmaps_are_flagged() {
         let s = source("mp4", video(VideoCodec::H264), vec![audio(1, AudioCodec::Aac, true)], vec![subtitle(2, SubtitleFormat::Srt, false), subtitle(3, SubtitleFormat::Pgs, false)]);
         let Ok(Plan::Convert(c)) = plan(&s, s.default_audio(), s.subtitles.first()) else { panic!("not converted") };
-        assert_eq!((c.video, c.burn), (VideoPlan::H264, Some(Burn { position: 0, bitmap: false })));
+        assert_eq!((c.video, c.burn), (VideoPlan::H264, Some(Burn { position: 0, bitmap: false, file: None })));
         let Ok(Plan::Convert(c)) = plan(&s, s.default_audio(), s.subtitles.get(1)) else { panic!("not converted") };
-        assert_eq!(c.burn, Some(Burn { position: 1, bitmap: true }));
+        assert_eq!(c.burn, Some(Burn { position: 1, bitmap: true, file: None }));
     }
 
     #[test]
