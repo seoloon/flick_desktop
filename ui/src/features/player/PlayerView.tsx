@@ -60,7 +60,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChatBanner } from "../watch/ChatBanner";
 import { RoomPanel, type RoomTab } from "../watch/RoomPanel";
 import { useWatch } from "../watch/store";
-import { CastMenu, CastOverlay, CastPairing, useCastSession } from "./CastPanel";
+import { CastFailure, CastMenu, CastOverlay, CastPairing, useCastSession } from "./CastPanel";
 import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
@@ -714,15 +714,23 @@ export function PlayerView({
     [cast.command, castPosition, castDuration],
   );
   /** Ends the cast: back to this window's own player (at the same place), or out of the player. */
+  /** Starts the title again in this window's own player (the cast stopped it). */
+  const resumeLocally = useCallback(
+    (startMs: number | null) => {
+      cast.dismissFailure();
+      api
+        .play({ item: itemId, sourceId: null, startMs: startMs || null, audio: { type: "auto" }, subtitle: { type: "auto" }, silent: !!preroll })
+        .catch((e) => store.setError(errorText(e)));
+    },
+    [cast.dismissFailure, itemId, preroll, store],
+  );
   const stopCasting = useCallback(
     async (resume: boolean) => {
       const position = await cast.stop();
       if (!resume) return leave();
-      api
-        .play({ item: itemId, sourceId: null, startMs: position || null, audio: { type: "auto" }, subtitle: { type: "auto" }, silent: !!preroll })
-        .catch((e) => store.setError(errorText(e)));
+      resumeLocally(position);
     },
-    [cast.stop, leave, itemId, preroll, store],
+    [cast.stop, leave, resumeLocally],
   );
   const castFrom = (device: CastDevice) => {
     setCastOpen(false);
@@ -1089,6 +1097,22 @@ export function PlayerView({
 
       <AnimatePresence>
         {cast.pairing && <CastPairing key="cast-pairing" device={cast.pairing.device} onSubmit={cast.submitPin} onCancel={cast.cancelPin} />}
+        {cast.failure && (
+          <CastFailure
+            key="cast-failure"
+            deviceName={cast.failure.device.name}
+            message={cast.failure.message}
+            onResume={() => resumeLocally(cast.failure?.startMs ?? 0)}
+            onRetry={() => {
+              const f = cast.failure;
+              if (f) void cast.start(f.device, f.item, f.startMs);
+            }}
+            onClose={() => {
+              cast.dismissFailure();
+              leave();
+            }}
+          />
+        )}
         {cast.active && cast.status && (
           <CastOverlay key="cast-overlay" status={cast.status} title={title} subtitle={subtitle} onToggle={castToggle} onSkip={castSkip} onStop={() => void stopCasting(true)} />
         )}

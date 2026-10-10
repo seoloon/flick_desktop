@@ -4,7 +4,7 @@
 // The receiver pulls the stream itself (Rust relays it, see `oneshot-cast`),
 // so the local player is stopped and this window only remote-controls it.
 import { useQuery } from "@tanstack/react-query";
-import { Airplay, Cast, Pause, Play, RotateCcw, RotateCw, Tv } from "lucide-react";
+import { AlertTriangle, Airplay, Cast, Pause, Play, RotateCcw, RotateCw, Tv } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -27,6 +27,8 @@ export function useCastSession(resume: boolean) {
   const [starting, setStarting] = useState(false);
   /** An AirPlay receiver asked for a PIN: what to cast once it is paired. */
   const [pairing, setPairing] = useState<{ device: CastDevice; item: ItemRef; startMs: number } | null>(null);
+  /** A cast that could not start. The local player was already stopped for it: the person picks what next. */
+  const [failure, setFailure] = useState<{ device: CastDevice; item: ItemRef; startMs: number; message: string } | null>(null);
   const active = status?.device != null;
 
   // Arriving mid-cast (the next episode of one): pick it up.
@@ -41,6 +43,7 @@ export function useCastSession(resume: boolean) {
 
   const start = useCallback(async (device: CastDevice, item: ItemRef, startMs: number) => {
     setStarting(true);
+    setFailure(null);
     try {
       await api.castStart(device.id, item, Math.round(startMs));
       const s = await api.castStatus();
@@ -57,7 +60,7 @@ export function useCastSession(resume: boolean) {
         }
         return false;
       }
-      toast(errorText(e));
+      setFailure({ device, item, startMs, message: errorText(e) });
       return false;
     } finally {
       setStarting(false);
@@ -93,8 +96,37 @@ export function useCastSession(resume: boolean) {
     [pairing, start],
   );
   const cancelPin = useCallback(() => setPairing(null), []);
+  const dismissFailure = useCallback(() => setFailure(null), []);
 
-  return { status, active, starting, start, stop, command, pairing, submitPin, cancelPin };
+  return { status, active, starting, start, stop, command, pairing, submitPin, cancelPin, failure, dismissFailure };
+}
+
+/** The cast could not start: the reason in large type, and the way back (the player is stopped meanwhile). */
+export function CastFailure({ deviceName, message, onResume, onRetry, onClose }: { deviceName: string; message: string; onResume: () => void; onRetry: () => void; onClose: () => void }) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="alertdialog" aria-label="Casting failed" className="absolute inset-0 z-40 grid place-items-center bg-black/90 backdrop-blur-xl">
+      <FocusGroup focusKey="cast-failure" boundary autoFocus className="flex w-[min(40rem,calc(100vw-4rem))] flex-col items-center gap-6 text-center">
+        <span className="grid size-16 place-items-center rounded-full bg-white/10">
+          <AlertTriangle className="size-7" />
+        </span>
+        <div className="flex flex-col gap-3">
+          <h2 className="text-3xl font-bold tracking-tight text-balance">Could not cast to {deviceName}</h2>
+          <p className="text-lg text-balance text-white/80 select-text">{message}</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button variant="primary" onClick={onResume} autoFocus>
+            Resume in Flick
+          </Button>
+          <Button variant="glass" onClick={onRetry}>
+            Try again
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </FocusGroup>
+    </motion.div>
+  );
 }
 
 /** The code an AirPlay receiver wants (see `AUTH_AIRPLAY_PAIRING` in Rust). */

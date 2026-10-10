@@ -65,8 +65,11 @@ impl Job {
             if job.child.try_wait().ok().flatten().is_some() {
                 // Let the stderr reader take the last lines.
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                tracing::warn!(target: "cast", "ffmpeg stopped before its first segment: {}", tail.lock());
-                return Err(Error::Playback(codes::CAST_CONVERT_FAILED.tag("The conversion of the video for AirPlay stopped before it began. Try another version of the title.")));
+                let said = tail.lock().clone();
+                tracing::warn!(target: "cast", "ffmpeg stopped before its first segment: {said}");
+                // ffmpeg's last line says why (no such stream, unknown encoder…): it is the useful part of the report.
+                let why = said.lines().rev().find(|l| !l.trim().is_empty()).map(|l| format!(" ffmpeg said: {}", l.trim())).unwrap_or_default();
+                return Err(Error::Playback(codes::CAST_CONVERT_FAILED.tag(format!("The conversion of the video for AirPlay stopped before it began. Try another version of the title.{why}"))));
             }
             if started.elapsed() > FIRST_SEGMENT {
                 return Err(Error::Playback(codes::CAST_CONVERT_SLOW.tag("The conversion of the video for AirPlay did not start in time. Try again, or watch it in Flick.")));
