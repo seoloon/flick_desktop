@@ -7,6 +7,8 @@
 mod airplay;
 mod chromecast;
 mod discovery;
+pub mod hap;
+mod link;
 pub mod proxy;
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
@@ -135,6 +137,17 @@ pub struct Caster {
     proxy: proxy::Proxy,
     active: tokio::sync::Mutex<Option<Active>>,
     last: Mutex<CastStatus>,
+    /// Where pairings are kept between runs.
+    store: Option<std::sync::Arc<dyn PairingStore>>,
+    /// A pairing waiting for its PIN: the device and the open connection.
+    pairing: tokio::sync::Mutex<Option<(String, link::Link)>>,
+}
+
+/// Where the credentials of paired receivers live (the app keeps them in its credential vault).
+pub trait PairingStore: Send + Sync {
+    fn load(&self, device_id: &str) -> Option<String>;
+    fn save(&self, device_id: &str, credentials: &str) -> Result<()>;
+    fn forget(&self, device_id: &str);
 }
 
 impl std::fmt::Debug for Caster {
@@ -151,7 +164,28 @@ impl Default for Caster {
 
 impl Caster {
     pub fn new() -> Self {
-        Self { discovery: Discovery::default(), proxy: proxy::Proxy::default(), active: tokio::sync::Mutex::new(None), last: Mutex::new(CastStatus::default()) }
+        Self { discovery: Discovery::default(), proxy: proxy::Proxy::default(), active: tokio::sync::Mutex::new(None), last: Mutex::new(CastStatus::default()), store: None, pairing: tokio::sync::Mutex::new(None) }
+    }
+
+    /// Remembers pairings in `store`.
+    pub fn with_store(store: std::sync::Arc<dyn PairingStore>) -> Self {
+        Self { store: Some(store), ..Self::new() }
+    }
+
+    /// Asks an AirPlay receiver to show its PIN. [`Caster::pair_finish`] follows.
+    pub async fn pair_begin(&self, device_id: &str) -> Result<()> {
+        let device = self.discovery.find(device_id).ok_or_else(|| Error::NotFound(oneshot_core::codes::CAST_DEVICE_GONE.tag("That device is no longer on the network. Check it is on, then pick it again.")))?;
+        let link = airplay::begin_pairing(device.addr()?).await?;
+        *self.pairing.lock().await = Some((device.id, link));
+        Ok(())
+    }
+
+    /// Checks the PIN read on the screen and remembers the pairing.
+    pub async fn pair_finish(&self, device_id: &str, pin: &str) -> Result<()> {
+        let (id, link) = self.pairing.lock().await.take().filter(|(id, _)| id == device_id).ok_or_else(|| Error::Invalid(oneshot_core::codes::CAST_PAIR_FAILED.tag("The PIN request has expired. Ask the device for a new code.")))?;
+        let creds = airplay::finish_pairing(link, pin.trim()).await?;
+        let store = self.store.as_ref().ok_or_else(|| Error::Storage(oneshot_core::codes::STO_SECRET_SAVE.tag("There is nowhere to keep the pairing.")))?;
+        store.save(&id, &creds.encode())
     }
 
     /// Receivers seen so far. The first call starts looking (nothing touches
@@ -174,7 +208,18 @@ impl Caster {
         *self.last.lock() = CastStatus { device: Some(device.clone()), state: CastState::Loading, position_ms: media.start_ms, duration_ms: media.duration_ms, ..Default::default() };
         let loaded = match device.kind {
             CastKind::Chromecast => chromecast::Chromecast::start(addr, &relayed, &media).await.map(|r| Box::new(r) as Box<dyn Receiver>),
-            CastKind::AirPlay => airplay::AirPlay::start(addr, &relayed, &media).await.map(|r| Box::new(r) as Box<dyn Receiver>),
+            CastKind::AirPlay => {
+                let creds = self.store.as_ref().and_then(|s| s.load(&device.id)).and_then(|c| hap::Credentials::decode(&c));
+                let started = airplay::AirPlay::start(addr, &relayed, &media, creds.as_ref()).await;
+                // A pairing the receiver no longer honours is forgotten: the PIN is asked again.
+                if started.as_ref().is_err_and(|e| e.code() == oneshot_core::codes::AUTH_AIRPLAY_PAIRING.id)
+                    && creds.is_some()
+                    && let Some(store) = &self.store
+                {
+                    store.forget(&device.id);
+                }
+                started.map(|r| Box::new(r) as Box<dyn Receiver>)
+            }
         };
         match loaded {
             Ok(receiver) => {

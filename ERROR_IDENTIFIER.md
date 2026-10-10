@@ -37,7 +37,8 @@ what it means, and what can be done about it. The first part of the code is the 
 | `FLK-AUTH-004` | The server does not allow this account to play media. | Ask the server's owner to enable playback for the account. |
 | `FLK-AUTH-005` | A Plex account sign-in is needed for this and none is saved. | Sign in to plex.tv from Settings › Servers. |
 | `FLK-AUTH-006` | The account is not an administrator of this server. | Use an administrator account for these settings. |
-| `FLK-AUTH-007` | The AirPlay device asks for pairing, which Flick does not support yet. | Set the device to accept anyone on the same network, or cast to a Chromecast. |
+| `FLK-AUTH-007` | The AirPlay device asks for a PIN (or no longer recognises this computer). | Enter the code shown on the TV; it is asked once, then remembered. |
+| `FLK-AUTH-008` | The PIN typed is not the one the AirPlay device shows. | Read the code on the TV again and retry. |
 
 ## Servers and libraries (`FLK-SRV-…`)
 
@@ -148,6 +149,9 @@ what it means, and what can be done about it. The first part of the code is the 
 | `FLK-CAST-006` | The device's address is not valid. | Refresh the device list. |
 | `FLK-CAST-007` | Flick could not open the local relay the device pulls the video from. | Check no firewall blocks Flick on the local network. |
 | `FLK-CAST-008` | The cast device sent something malformed. | Restart the device. |
+| `FLK-CAST-010` | The AirPlay device is busy or asks to wait before another PIN attempt. | Wait a minute and retry. |
+| `FLK-CAST-011` | The pairing with the AirPlay device failed or could not be verified. | Retry; if it persists, remove the device's pairing in its settings (Remotes and Devices) and pair again. |
+| `FLK-CAST-012` | AirPlay cannot play this file as it is (container or codec) and Flick does not convert it yet. | Cast a title in MP4/H.264/HEVC with AAC or AC-3 audio, or watch it in Flick. |
 | `FLK-CAST-009` | A casting problem with no more specific cause. | Restart the device and retry. |
 
 ## Profiles and PINs (`FLK-PROF-…`)

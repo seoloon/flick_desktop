@@ -1,34 +1,107 @@
 //! AirPlay: the video-URL protocol (`/play`, `/rate`, `/scrub`,
-//! `/playback-info`, `/stop`) over plain HTTP, with binary plists.
+//! `/playback-info`, `/stop`) with binary plists, over one HTTP connection.
 //!
-//! The receiver fetches the stream itself. Receivers that insist on pairing
-//! (a PIN or an Apple ID check) refuse the request: that is reported, there is
-//! no pairing here.
+//! Receivers that ask for a PIN are paired once ([`begin_pairing`] shows the
+//! PIN on the screen, [`finish_pairing`] checks it and keeps the credentials);
+//! after that every connection starts with `pair-verify` and the rest of the
+//! conversation is encrypted ([`crate::link`]).
+//!
+//! The receiver fetches the stream itself.
 
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use async_trait::async_trait;
+use oneshot_core::codes;
 use oneshot_core::{Error, Result};
 use parking_lot::Mutex;
 use plist::{Dictionary, Value};
-use reqwest::{Client, StatusCode};
 
+use crate::hap::{Credentials, PairError, PairSetup, PairVerify};
+use crate::link::{Link, LinkError, Response};
 use crate::{CastMedia, CastState, Receiver, Remote};
 
 const USER_AGENT: &str = "MediaControl/1.0";
+const PAIRING_AGENT: &str = "AirPlay/320.20";
+const TLV: &str = "application/octet-stream";
 
 pub(crate) struct AirPlay {
-    http: Client,
-    base: String,
+    link: tokio::sync::Mutex<Link>,
     session: String,
     last: Mutex<Remote>,
     /// A stream that was playing and whose info has gone: it ended.
     seen_playing: Mutex<bool>,
 }
 
-fn net(e: reqwest::Error) -> Error {
-    Error::Network(oneshot_core::codes::CAST_AIRPLAY.tag(format!("The AirPlay device could not be reached ({e}). Check it is on the same network.")))
+fn net(e: impl std::fmt::Display) -> Error {
+    Error::Network(codes::CAST_AIRPLAY.tag(format!("The AirPlay device could not be reached ({e}). Check it is on the same network.")))
+}
+
+fn link_err(e: LinkError) -> Error {
+    net(e)
+}
+
+fn pin_wanted() -> Error {
+    Error::Forbidden(codes::AUTH_AIRPLAY_PAIRING.tag("This AirPlay device asks for a PIN. Enter the code shown on the TV."))
+}
+
+fn pair_error(e: PairError) -> Error {
+    match e {
+        PairError::WrongPin => Error::Forbidden(codes::AUTH_AIRPLAY_WRONG_PIN.tag("That PIN is not the one shown on the TV. Try again.")),
+        PairError::Backoff => Error::Forbidden(codes::CAST_PAIR_WAIT.tag("The AirPlay device asks you to wait before trying another PIN. Try again in a minute.")),
+        PairError::Busy => Error::Forbidden(codes::CAST_PAIR_WAIT.tag("The AirPlay device is busy with another pairing. Try again in a moment.")),
+        PairError::Unexpected(why) => Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The AirPlay device answered the pairing in a way Flick does not understand ({why})."))),
+        PairError::Proof(why) => Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The pairing with the AirPlay device could not be verified ({why})."))),
+        PairError::Device(code) => Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The AirPlay device refused the pairing (error {code})."))),
+    }
+}
+
+/// One TLV step of pairing: `POST`, and the answer's body.
+async fn tlv_step(link: &mut Link, path: &str, body: &[u8]) -> Result<Vec<u8>> {
+    let r = link.request("POST", path, &[("Content-Type", TLV), ("User-Agent", PAIRING_AGENT), ("X-Apple-HKP", "3"), ("Connection", "keep-alive")], body).await.map_err(link_err)?;
+    tracing::debug!(target: "cast", path, status = r.status, bytes = r.body.len(), "AirPlay pairing step");
+    match r.status {
+        200 => Ok(r.body),
+        470 | 401 | 403 => Err(pin_wanted()),
+        // A TLV error rides on a 200 normally; some receivers use the status.
+        s => Err(Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The AirPlay device refused a pairing step (HTTP {s}).")))),
+    }
+}
+
+/// Asks the receiver to show its PIN; the connection is kept for [`finish_pairing`].
+pub(crate) async fn begin_pairing(addr: SocketAddr) -> Result<Link> {
+    let mut link = Link::connect(addr).await.map_err(link_err)?;
+    let r = link.request("POST", "/pair-pin-start", &[("User-Agent", PAIRING_AGENT), ("Connection", "keep-alive")], b"").await.map_err(link_err)?;
+    if r.status != 200 {
+        return Err(Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The AirPlay device did not show a PIN (HTTP {}). It may not need one: try casting directly.", r.status))));
+    }
+    Ok(link)
+}
+
+/// Checks the PIN the person read on the screen; the credentials to keep.
+pub(crate) async fn finish_pairing(mut link: Link, pin: &str) -> Result<Credentials> {
+    let mut setup = PairSetup::new(pin);
+    let m2 = tlv_step(&mut link, "/pair-setup", &setup.m1(false)).await?;
+    let m3 = setup.m3(&m2).map_err(pair_error)?;
+    let m4 = tlv_step(&mut link, "/pair-setup", &m3).await?;
+    let m5 = setup.m5(&m4, false).map_err(pair_error)?.ok_or_else(|| pair_error(PairError::Unexpected("a transient pairing")))?;
+    let m6 = tlv_step(&mut link, "/pair-setup", &m5).await?;
+    setup.finish(&m6).map_err(pair_error)
+}
+
+/// A connection to the receiver, verified with `creds`, and encrypted from then on.
+async fn verified_link(addr: SocketAddr, creds: &Credentials) -> Result<Link> {
+    let mut link = Link::connect(addr).await.map_err(link_err)?;
+    let mut verify = PairVerify::new(creds.clone());
+    let m2 = tlv_step(&mut link, "/pair-verify", &verify.m1()).await?;
+    let m3 = verify.m3(&m2).map_err(|e| match e {
+        // The receiver no longer knows us (reset, or another device): pair again.
+        PairError::Unexpected(_) | PairError::Proof(_) | PairError::WrongPin | PairError::Device(_) => pin_wanted(),
+        other => pair_error(other),
+    })?;
+    let m4 = tlv_step(&mut link, "/pair-verify", &m3).await?;
+    let keys = verify.finish(&m4).map_err(|_| pin_wanted())?;
+    link.encrypt_with(&keys);
+    Ok(link)
 }
 
 /// The `/play` body.
@@ -37,7 +110,7 @@ fn play_body(url: &str, start_fraction: f64) -> Result<Vec<u8>> {
     d.insert("Content-Location".into(), Value::String(url.into()));
     d.insert("Start-Position".into(), Value::Real(start_fraction.clamp(0.0, 1.0)));
     let mut out = Vec::new();
-    plist::to_writer_binary(&mut out, &Value::Dictionary(d)).map_err(|e| Error::Protocol(oneshot_core::codes::CAST_PROTOCOL.tag(format!("Flick could not prepare the stream for AirPlay ({e})."))))?;
+    plist::to_writer_binary(&mut out, &Value::Dictionary(d)).map_err(|e| Error::Protocol(codes::CAST_PROTOCOL.tag(format!("Flick could not prepare the stream for AirPlay ({e})."))))?;
     Ok(out)
 }
 
@@ -65,37 +138,39 @@ fn parse_info(body: &[u8], previous: &Remote, seen_playing: bool) -> Remote {
 }
 
 impl AirPlay {
-    pub async fn start(addr: SocketAddr, url: &url::Url, media: &CastMedia) -> Result<Self> {
-        let http = Client::builder().timeout(Duration::from_secs(10)).user_agent(USER_AGENT).build().map_err(net)?;
+    /// Connects (verified, when `creds` are known) and starts the stream.
+    pub async fn start(addr: SocketAddr, url: &url::Url, media: &CastMedia, creds: Option<&Credentials>) -> Result<Self> {
+        let mut link = match creds {
+            Some(c) => verified_link(addr, c).await?,
+            None => Link::connect(addr).await.map_err(link_err)?,
+        };
         let session = uuid::Uuid::new_v4().to_string();
-        let base = format!("http://{addr}");
         let fraction = match media.duration_ms {
             Some(d) if d > 0 => media.start_ms as f64 / d as f64,
             _ => 0.0,
         };
-        let resp = http
-            .post(format!("{base}/play"))
-            .header("Content-Type", "application/x-apple-binary-plist")
-            .header("X-Apple-Session-ID", &session)
-            .body(play_body(url.as_str(), fraction)?)
-            .send()
+        let resp = link
+            .request("POST", "/play", &[("Content-Type", "application/x-apple-binary-plist"), ("X-Apple-Session-ID", &session), ("User-Agent", USER_AGENT)], &play_body(url.as_str(), fraction)?)
             .await
-            .map_err(net)?;
-        match resp.status() {
-            s if s.is_success() => {}
+            .map_err(link_err)?;
+        tracing::debug!(target: "cast", status = resp.status, encrypted = creds.is_some(), "AirPlay /play answered");
+        match resp.status {
+            s if (200..300).contains(&s) => {}
             // 470: "connection authorization required".
-            s if s == StatusCode::UNAUTHORIZED || s == StatusCode::FORBIDDEN || s.as_u16() == 470 => {
-                return Err(Error::Forbidden(oneshot_core::codes::AUTH_AIRPLAY_PAIRING.tag("This AirPlay device asks for pairing, which Flick does not support yet. Set it to accept anyone on the same network, or use a Chromecast.")));
-            }
-            s => return Err(Error::Playback(oneshot_core::codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {}).", s.as_u16())))),
+            401 | 403 | 470 => return Err(pin_wanted()),
+            s => return Err(Error::Playback(codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {s}).")))),
         }
         let remote = Remote { state: CastState::Loading, position_ms: media.start_ms, duration_ms: media.duration_ms, ..Default::default() };
-        Ok(Self { http, base, session, last: Mutex::new(remote), seen_playing: Mutex::new(false) })
+        Ok(Self { link: tokio::sync::Mutex::new(link), session, last: Mutex::new(remote), seen_playing: Mutex::new(false) })
+    }
+
+    async fn call(&self, method: &str, path: &str) -> Result<Response> {
+        self.link.lock().await.request(method, path, &[("X-Apple-Session-ID", &self.session), ("User-Agent", USER_AGENT)], b"").await.map_err(link_err)
     }
 
     async fn post(&self, path: &str) -> Result<()> {
-        let resp = self.http.post(format!("{}{path}", self.base)).header("X-Apple-Session-ID", &self.session).send().await.map_err(net)?;
-        resp.status().is_success().then_some(()).ok_or_else(|| Error::Playback(oneshot_core::codes::CAST_AIRPLAY.tag(format!("The AirPlay device answered an error (HTTP {}).", resp.status().as_u16()))))
+        let resp = self.call("POST", path).await?;
+        (200..300).contains(&resp.status).then_some(()).ok_or_else(|| Error::Playback(codes::CAST_AIRPLAY.tag(format!("The AirPlay device answered an error (HTTP {}).", resp.status))))
     }
 }
 
@@ -121,16 +196,12 @@ impl Receiver for AirPlay {
 
     async fn status(&self) -> Remote {
         let previous = self.last.lock().clone();
-        let fetched = self.http.get(format!("{}/playback-info", self.base)).header("X-Apple-Session-ID", &self.session).send().await;
-        let next = match fetched {
-            Ok(resp) if resp.status().is_success() => match resp.bytes().await {
-                Ok(body) => parse_info(&body, &previous, *self.seen_playing.lock()),
-                Err(_) => previous,
-            },
+        let next = match self.call("GET", "/playback-info").await {
+            Ok(r) if (200..300).contains(&r.status) => parse_info(&r.body, &previous, *self.seen_playing.lock()),
             // Gone after having played: the receiver let go of the session.
-            Ok(resp) if resp.status() == StatusCode::NOT_FOUND && *self.seen_playing.lock() => Remote { state: CastState::Ended, ..previous },
+            Ok(r) if r.status == 404 && *self.seen_playing.lock() => Remote { state: CastState::Ended, ..previous },
             Ok(_) => previous,
-            Err(e) => Remote { state: CastState::Error, error: Some(format!("AirPlay: {e}")), ..previous },
+            Err(e) => Remote { state: CastState::Error, error: Some(e.to_string()), ..previous },
         };
         if next.state == CastState::Playing {
             *self.seen_playing.lock() = true;

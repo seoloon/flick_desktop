@@ -10,7 +10,8 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/tv/Button";
 import { Spinner } from "@/components/tv/Feedback";
-import { api } from "@/ipc/api";
+import { type PinResult, PinPad } from "@/components/tv/PinPad";
+import { api, asError } from "@/ipc/api";
 import type { CastDevice } from "@/ipc/bindings/CastDevice";
 import type { CastStatus } from "@/ipc/bindings/CastStatus";
 import type { ItemRef } from "@/ipc/bindings/ItemRef";
@@ -24,6 +25,8 @@ import { errorText } from "@/lib/errors";
 export function useCastSession(resume: boolean) {
   const [status, setStatus] = useState<CastStatus | null>(null);
   const [starting, setStarting] = useState(false);
+  /** An AirPlay receiver asked for a PIN: what to cast once it is paired. */
+  const [pairing, setPairing] = useState<{ device: CastDevice; item: ItemRef; startMs: number } | null>(null);
   const active = status?.device != null;
 
   // Arriving mid-cast (the next episode of one): pick it up.
@@ -44,6 +47,16 @@ export function useCastSession(resume: boolean) {
       setStatus(s.device ? s : null);
       return true;
     } catch (e) {
+      if (asError(e).code === PIN_NEEDED) {
+        // The receiver shows a code on its screen: ask for it.
+        try {
+          await api.castPairBegin(device.id);
+          setPairing({ device, item, startMs });
+        } catch (begin) {
+          toast(errorText(begin));
+        }
+        return false;
+      }
       toast(errorText(e));
       return false;
     } finally {
@@ -58,7 +71,44 @@ export function useCastSession(resume: boolean) {
   }, []);
   const command = useCallback((c: Parameters<typeof api.castCommand>[0]) => void api.castCommand(c).catch((e) => toast(errorText(e))), []);
 
-  return { status, active, starting, start, stop, command };
+  /** The PIN read on the receiver's screen; casting carries on once it is accepted. */
+  const submitPin = useCallback(
+    async (pin: string): Promise<PinResult> => {
+      if (!pairing) return "wrong";
+      try {
+        await api.castPairFinish(pairing.device.id, pin);
+      } catch (e) {
+        const { code } = asError(e);
+        if (code === "FLK-AUTH-008") return "wrong";
+        toast(errorText(e));
+        if (code === "FLK-CAST-010") return { locked: 30 };
+        setPairing(null);
+        return "wrong";
+      }
+      const { device, item, startMs } = pairing;
+      setPairing(null);
+      void start(device, item, startMs);
+      return "ok";
+    },
+    [pairing, start],
+  );
+  const cancelPin = useCallback(() => setPairing(null), []);
+
+  return { status, active, starting, start, stop, command, pairing, submitPin, cancelPin };
+}
+
+/** The code an AirPlay receiver wants (see `AUTH_AIRPLAY_PAIRING` in Rust). */
+const PIN_NEEDED = "FLK-AUTH-007";
+
+/** Asks for the PIN shown on the receiver's screen. */
+export function CastPairing({ device, onSubmit, onCancel }: { device: CastDevice; onSubmit: (pin: string) => Promise<PinResult>; onCancel: () => void }) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-40 grid place-items-center bg-black/85 backdrop-blur-xl">
+      <FocusGroup focusKey="cast-pairing" boundary autoFocus>
+        <PinPad title={`PIN for ${device.name}`} hint="Type the 4-digit code shown on the TV. It is asked once; the device is remembered." onSubmit={onSubmit} onCancel={onCancel} />
+      </FocusGroup>
+    </motion.div>
+  );
 }
 
 function DeviceRow({ device, onPick }: { device: CastDevice; onPick: () => void }) {

@@ -92,7 +92,8 @@ codes! {
     AUTH_PLAYBACK_DENIED = "FLK-AUTH-004", "AUTH", "The server does not allow this account to play media.", "Ask the server's owner to enable playback for the account.";
     AUTH_PLEX_ACCOUNT = "FLK-AUTH-005", "AUTH", "A Plex account sign-in is needed for this and none is saved.", "Sign in to plex.tv from Settings › Servers.";
     AUTH_NOT_ADMIN = "FLK-AUTH-006", "AUTH", "The account is not an administrator of this server.", "Use an administrator account for these settings.";
-    AUTH_AIRPLAY_PAIRING = "FLK-AUTH-007", "AUTH", "The AirPlay device asks for pairing, which Flick does not support yet.", "Set the device to accept anyone on the same network, or cast to a Chromecast.";
+    AUTH_AIRPLAY_PAIRING = "FLK-AUTH-007", "AUTH", "The AirPlay device asks for a PIN (or no longer recognises this computer).", "Enter the code shown on the TV; it is asked once, then remembered.";
+    AUTH_AIRPLAY_WRONG_PIN = "FLK-AUTH-008", "AUTH", "The PIN typed is not the one the AirPlay device shows.", "Read the code on the TV again and retry.";
 
     // ---- Servers and libraries ---------------------------------------------
     SRV_NOT_FOUND = "FLK-SRV-000", "SRV", "What was asked for is not on the server (deleted, moved, or an id that is no longer valid).", "Refresh the library; if it is gone from the server, there is nothing to do.";
@@ -182,6 +183,9 @@ codes! {
     CAST_ADDRESS = "FLK-CAST-006", "CAST", "The device's address is not valid.", "Refresh the device list.";
     CAST_RELAY = "FLK-CAST-007", "CAST", "Flick could not open the local relay the device pulls the video from.", "Check no firewall blocks Flick on the local network.";
     CAST_PROTOCOL = "FLK-CAST-008", "CAST", "The cast device sent something malformed.", "Restart the device.";
+    CAST_PAIR_WAIT = "FLK-CAST-010", "CAST", "The AirPlay device is busy or asks to wait before another PIN attempt.", "Wait a minute and retry.";
+    CAST_PAIR_FAILED = "FLK-CAST-011", "CAST", "The pairing with the AirPlay device failed or could not be verified.", "Retry; if it persists, remove the device's pairing in its settings (Remotes and Devices) and pair again.";
+    CAST_FORMAT = "FLK-CAST-012", "CAST", "AirPlay cannot play this file as it is (container or codec) and Flick does not convert it yet.", "Cast a title in MP4/H.264/HEVC with AAC or AC-3 audio, or watch it in Flick.";
     CAST_OTHER = "FLK-CAST-009", "CAST", "A casting problem with no more specific cause.", "Restart the device and retry.";
 
     // ---- Profiles ----------------------------------------------------------

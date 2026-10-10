@@ -60,7 +60,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChatBanner } from "../watch/ChatBanner";
 import { RoomPanel, type RoomTab } from "../watch/RoomPanel";
 import { useWatch } from "../watch/store";
-import { CastMenu, CastOverlay, useCastSession } from "./CastPanel";
+import { CastMenu, CastOverlay, CastPairing, useCastSession } from "./CastPanel";
 import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
@@ -1088,6 +1088,7 @@ export function PlayerView({
       )}
 
       <AnimatePresence>
+        {cast.pairing && <CastPairing key="cast-pairing" device={cast.pairing.device} onSubmit={cast.submitPin} onCancel={cast.cancelPin} />}
         {cast.active && cast.status && (
           <CastOverlay key="cast-overlay" status={cast.status} title={title} subtitle={subtitle} onToggle={castToggle} onSkip={castSkip} onStop={() => void stopCasting(true)} />
         )}

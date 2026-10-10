@@ -115,6 +115,9 @@ export const api = {
   markers: (id: ItemRef) => call<Marker[]>("markers", { id }),
   castDevices: () => call<CastDevice[]>("cast_devices"),
   castStart: (device: string, item: ItemRef, startMs: number) => call<void>("cast_start", { device, item, startMs }),
+  /** Makes an AirPlay receiver show its PIN. */
+  castPairBegin: (device: string) => call<void>("cast_pair_begin", { device }),
+  castPairFinish: (device: string, pin: string) => call<void>("cast_pair_finish", { device, pin }),
   castCommand: (command: CastCommand) => call<void>("cast_command", { command }),
   castStatus: () => call<CastStatus>("cast_status"),
   /** Ends the cast; where it had got to (ms). */

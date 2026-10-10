@@ -152,21 +152,21 @@ impl Wire {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
-            .map_err(|e| cc(e))?
+            .map_err(cc)?
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(AnyCertificate))
             .with_no_client_auth();
-        let tcp = tokio::time::timeout(STEP_TIMEOUT, TcpStream::connect(addr)).await.map_err(|_| Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag("The Chromecast did not answer. Check it is on the same network, restart it, and retry.")))?.map_err(|e| cc(e))?;
-        let name = ServerName::try_from(addr.ip().to_string()).map_err(|e| cc(e))?;
-        let tls = tokio_rustls::TlsConnector::from(Arc::new(config)).connect(name, tcp).await.map_err(|e| cc(e))?;
+        let tcp = tokio::time::timeout(STEP_TIMEOUT, TcpStream::connect(addr)).await.map_err(|_| Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag("The Chromecast did not answer. Check it is on the same network, restart it, and retry.")))?.map_err(cc)?;
+        let name = ServerName::try_from(addr.ip().to_string()).map_err(cc)?;
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(config)).connect(name, tcp).await.map_err(cc)?;
         let (reader, writer) = tokio::io::split(tls);
         Ok(Self { reader, writer, request_id: 0 })
     }
 
     async fn send(&mut self, destination: &str, namespace: &str, payload: &Value) -> Result<()> {
         let m = Message { source: SENDER.into(), destination: destination.into(), namespace: namespace.into(), payload: payload.to_string() };
-        self.writer.write_all(&encode(&m)).await.map_err(|e| cc(e))?;
-        self.writer.flush().await.map_err(|e| cc(e))
+        self.writer.write_all(&encode(&m)).await.map_err(cc)?;
+        self.writer.flush().await.map_err(cc)
     }
 
     /// Sends a request carrying a fresh `requestId`.
@@ -180,13 +180,13 @@ impl Wire {
     async fn next(&mut self) -> Result<(Message, Value)> {
         loop {
             let mut len = [0u8; 4];
-            self.reader.read_exact(&mut len).await.map_err(|e| cc(e))?;
+            self.reader.read_exact(&mut len).await.map_err(cc)?;
             let len = u32::from_be_bytes(len) as usize;
             if len > 1 << 20 {
                 return Err(Error::Protocol(oneshot_core::codes::CAST_PROTOCOL.tag("The Chromecast sent something Flick cannot read. Restart the Chromecast.")));
             }
             let mut body = vec![0u8; len];
-            self.reader.read_exact(&mut body).await.map_err(|e| cc(e))?;
+            self.reader.read_exact(&mut body).await.map_err(cc)?;
             let Some(m) = decode(&body) else { continue };
             let json: Value = serde_json::from_str(&m.payload).unwrap_or(Value::Null);
             if m.namespace == NS_HEARTBEAT && json["type"] == "PING" {

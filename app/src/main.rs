@@ -9,6 +9,7 @@ mod flickserver;
 mod flicksync;
 mod images;
 mod offline;
+mod pairings;
 mod state;
 
 use std::path::PathBuf;
@@ -146,7 +147,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         settings_io: Mutex::new(()),
         flicksync: flicksync::Hub::new(handle.clone()),
         downloads: downloads::Downloads::new(handle.clone(), paths.config.clone()),
-        cast: oneshot_cast::Caster::new(),
+        cast: oneshot_cast::Caster::with_store(Arc::new(crate::pairings::VaultPairings)),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing
     // is loaded until someone is chosen). Off: every connection, as before.
@@ -277,6 +278,8 @@ fn main() {
             commands::catalog::prerolls,
             commands::cast::cast_devices,
             commands::cast::cast_start,
+            commands::cast::cast_pair_begin,
+            commands::cast::cast_pair_finish,
             commands::cast::cast_command,
             commands::cast::cast_status,
             commands::cast::cast_stop,
