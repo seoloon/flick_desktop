@@ -4,7 +4,11 @@ mod args;
 mod job;
 mod locate;
 mod plan;
+mod receiver;
+mod session;
 
+pub(crate) use receiver::Converting;
+pub(crate) use session::Session;
 pub use args::{PLAYLIST, SEGMENT_SECS, args};
 pub use job::Job;
 pub use locate::locate;
