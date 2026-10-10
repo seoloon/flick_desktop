@@ -10,6 +10,7 @@ mod discovery;
 pub mod hap;
 mod link;
 pub mod proxy;
+pub mod transcode;
 
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
