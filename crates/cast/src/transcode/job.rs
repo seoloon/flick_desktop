@@ -16,6 +16,7 @@ use super::{Convert, PLAYLIST, args};
 /// How long ffmpeg has to open the title and finish its first segment.
 const FIRST_SEGMENT: Duration = Duration::from_secs(45);
 
+#[derive(Debug)]
 pub struct Job {
     child: Child,
     dir: PathBuf,

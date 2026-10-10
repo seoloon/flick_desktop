@@ -19,15 +19,23 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use url::Url;
 
+enum Kind {
+    Upstream {
+        /// The original URL with its file name and query removed.
+        dir: Url,
+        /// The original URL's query (often the server's credentials): kept here,
+        /// never shown to the receiver, and added to every request relayed.
+        query: Vec<(String, String)>,
+        headers: Vec<(String, String)>,
+        http: Client,
+    },
+    /// The files of a folder (a conversion's playlist and segments).
+    Files(std::path::PathBuf),
+}
+
 struct Route {
     token: String,
-    /// The original URL with its file name and query removed.
-    dir: Url,
-    /// The original URL's query (often the server's credentials): kept here,
-    /// never shown to the receiver, and added to every request relayed.
-    query: Vec<(String, String)>,
-    headers: Vec<(String, String)>,
-    http: Client,
+    kind: Kind,
 }
 
 #[derive(Default)]
@@ -59,7 +67,12 @@ impl Proxy {
         }
         let relayed = Url::parse(&format!("http://{addr}/c/{token}/{file}")).map_err(|e| Error::Invalid(oneshot_core::codes::CAST_RELAY.tag(format!("The relay address could not be built ({e})."))))?;
         let query = upstream.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-        let route = std::sync::Arc::new(Route { token, dir, query, headers, http });
+        self.run(listener, Route { token, kind: Kind::Upstream { dir, query, headers, http } });
+        Ok(relayed)
+    }
+
+    fn run(&self, listener: TcpListener, route: Route) {
+        let route = std::sync::Arc::new(route);
         let task = tokio::spawn(async move {
             loop {
                 let Ok((socket, _)) = listener.accept().await else { break };
@@ -72,7 +85,17 @@ impl Proxy {
             }
         });
         *self.running.lock() = Some(task);
-        Ok(relayed)
+    }
+
+    /// Serves the files of `root` under a secret path; the URL to give out ends with `/c/<token>/`.
+    pub async fn serve_dir(&self, root: std::path::PathBuf, local: IpAddr) -> Result<Url> {
+        self.stop();
+        let listener = TcpListener::bind(SocketAddr::new(local, 0)).await.map_err(|e| Error::Network(oneshot_core::codes::CAST_RELAY.tag(format!("Flick could not open the local relay the device pulls the video from ({e}). Check no firewall blocks Flick on the local network."))))?;
+        let addr = listener.local_addr().map_err(|e| Error::Network(oneshot_core::codes::CAST_RELAY.tag(format!("Flick could not open the local relay ({e})."))))?;
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let base = Url::parse(&format!("http://{addr}/c/{token}/")).map_err(|e| Error::Invalid(oneshot_core::codes::CAST_RELAY.tag(format!("The relay address could not be built ({e})."))))?;
+        self.run(listener, Route { token, kind: Kind::Files(root) });
+        Ok(base)
     }
 
     pub fn stop(&self) {
@@ -109,18 +132,18 @@ fn parse_head(raw: &str) -> Option<Head> {
 }
 
 /// The server URL a relay path stands for, if it carries the secret.
-fn upstream_for(route: &Route, head: &Head) -> Option<Url> {
-    let rest = head.path.strip_prefix("/c/")?.strip_prefix(route.token.as_str())?.strip_prefix('/')?;
-    let mut url = route.dir.join(rest).ok()?;
+fn upstream_for(token: &str, dir: &Url, query: &[(String, String)], head: &Head) -> Option<Url> {
+    let rest = head.path.strip_prefix("/c/")?.strip_prefix(token)?.strip_prefix('/')?;
+    let mut url = dir.join(rest).ok()?;
     // Only the original URL's own directory: no `..` out of it.
-    if url.host_str() != route.dir.host_str() || !url.path().starts_with(route.dir.path()) {
+    if url.host_str() != dir.host_str() || !url.path().starts_with(dir.path()) {
         return None;
     }
     // The receiver's own parameters (a playlist's segment links), plus the
     // original ones it was never given.
     url.set_query(head.query.as_deref());
     let present: Vec<String> = url.query_pairs().map(|(k, _)| k.into_owned()).collect();
-    for (k, v) in route.query.iter().filter(|(k, _)| !present.contains(k)) {
+    for (k, v) in query.iter().filter(|(k, _)| !present.contains(k)) {
         url.query_pairs_mut().append_pair(k, v);
     }
     Some(url)
@@ -150,10 +173,14 @@ async fn handle(mut socket: TcpStream, route: &Route) -> std::io::Result<()> {
     if head.method != "GET" && head.method != "HEAD" {
         return respond(&mut socket, "405 Method Not Allowed", "").await;
     }
-    let Some(url) = upstream_for(route, &head) else { return respond(&mut socket, "404 Not Found", "").await };
+    let (dir, query, headers, http) = match &route.kind {
+        Kind::Files(root) => return serve_file(&mut socket, &route.token, root, &head).await,
+        Kind::Upstream { dir, query, headers, http } => (dir, query, headers, http),
+    };
+    let Some(url) = upstream_for(&route.token, dir, query, &head) else { return respond(&mut socket, "404 Not Found", "").await };
 
-    let mut req = if head.method == "HEAD" { route.http.head(url) } else { route.http.get(url) };
-    for (k, v) in &route.headers {
+    let mut req = if head.method == "HEAD" { http.head(url) } else { http.get(url) };
+    for (k, v) in headers {
         req = req.header(k, v);
     }
     if let Some(range) = &head.range {
@@ -179,6 +206,56 @@ async fn handle(mut socket: TcpStream, route: &Route) -> std::io::Result<()> {
         while let Ok(Some(bytes)) = resp.chunk().await {
             socket.write_all(&bytes).await?;
         }
+    }
+    socket.shutdown().await
+}
+
+/// The file a relay path stands for, if it carries the secret and stays inside `root`.
+fn file_for(token: &str, root: &std::path::Path, head: &Head) -> Option<std::path::PathBuf> {
+    let rest = head.path.strip_prefix("/c/")?.strip_prefix(token)?.strip_prefix('/')?;
+    let mut path = root.to_path_buf();
+    for part in rest.split('/') {
+        if part.is_empty() || part == "." || part == ".." || part.contains(['\\', ':', '%', '\0']) {
+            return None;
+        }
+        path.push(part);
+    }
+    Some(path)
+}
+
+fn content_type(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("m3u8") => "application/vnd.apple.mpegurl",
+        Some("m4s" | "mp4") => "video/mp4",
+        _ => "application/octet-stream",
+    }
+}
+
+/// `bytes=a-b`, `bytes=a-` and `bytes=-n` over a body of `len` bytes: the first and last byte.
+fn byte_range(header: &str, len: u64) -> Option<(u64, u64)> {
+    let spec = header.strip_prefix("bytes=")?;
+    let (a, b) = spec.split_once('-')?;
+    let (first, last) = match (a.parse::<u64>().ok(), b.parse::<u64>().ok()) {
+        (Some(a), Some(b)) => (a, b.min(len.saturating_sub(1))),
+        (Some(a), None) => (a, len.saturating_sub(1)),
+        (None, Some(n)) if n > 0 => (len.saturating_sub(n), len.saturating_sub(1)),
+        _ => return None,
+    };
+    (first <= last && first < len).then_some((first, last))
+}
+
+async fn serve_file(socket: &mut TcpStream, route_token: &str, root: &std::path::Path, head: &Head) -> std::io::Result<()> {
+    let Some(path) = file_for(route_token, root, head) else { return respond(socket, "404 Not Found", "").await };
+    let Ok(body) = tokio::fs::read(&path).await else { return respond(socket, "404 Not Found", "").await };
+    let len = body.len() as u64;
+    let (status, slice, range) = match head.range.as_deref().and_then(|r| byte_range(r, len)) {
+        Some((a, b)) => ("206 Partial Content", &body[a as usize..=b as usize], format!("content-range: bytes {a}-{b}/{len}\r\n")),
+        None => ("200 OK", &body[..], String::new()),
+    };
+    let out = format!("HTTP/1.1 {status}\r\n{CORS}content-type: {}\r\ncontent-length: {}\r\naccept-ranges: bytes\r\n{range}Cache-Control: no-cache\r\nConnection: close\r\n\r\n", content_type(&path), slice.len());
+    socket.write_all(out.as_bytes()).await?;
+    if head.method == "GET" {
+        socket.write_all(slice).await?;
     }
     socket.shutdown().await
 }
@@ -244,6 +321,41 @@ mod tests {
         assert!(denied.starts_with("HTTP/1.1 404"), "{denied}");
         let escape = get(&addr, &format!("{dir}/../../other"), "").await;
         assert!(escape.starts_with("HTTP/1.1 404") || escape.starts_with("HTTP/1.1 502"), "{escape}");
+        proxy.stop();
+    }
+
+    #[test]
+    fn byte_ranges() {
+        assert_eq!(byte_range("bytes=0-3", 10), Some((0, 3)));
+        assert_eq!(byte_range("bytes=4-", 10), Some((4, 9)));
+        assert_eq!(byte_range("bytes=-3", 10), Some((7, 9)));
+        assert_eq!(byte_range("bytes=2-99", 10), Some((2, 9)));
+        assert_eq!(byte_range("bytes=10-", 10), None);
+        assert_eq!(byte_range("items=0-1", 10), None);
+    }
+
+    #[tokio::test]
+    async fn serves_a_folder_under_the_secret_and_refuses_to_leave_it() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("0")).unwrap();
+        std::fs::write(root.path().join("0/index.m3u8"), "#EXTM3U\n").unwrap();
+        std::fs::write(root.path().join("0/seg00000.m4s"), b"0123456789").unwrap();
+        std::fs::write(root.path().parent().unwrap().join("outside.txt"), "secret").ok();
+
+        let proxy = Proxy::default();
+        let base = proxy.serve_dir(root.path().to_path_buf(), "127.0.0.1".parse().unwrap()).await.unwrap();
+        let addr = format!("{}:{}", base.host_str().unwrap(), base.port().unwrap());
+        let at = |rest: &str| format!("{}{rest}", base.path());
+
+        let list = get(&addr, &at("0/index.m3u8"), "").await;
+        assert!(list.starts_with("HTTP/1.1 200") && list.contains("application/vnd.apple.mpegurl") && list.ends_with("#EXTM3U\n"), "{list}");
+        let seg = get(&addr, &at("0/seg00000.m4s"), "Range: bytes=2-4\r\n").await;
+        assert!(seg.starts_with("HTTP/1.1 206") && seg.contains("video/mp4") && seg.contains("bytes 2-4/10") && seg.ends_with("234"), "{seg}");
+
+        for bad in [at("../outside.txt"), at("0/../../outside.txt"), at("0/..%2f..%2foutside.txt"), at("0\\..\\..\\outside.txt"), at("/etc/passwd"), "/0/index.m3u8".to_owned(), at("0/missing.m4s")] {
+            let r = get(&addr, &bad, "").await;
+            assert!(r.starts_with("HTTP/1.1 404"), "{bad}: {r}");
+        }
         proxy.stop();
     }
 }
