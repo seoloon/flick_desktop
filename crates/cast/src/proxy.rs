@@ -301,7 +301,11 @@ fn byte_range(header: &str, len: u64) -> Option<(u64, u64)> {
 
 async fn serve_file(socket: &mut TcpStream, route_token: &str, root: &std::path::Path, head: &Head) -> std::io::Result<()> {
     let Some(path) = file_for(route_token, root, head) else { return respond(socket, "404 Not Found", "").await };
-    let Ok(body) = tokio::fs::read(&path).await else { return respond(socket, "404 Not Found", "").await };
+    let Ok(body) = tokio::fs::read(&path).await else {
+        tracing::info!(target: "cast", file = %path.file_name().and_then(|n| n.to_str()).unwrap_or("?"), "relay: the device asked for a file that is not there");
+        return respond(socket, "404 Not Found", "").await;
+    };
+    tracing::info!(target: "cast", method = %head.method, file = %path.file_name().and_then(|n| n.to_str()).unwrap_or("?"), range = head.range.as_deref().unwrap_or("-"), bytes = body.len(), "relay: the device fetched a file");
     let len = body.len() as u64;
     let (status, slice, range) = match head.range.as_deref().and_then(|r| byte_range(r, len)) {
         Some((a, b)) => ("206 Partial Content", &body[a as usize..=b as usize], format!("content-range: bytes {a}-{b}/{len}\r\n")),
