@@ -493,6 +493,32 @@ export function PlayerView({
     setFullscreen(next);
     void api.setFullscreen(next).catch(() => undefined);
   }, []);
+  // Escape (or the green button) leaves native fullscreen behind our back:
+  // follow the window, or the chrome stays hidden around a plain window.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let alive = true;
+    let wasFull = false;
+    let unlisten: (() => void) | undefined;
+    const check = () =>
+      void win.isFullscreen().then(
+        (full) => {
+          if (!alive) return;
+          if (full) wasFull = true;
+          else if (wasFull && fullscreenRef.current && !pipRef.current && !useMode.getState().frame) {
+            wasFull = false;
+            fullscreenRef.current = false;
+            setFullscreen(false);
+          } else if (!fullscreenRef.current) wasFull = false;
+        },
+        () => undefined,
+      );
+    void win.onResized(check).then((u) => (alive ? (unlisten = u) : u()));
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
   /** A preroll is over (or skipped): the next clip, then the title itself. */
   const advancePreroll = useCallback(() => {
     if (!preroll) return;
