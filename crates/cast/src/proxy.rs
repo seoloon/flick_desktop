@@ -179,19 +179,36 @@ async fn handle(mut socket: TcpStream, route: &Route) -> std::io::Result<()> {
     };
     let Some(url) = upstream_for(&route.token, dir, query, &head) else { return respond(&mut socket, "404 Not Found", "").await };
 
-    let mut req = if head.method == "HEAD" { http.head(url) } else { http.get(url) };
-    for (k, v) in headers {
-        req = req.header(k, v);
-    }
-    if let Some(range) = &head.range {
-        req = req.header("Range", range);
-    }
-    let mut resp = match req.send().await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::debug!(target: "cast", "relay upstream: {e}");
-            return respond(&mut socket, "502 Bad Gateway", "").await;
+    // One request to the server, with `range` when there is one. A link that drops it is tried again: the
+    // server is often far away, and a reader behind the relay (ffmpeg) gives up at the first error.
+    let send = |range: Option<String>| {
+        let mut req = if head.method == "HEAD" { http.head(url.clone()) } else { http.get(url.clone()) };
+        for (k, v) in headers {
+            req = req.header(k, v);
         }
+        if let Some(range) = range {
+            req = req.header("Range", range);
+        }
+        async move {
+            let mut last = None;
+            for attempt in 0..ATTEMPTS {
+                if attempt > 0 {
+                    tokio::time::sleep(RETRY_PAUSE * attempt).await;
+                }
+                match req.try_clone().expect("a body-less request").send().await {
+                    Ok(r) => return Ok(r),
+                    Err(e) => {
+                        tracing::debug!(target: "cast", attempt, "relay upstream: {e}");
+                        last = Some(e);
+                    }
+                }
+            }
+            Err(last.expect("at least one attempt"))
+        }
+    };
+    let mut resp = match send(head.range.clone()).await {
+        Ok(r) => r,
+        Err(_) => return respond(&mut socket, "502 Bad Gateway", "").await,
     };
     let status = resp.status();
     let mut out = format!("HTTP/1.1 {} {}\r\n{CORS}Connection: close\r\n", status.as_u16(), status.canonical_reason().unwrap_or(""));
@@ -203,11 +220,44 @@ async fn handle(mut socket: TcpStream, route: &Route) -> std::io::Result<()> {
     out.push_str("\r\n");
     socket.write_all(out.as_bytes()).await?;
     if head.method == "GET" {
-        while let Ok(Some(bytes)) = resp.chunk().await {
-            socket.write_all(&bytes).await?;
+        // Where the answer began in the file, and how far the end was asked: what a resume needs.
+        let first = if status.as_u16() == 206 { content_range_start(resp.headers()) } else if status.as_u16() == 200 { Some(0) } else { None };
+        let last = head.range.as_deref().and_then(|r| r.strip_prefix("bytes=")?.split_once('-')?.1.parse::<u64>().ok());
+        let mut sent = 0u64;
+        let mut resumed = 0;
+        loop {
+            match resp.chunk().await {
+                Ok(Some(bytes)) => {
+                    socket.write_all(&bytes).await?;
+                    sent += bytes.len() as u64;
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    // The link broke mid-body: ask the server for the rest, so the reader sees one whole body.
+                    tracing::debug!(target: "cast", sent, "relay upstream body: {e}");
+                    let Some(first) = first.filter(|_| resumed < ATTEMPTS) else { break };
+                    resumed += 1;
+                    tokio::time::sleep(RETRY_PAUSE * resumed).await;
+                    let from = first + sent;
+                    let range = format!("bytes={from}-{}", last.map(|l| l.to_string()).unwrap_or_default());
+                    match send(Some(range)).await {
+                        Ok(next) if next.status().as_u16() == 206 => resp = next,
+                        _ => break,
+                    }
+                }
+            }
         }
     }
     socket.shutdown().await
+}
+
+/// How many times a request, or the rest of a body, is asked of the server before the relay gives up.
+const ATTEMPTS: u32 = 3;
+const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// The first byte of a `Content-Range: bytes a-b/total` answer.
+fn content_range_start(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers.get("content-range")?.to_str().ok()?.strip_prefix("bytes ")?.split('-').next()?.trim().parse().ok()
 }
 
 /// The file a relay path stands for, if it carries the secret and stays inside `root`.
@@ -321,6 +371,70 @@ mod tests {
         assert!(denied.starts_with("HTTP/1.1 404"), "{denied}");
         let escape = get(&addr, &format!("{dir}/../../other"), "").await;
         assert!(escape.starts_with("HTTP/1.1 404") || escape.starts_with("HTTP/1.1 502"), "{escape}");
+        proxy.stop();
+    }
+
+    /// An upstream that drops the connection halfway through its first answer (a flaky server on a bad link),
+    /// and serves what is asked with `Range` afterwards.
+    async fn flaky_upstream(drops: usize) -> SocketAddr {
+        const BODY: &[u8] = b"0123456789";
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut served = 0;
+            loop {
+                let Ok((mut s, _)) = listener.accept().await else { return };
+                let mut buf = vec![0u8; 4096];
+                let n = s.read(&mut buf).await.unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                let from: usize = head.split("range: bytes=").nth(1).and_then(|r| r.split('-').next()).and_then(|r| r.trim().parse().ok()).unwrap_or(0);
+                let (status, extra) = if from > 0 { ("206 Partial Content", format!("content-range: bytes {from}-9/10\r\n")) } else { ("200 OK", String::new()) };
+                let body = &BODY[from..];
+                s.write_all(format!("HTTP/1.1 {status}\r\ncontent-length: {}\r\n{extra}connection: close\r\n\r\n", body.len()).as_bytes()).await.ok();
+                if served < drops {
+                    s.write_all(&body[..4.min(body.len())]).await.ok();
+                    s.flush().await.ok();
+                    drop(s); // cut: the client sees a body shorter than content-length
+                } else {
+                    s.write_all(body).await.ok();
+                }
+                served += 1;
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn a_body_cut_by_the_upstream_is_resumed_with_a_range() {
+        let up = flaky_upstream(1).await;
+        let proxy = Proxy::default();
+        let relayed = proxy.serve(&Url::parse(&format!("http://{up}/v/file.mkv")).unwrap(), vec![], "127.0.0.1".parse().unwrap(), Client::new()).await.unwrap();
+        let addr = format!("{}:{}", relayed.host_str().unwrap(), relayed.port().unwrap());
+        let r = get(&addr, relayed.path(), "").await;
+        assert!(r.starts_with("HTTP/1.1 200") && r.ends_with("0123456789"), "{r}");
+        proxy.stop();
+    }
+
+    #[tokio::test]
+    async fn a_request_the_upstream_drops_before_answering_is_tried_again() {
+        // First connection: accepted and closed without a word.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let up = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (s, _) = listener.accept().await.unwrap();
+            drop(s);
+            loop {
+                let Ok((mut s, _)) = listener.accept().await else { return };
+                let mut buf = vec![0u8; 4096];
+                let _ = s.read(&mut buf).await;
+                s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok").await.ok();
+            }
+        });
+        let proxy = Proxy::default();
+        let relayed = proxy.serve(&Url::parse(&format!("http://{up}/v/file.mkv")).unwrap(), vec![], "127.0.0.1".parse().unwrap(), Client::new()).await.unwrap();
+        let addr = format!("{}:{}", relayed.host_str().unwrap(), relayed.port().unwrap());
+        let r = get(&addr, relayed.path(), "").await;
+        assert!(r.starts_with("HTTP/1.1 200") && r.ends_with("ok"), "{r}");
         proxy.stop();
     }
 

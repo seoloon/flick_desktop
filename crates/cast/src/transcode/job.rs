@@ -60,6 +60,7 @@ impl Job {
         let started = tokio::time::Instant::now();
         loop {
             if job.produced_ms() > 0 {
+                tracing::info!(target: "cast", elapsed_ms = started.elapsed().as_millis() as u64, start_ms, "conversion produced its first segment");
                 return Ok(job);
             }
             if job.child.try_wait().ok().flatten().is_some() {
