@@ -51,7 +51,7 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
     let settings = state.settings();
     let max_bitrate = settings.playback.max_bitrate.map_or(CAST_BITRATE, |b| b.min(CAST_BITRATE));
     let info = provider.playback_info(&item, &receiver_profile(max_bitrate)).await?;
-    let source = info.offers.first().map(|o| &o.source).ok_or_else(|| Error::Playback("the server returned no playable version".into()))?;
+    let source = info.offers.first().map(|o| &o.source).ok_or_else(|| Error::Playback(oneshot_core::codes::PLAY_NO_VERSION.tag("The server returned no playable version of this title.")))?;
 
     // The same language and subtitle choices as locally; subtitles are burnt
     // into the picture, as a receiver has no way to load them.

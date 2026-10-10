@@ -10,6 +10,18 @@ pub const INVITE_ENTRY: &str = "flickserver-invite";
 /// Where the link was kept while the server was only known as FlickSync.
 const LEGACY_INVITE_ENTRY: &str = "flicksync-invite";
 
+/// The code of a rejected invitation link.
+pub fn invite_code(e: oneshot_flickserver::invite::InviteError) -> oneshot_core::codes::Code {
+    use oneshot_core::codes::{LINK_DAMAGED, LINK_INCOMPLETE, LINK_NEWER, LINK_NOT_INVITATION};
+    use oneshot_flickserver::invite::InviteError as E;
+    match e {
+        E::NotAnInvitation => LINK_NOT_INVITATION,
+        E::UnsupportedVersion => LINK_NEWER,
+        E::MissingKey | E::BadKey => LINK_INCOMPLETE,
+        E::BadAddress | E::BadPath | E::BadVersion | E::BadTls => LINK_DAMAGED,
+    }
+}
+
 /// The saved invitation, if any. A link that no longer parses (the format
 /// moved on, the entry was damaged) counts as none: it is logged without its content.
 /// A link saved under the old entry name is moved to the new one.

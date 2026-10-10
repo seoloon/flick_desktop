@@ -211,7 +211,7 @@ impl MediaProvider for LocalLibrary {
     }
 
     async fn item(&self, id: &ItemRef) -> Result<MediaItem> {
-        self.entry(&id.key).map(|e| e.media).ok_or_else(|| Error::NotFound("This download is no longer on this computer.".into()))
+        self.entry(&id.key).map(|e| e.media).ok_or_else(|| Error::NotFound(oneshot_core::codes::DL_GONE.tag("This download is no longer on this computer. Download it again.")))
     }
 
     async fn children(&self, _id: &ItemRef, _kind: ItemKind) -> Result<Vec<MediaItem>> {
@@ -252,39 +252,39 @@ impl MediaProvider for LocalLibrary {
     }
 
     async fn set_played(&self, _id: &ItemRef, _played: bool) -> Result<()> {
-        Err(Error::Unsupported("marking a download as watched".into()))
+        Err(Error::Unsupported(oneshot_core::codes::SRV_UNSUPPORTED.tag("Downloads cannot be marked as watched.")))
     }
 
     async fn set_favorite(&self, _id: &ItemRef, _favorite: bool) -> Result<()> {
-        Err(Error::Unsupported("favourites of a download".into()))
+        Err(Error::Unsupported(oneshot_core::codes::SRV_UNSUPPORTED.tag("Downloads cannot be favourited.")))
     }
 
     async fn playback_info(&self, id: &ItemRef, _profile: &ClientProfile) -> Result<PlaybackInfo> {
-        let entry = self.entry(&id.key).ok_or_else(|| Error::NotFound("This download is no longer on this computer.".into()))?;
-        let source = entry.media.sources.first().cloned().ok_or_else(|| Error::Playback("this download has no technical details".into()))?;
+        let entry = self.entry(&id.key).ok_or_else(|| Error::NotFound(oneshot_core::codes::DL_GONE.tag("This download is no longer on this computer. Download it again.")))?;
+        let source = entry.media.sources.first().cloned().ok_or_else(|| Error::Playback(oneshot_core::codes::DL_NO_DETAILS.tag("The details of this download are missing. Remove it and download it again.")))?;
         // The file is here, untouched: only direct play makes sense.
         let policy = ServerPolicy { direct_play_allowed: true, direct_stream_allowed: false, transcode_allowed: false, server_reasons: Vec::new() };
         Ok(PlaybackInfo { item: id.clone(), offers: vec![SourceOffer { source, policy }], play_session_id: None })
     }
 
     async fn stream(&self, request: &StreamRequest) -> Result<StreamTarget> {
-        let entry = self.entry(&request.item.key).ok_or_else(|| Error::NotFound("This download is no longer on this computer.".into()))?;
-        let path = entry.download.final_path.clone().ok_or_else(|| Error::NotFound("file".into()))?;
+        let entry = self.entry(&request.item.key).ok_or_else(|| Error::NotFound(oneshot_core::codes::DL_GONE.tag("This download is no longer on this computer. Download it again.")))?;
+        let path = entry.download.final_path.clone().ok_or_else(|| Error::NotFound(oneshot_core::codes::DL_GONE.tag("The file of this download is missing. Download it again.")))?;
         if entry.download.sealed {
             // Encrypted on disk: the player reads it through the relay, which decrypts as it goes.
             if self.manager.playable(&request.item.key).is_none() {
-                return Err(Error::Playback("Flick cannot read the key that protects its downloads.".into()));
+                return Err(Error::Playback(oneshot_core::codes::DL_KEY.tag("Flick cannot read the key that protects its downloads. Unlock the keychain and try again.")));
             }
             let manager = Arc::clone(&self.manager);
             let relay = self
                 .relay
                 .get_or_try_init(|| async move { Relay::start(Arc::new(move |id: &str| manager.playable(id)) as Resolver).await })
                 .await
-                .map_err(|e| Error::Playback(format!("cannot open a download: {e}")))?;
-            let url = Url::parse(&relay.url(&request.item.key)).map_err(|e| Error::Playback(e.to_string()))?;
+                .map_err(|e| Error::Playback(oneshot_core::codes::DL_RELAY.tag(format!("Flick could not open its reader for protected downloads ({e}). Restart Flick."))))?;
+            let url = Url::parse(&relay.url(&request.item.key)).map_err(|e| Error::Playback(oneshot_core::codes::DL_RELAY.tag(format!("Flick could not open its reader for protected downloads ({e})."))))?;
             return Ok(StreamTarget { url, headers: Vec::new(), external_subtitles: Vec::new() });
         }
-        let url = Url::from_file_path(&path).map_err(|()| Error::Playback("the file path is not usable".into()))?;
+        let url = Url::from_file_path(&path).map_err(|()| Error::Playback(oneshot_core::codes::DL_PATH.tag("The path of this download cannot be opened. Remove it and download it again.")))?;
         Ok(StreamTarget { url, headers: Vec::new(), external_subtitles: Vec::new() })
     }
 
@@ -294,7 +294,7 @@ impl MediaProvider for LocalLibrary {
     }
 
     fn image_url(&self, _image: &ImageRef, _size: ImageSize) -> Result<Url> {
-        Err(Error::Unsupported("remote artwork of a download".into()))
+        Err(Error::Unsupported(oneshot_core::codes::IMG_OFFLINE.tag("A download has no remote artwork.")))
     }
 
     fn auth_headers(&self) -> Vec<(String, String)> {
@@ -305,9 +305,9 @@ impl MediaProvider for LocalLibrary {
 /// The stored picture of a download.
 pub async fn local_image(dir: &Path, id: &str, kind: ImageKind) -> Result<Vec<u8>> {
     if !safe_id(id) {
-        return Err(Error::Invalid("download id".into()));
+        return Err(Error::Invalid(oneshot_core::codes::DL_BAD_ID.tag("This download id is not valid.")));
     }
-    tokio::fs::read(image_path(dir, id, kind)).await.map_err(|_| Error::NotFound("artwork".into()))
+    tokio::fs::read(image_path(dir, id, kind)).await.map_err(|_| Error::NotFound(oneshot_core::codes::IMG_OFFLINE.tag("The picture of this download is not stored.")))
 }
 
 #[cfg(test)]

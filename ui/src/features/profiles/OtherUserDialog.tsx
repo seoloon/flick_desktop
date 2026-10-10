@@ -7,8 +7,9 @@ import { Notice } from "@/components/tv/Feedback";
 import { Segmented } from "@/components/tv/Segmented";
 import { TextField } from "@/components/tv/TextField";
 import { TvDialog } from "@/components/tv/TvDialog";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import { allServersQuery } from "@/lib/profiles";
+import { errorText } from "@/lib/errors";
 
 export function OtherUserDialog({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => void }) {
   const servers = useQuery(allServersQuery).data ?? [];
@@ -27,7 +28,7 @@ export function OtherUserDialog({ open, onClose, onAdded }: { open: boolean; onC
       onAdded();
       onClose();
     } catch (e) {
-      setError(asError(e).message);
+      setError(errorText(e));
     }
   };
 

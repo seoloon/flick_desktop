@@ -44,7 +44,7 @@ pub fn downloads_list(state: St<'_>) -> Vec<Item> {
 #[tauri::command]
 pub async fn downloads_enqueue(state: St<'_>, item: ItemRef) -> Result<Vec<Item>> {
     if stored_invitation()?.is_none() {
-        return Err(Error::Invalid("Downloads need a Flick Server invitation link: add one in Settings › Flick Server.".into()));
+        return Err(Error::Invalid(oneshot_core::codes::DL_NOT_CONFIGURED.tag("Downloads need a Flick Server invitation link: add one in Settings › Flick Server.")));
     }
     state.downloads.enqueue(state.inner(), &item).await
 }
@@ -75,6 +75,6 @@ pub fn downloads_clear(state: St<'_>) {
 #[tauri::command(async)]
 pub fn downloads_open_folder(app: AppHandle, state: St<'_>) -> Result<()> {
     let dir = state.downloads.directory();
-    std::fs::create_dir_all(dir).map_err(|e| Error::Other(e.to_string()))?;
-    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| Error::Other(e.to_string()))
+    std::fs::create_dir_all(dir).map_err(|e| Error::Other(oneshot_core::codes::DL_OPEN_FOLDER.tag(format!("The downloads folder could not be created ({e})."))))?;
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| Error::Other(oneshot_core::codes::DL_OPEN_FOLDER.tag(format!("The downloads folder could not be opened ({e})."))))
 }

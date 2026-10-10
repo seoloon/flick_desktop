@@ -5,6 +5,7 @@ import { api } from "@/ipc/api";
 import type { FlickSyncStatus } from "@/ipc/app-types";
 import type { RoomState } from "@/ipc/bindings/RoomState";
 import type { UserMessage } from "@/ipc/bindings/UserMessage";
+import { withCode } from "@/lib/errors";
 
 type WatchState = {
   room: RoomState | null;
@@ -60,7 +61,25 @@ const MESSAGES: Record<UserMessage, string> = {
   generic: "Something went wrong with the watch room.",
 };
 
-export const messageText = (m: UserMessage) => MESSAGES[m] ?? MESSAGES.generic;
+/** The documented code of each message (mirrors `sync_code` in the app). */
+const CODES: Record<UserMessage, string> = {
+  only_host_can_choose_media: "FLK-SYNC-001",
+  control_denied: "FLK-SYNC-002",
+  room_not_found: "FLK-SYNC-003",
+  room_full: "FLK-SYNC-004",
+  room_closed: "FLK-SYNC-005",
+  invalid_media: "FLK-SYNC-006",
+  session_expired: "FLK-SYNC-007",
+  slow_down: "FLK-SYNC-008",
+  chat_disabled: "FLK-SYNC-009",
+  incompatible_version: "FLK-SYNC-010",
+  unavailable: "FLK-SYNC-011",
+  media_unavailable: "FLK-SYNC-012",
+  not_configured: "FLK-SYNC-013",
+  generic: "FLK-SYNC-000",
+};
+
+export const messageText = (m: UserMessage) => withCode(MESSAGES[m] ?? MESSAGES.generic, CODES[m] ?? CODES.generic);
 
 /** Why a session ended, for the toast. `null`: nothing to say (the user left). */
 export function leftText(reason: string | null): string | null {
@@ -79,7 +98,7 @@ export function leftText(reason: string | null): string | null {
     case "replaced":
       return "You joined this room from another device.";
     case "unavailable":
-      return "Lost the connection to the room. You can rejoin it.";
+      return withCode("Lost the connection to the room. You can rejoin it.", "FLK-SYNC-017");
     default:
       return null;
   }

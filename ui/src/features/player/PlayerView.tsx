@@ -65,6 +65,7 @@ import { EpisodesPanel } from "./EpisodesPanel";
 import { type MenuActions, PlayerMenu } from "./PlayerMenu";
 import { playPath } from "./route";
 import { createPlayerStore, type PlayerStore } from "./store";
+import { errorText } from "@/lib/errors";
 
 const HIDE_AFTER = 3500;
 const NEXT_UP_WINDOW = 30_000;
@@ -622,9 +623,9 @@ export function PlayerView({
       if (preroll) return void advancePrerollRef.current();
       // A guest opening something the room is not watching: say so and go back.
       if (useWatch.getState().room && asError(e).message.startsWith("Only the host")) {
-        toast(asError(e).message);
+        toast(errorText(e));
         navigate(-1);
-      } else store.setError(asError(e).message);
+      } else store.setError(errorText(e));
     });
     requestAnimationFrame(() => focusKey(TIMELINE_KEY));
     return () => {
@@ -719,7 +720,7 @@ export function PlayerView({
       if (!resume) return leave();
       api
         .play({ item: itemId, sourceId: null, startMs: position || null, audio: { type: "auto" }, subtitle: { type: "auto" }, silent: !!preroll })
-        .catch((e) => store.setError(asError(e).message));
+        .catch((e) => store.setError(errorText(e)));
     },
     [cast.stop, leave, itemId, preroll, store],
   );
@@ -738,7 +739,7 @@ export function PlayerView({
         .castStart(device.id, next.id, 0)
         .then(() => switchTo(next.id, 0, { pre: "0", cast: "1" }))
         .catch((e) => {
-          toast(asError(e).message);
+          toast(errorText(e));
           void stopCasting(false);
         });
     } else void stopCasting(false);

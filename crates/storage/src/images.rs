@@ -50,9 +50,13 @@ fn url_key(prefix: &[u8], url: &url::Url) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn img_err(e: &dyn std::fmt::Display) -> Error {
+    Error::Storage(oneshot_core::codes::STO_IMAGE_CACHE.tag(format!("The picture cache could not be updated ({e}). Check the disk space.")))
+}
+
 impl ImageCache {
     pub fn new(dir: PathBuf, max_bytes: u64) -> Result<Self> {
-        std::fs::create_dir_all(&dir).map_err(|e| Error::Storage(e.to_string()))?;
+        std::fs::create_dir_all(&dir).map_err(|e| img_err(&e))?;
         Ok(Self { dir, max_bytes: Arc::new(AtomicU64::new(max_bytes)) })
     }
 
@@ -87,7 +91,7 @@ impl ImageCache {
     pub fn put(&self, key: &str, bytes: &[u8]) -> Result<()> {
         let path = self.path(key);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| Error::Storage(e.to_string()))?;
+            std::fs::create_dir_all(parent).map_err(|e| img_err(&e))?;
         }
         // A temp name of its own: two writers of the same key (the same
         // picture fetched twice at once) must not interleave in one file.
@@ -97,14 +101,14 @@ impl ImageCache {
         if written.is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
-        written.map_err(|e| Error::Storage(e.to_string()))
+        written.map_err(|e| img_err(&e))
     }
 
     /// Evicts least-recently-used files until the cache fits its budget.
     /// Returns the number of bytes freed.
     pub fn enforce_limit(&self) -> Result<u64> {
         let mut files: Vec<(PathBuf, u64, SystemTime)> = Vec::new();
-        collect(&self.dir, &mut files).map_err(|e| Error::Storage(e.to_string()))?;
+        collect(&self.dir, &mut files).map_err(|e| img_err(&e))?;
         let max = self.max_bytes.load(Ordering::Relaxed);
         let mut total: u64 = files.iter().map(|f| f.1).sum();
         if total <= max {
@@ -126,8 +130,8 @@ impl ImageCache {
     }
 
     pub fn clear(&self) -> Result<()> {
-        std::fs::remove_dir_all(&self.dir).map_err(|e| Error::Storage(e.to_string()))?;
-        std::fs::create_dir_all(&self.dir).map_err(|e| Error::Storage(e.to_string()))
+        std::fs::remove_dir_all(&self.dir).map_err(|e| img_err(&e))?;
+        std::fs::create_dir_all(&self.dir).map_err(|e| img_err(&e))
     }
 
     pub fn size_bytes(&self) -> u64 {

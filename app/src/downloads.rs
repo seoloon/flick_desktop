@@ -44,7 +44,7 @@ struct AppSource {
 #[async_trait]
 impl Source for AppSource {
     async fn connect(&self) -> std::result::Result<Connection, Failure> {
-        let not_configured = || Failure::NotConfigured("Downloads need a Flick Server invitation link: add one in Settings › Flick Server.".into());
+        let not_configured = || Failure::NotConfigured(oneshot_core::codes::DL_NOT_CONFIGURED.suffix("Downloads need a Flick Server invitation link: add one in Settings › Flick Server."));
         let state = self.app.state::<Arc<AppState>>();
         let invitation = stored_invitation().ok().flatten().ok_or_else(not_configured)?;
         let who = Hub::identity(&state);
@@ -83,7 +83,7 @@ fn master_key() -> Result<[u8; 32]> {
         tracing::warn!(target: "downloads", "the stored downloads key is damaged: a new one replaces it");
     }
     let mut key = [0u8; 32];
-    getrandom::fill(&mut key).map_err(|e| Error::Storage(format!("no randomness for the downloads key: {e}")))?;
+    getrandom::fill(&mut key).map_err(|e| Error::Storage(oneshot_core::codes::STO_RANDOM.tag(format!("The system could not provide a random key for protecting downloads ({e}). Restart the computer."))))?;
     secrets::store_secret(KEY_ENTRY, &key.iter().map(|b| format!("{b:02x}")).collect::<String>())?;
     Ok(key)
 }
@@ -170,12 +170,12 @@ impl Downloads {
                     episodes.extend(st.catalog.children(&season.id, ItemKind::Season).await?);
                 }
             }
-            _ => return Err(Error::Invalid("Only movies and episodes can be downloaded.".into())),
+            _ => return Err(Error::Invalid(oneshot_core::codes::DL_KIND.tag("Only movies and episodes can be downloaded."))),
         }
         episodes.retain(|e| matches!(e.kind, ItemKind::Movie | ItemKind::Episode));
         episodes.truncate(MAX_EPISODES);
         if episodes.is_empty() {
-            return Err(Error::Invalid("There is nothing to download here.".into()));
+            return Err(Error::Invalid(oneshot_core::codes::DL_NOTHING.tag("There is nothing to download here.")));
         }
         let mut queued = Vec::with_capacity(episodes.len());
         let mut captures = Vec::with_capacity(episodes.len());
@@ -237,7 +237,7 @@ fn forget(dir: &Path, id: &str) {
 async fn capture(st: &AppState, dir: &Path, download: &str, item: &ItemRef) -> Result<()> {
     // The detail fetch (the list of a season has no technical sources).
     let media = st.catalog.item(item).await?;
-    tokio::fs::create_dir_all(offline::meta_dir(dir)).await.map_err(|e| Error::Storage(e.to_string()))?;
+    tokio::fs::create_dir_all(offline::meta_dir(dir)).await.map_err(|e| Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick could not save the details of a download ({e}). Check the disk space."))))?;
     for (kind, _, size) in IMAGE_KINDS {
         let reference = match kind {
             ImageKind::Poster => &media.images.poster,
@@ -254,12 +254,12 @@ async fn capture(st: &AppState, dir: &Path, download: &str, item: &ItemRef) -> R
             Err(e) => tracing::debug!(target: "downloads", "no {kind:?} kept: {e}"),
         }
     }
-    let json = serde_json::to_vec(&media).map_err(|e| Error::Storage(e.to_string()))?;
-    tokio::fs::write(offline::snapshot_path(dir, download), json).await.map_err(|e| Error::Storage(e.to_string()))
+    let json = serde_json::to_vec(&media).map_err(|e| Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick could not save the details of a download ({e}). Check the disk space."))))?;
+    tokio::fs::write(offline::snapshot_path(dir, download), json).await.map_err(|e| Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick could not save the details of a download ({e}). Check the disk space."))))
 }
 
 fn request(st: &AppState, item: &MediaItem) -> Result<NewDownload> {
-    let desc = st.servers.read().iter().find(|s| s.id == item.id.server).cloned().ok_or_else(|| Error::NotFound("server".into()))?;
+    let desc = st.servers.read().iter().find(|s| s.id == item.id.server).cloned().ok_or_else(|| Error::NotFound(oneshot_core::codes::DL_SERVER_GONE.tag("The server of this title is no longer in Flick. Add it again in Settings › Servers.")))?;
     let backend = match desc.kind {
         ProviderKind::Jellyfin => Backend::Jellyfin,
         ProviderKind::Plex => Backend::Plex,

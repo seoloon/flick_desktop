@@ -56,7 +56,7 @@ pub fn flickserver_invitation() -> Result<Option<InvitationInfo>> {
 /// the server answers and is ready. A bad link is an error with a sentence for the user.
 #[tauri::command]
 pub async fn flickserver_add_invitation(state: St<'_>, link: String) -> Result<InvitationAdded> {
-    let invitation = Invitation::parse(&link).map_err(|e| Error::Invalid(e.message().into()))?;
+    let invitation = Invitation::parse(&link).map_err(|e| Error::Invalid(crate::flickserver::invite_code(e).tag(e.message())))?;
     let report = state.flicksync.check_invitation(&state, &invitation).await;
     let saved = report.reachable_and_ready();
     if saved {

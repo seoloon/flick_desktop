@@ -220,7 +220,7 @@ impl AppState {
 
     pub fn update_profile(&self, id: ProfileId, f: impl FnOnce(&mut Profile)) -> Result<()> {
         let mut cfg = self.profiles.write();
-        let p = cfg.profiles.iter_mut().find(|p| p.id == id).ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        let p = cfg.profiles.iter_mut().find(|p| p.id == id).ok_or_else(|| Error::NotFound(oneshot_core::codes::PROF_NOT_FOUND.tag("This profile no longer exists.")))?;
         f(p);
         self.store.save_profiles(&cfg)
     }
@@ -233,7 +233,7 @@ impl AppState {
             .profiles
             .iter()
             .find(|p| p.id == id)
-            .ok_or_else(|| Error::NotFound(format!("profile {id}")))?
+            .ok_or_else(|| Error::NotFound(oneshot_core::codes::PROF_NOT_FOUND.tag("This profile no longer exists.")))?
             .pin
             .clone();
         let mut guards = self.pin_guards.lock();
@@ -249,7 +249,7 @@ impl AppState {
     /// Returns the names of connections that could not be loaded.
     pub fn activate_profile(&self, id: ProfileId) -> Result<Vec<String>> {
         let resolved = self.resolved_profiles();
-        let r = resolved.iter().find(|r| r.profile.id == id).ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        let r = resolved.iter().find(|r| r.profile.id == id).ok_or_else(|| Error::NotFound(oneshot_core::codes::PROF_NOT_FOUND.tag("This profile no longer exists.")))?;
         *self.active_profile.write() = Some(id);
         {
             let mut cfg = self.profiles.write();
@@ -375,7 +375,7 @@ impl AppState {
     pub fn set_server_enabled(&self, id: ServerId, enabled: bool) -> Result<()> {
         let d = {
             let mut servers = self.servers.write();
-            let s = servers.iter_mut().find(|s| s.id == id).ok_or_else(|| Error::NotFound(format!("server {id}")))?;
+            let s = servers.iter_mut().find(|s| s.id == id).ok_or_else(|| Error::NotFound(oneshot_core::codes::SRV_NOT_CONNECTED.tag("This server is no longer in Flick. Add it again in Settings › Servers.")))?;
             s.disabled = !enabled;
             let d = s.clone();
             self.store.save_servers(&servers)?;

@@ -147,7 +147,14 @@ impl Player {
             return Ok(Arc::clone(api));
         }
         let explicit = settings.advanced.libmpv_path.clone().map(PathBuf::from).or(self.config.libmpv_path.clone());
-        let api = oneshot_mpv::load(explicit, &self.config.search_dirs).map_err(|e| Error::Playback(e.to_string()))?;
+        let api = oneshot_mpv::load(explicit, &self.config.search_dirs).map_err(|e| {
+            use oneshot_core::codes::{PLR_NOT_FOUND, PLR_VERSION};
+            tracing::warn!(target: "player", "libmpv: {e}");
+            match e {
+                oneshot_mpv::Error::IncompatibleApi { .. } => Error::Playback(PLR_VERSION.tag("The libmpv found on this computer does not match this version of Flick. Use the one shipped with Flick.")),
+                _ => Error::Playback(PLR_NOT_FOUND.tag("The video engine (libmpv) could not be loaded. Reinstall Flick; if you build it yourself, put libmpv next to the app.")),
+            }
+        })?;
         inner.api = Some(Arc::clone(&api));
         Ok(api)
     }
@@ -173,7 +180,7 @@ impl Player {
             self.config.fonts_dir.iter().map(|d| ("sub-fonts-dir".to_owned(), d.display().to_string())).collect();
         extra.extend(settings.advanced.extra_mpv_options.iter().cloned());
         let engine = Engine::start(api, presenter, &extra, tx)
-            .map_err(|e| Error::Playback(format!("mpv init failed: {e}")))?;
+            .map_err(|e| Error::Playback(oneshot_core::codes::PLR_INIT.tag(format!("The video engine failed to start ({e}). Restart Flick."))))?;
         for (name, value) in options::base_properties(settings) {
             if let Err(e) = engine.mpv.set_property(name, value) {
                 tracing::warn!(target: "player", "base option {name}: {e}");
@@ -199,7 +206,7 @@ impl Player {
         display_id: Option<String>,
         request: PlayRequest,
     ) -> Result<PlaybackDecision> {
-        let item = request.item.clone().ok_or_else(|| Error::Invalid("no item to play".into()))?;
+        let item = request.item.clone().ok_or_else(|| Error::Invalid(oneshot_core::codes::PLAY_NOTHING.tag("There is nothing to play.")))?;
         self.ensure_engine(&settings)?;
         session::stop_current(&self.inner, &self.config.runtime);
         session::start(&self.inner, &self.sink, provider, caps, settings, display_id, item, request).await
@@ -207,7 +214,7 @@ impl Player {
 
     pub fn command(&self, cmd: PlayerCommand) -> Result<()> {
         let inner = self.inner.lock();
-        let Some(engine) = &inner.engine else { return Err(Error::Playback("player not started".into())) };
+        let Some(engine) = &inner.engine else { return Err(Error::Playback(oneshot_core::codes::PLR_NOT_RUNNING.tag("The video engine is not running. Restart Flick."))) };
         let mpv = &engine.mpv;
         let r = match cmd {
             PlayerCommand::SetPause { paused } => mpv.set_property("pause", paused),
@@ -228,7 +235,7 @@ impl Player {
                 return Ok(());
             }
         };
-        r.map_err(|e| Error::Playback(e.to_string()))
+        r.map_err(|e| Error::Playback(oneshot_core::codes::PLR_COMMAND.tag(format!("The video engine rejected the command ({e})."))))
     }
 
     /// Places the video under the UI (physical pixels in the window).

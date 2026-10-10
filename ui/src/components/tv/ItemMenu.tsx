@@ -8,7 +8,6 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { isPlayable, playPath } from "@/features/player/route";
-import { asError } from "@/ipc/api";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { remaining } from "@/lib/format";
 import { closeItemMenu, setItemFlag, useItemMenu } from "@/lib/itemMenu";
@@ -17,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { onAction, useModality } from "@/nav/input";
 import { navSection } from "@/shell/navItems";
 import { detailPath } from "./Card";
+import { errorText } from "@/lib/errors";
 
 type Entry = { key: string; icon: LucideIcon; label: string; filled?: boolean; run: () => void; separated?: boolean };
 
@@ -37,7 +37,7 @@ function Menu({ item, x, y }: { item: MediaItem; x: number; y: number }) {
   const resuming = item.user.positionMs > 0;
   const series = item.episode?.series ?? null;
   const toDetail = (id: string) => navigate(detailPath(id), { state: { navSection: navSection(pathname, search, state) } });
-  const flag = (what: "played" | "favorite") => () => void setItemFlag(item, what).catch((e) => toast.error(asError(e).message));
+  const flag = (what: "played" | "favorite") => () => void setItemFlag(item, what).catch((e) => toast.error(errorText(e)));
 
   const entries: Entry[] = [];
   if (isPlayable(item)) {

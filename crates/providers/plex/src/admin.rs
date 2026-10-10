@@ -117,11 +117,11 @@ impl AdminProvider for PlexProvider {
         let section = library
             .key
             .strip_prefix("section:")
-            .ok_or_else(|| Error::Invalid("not a Plex library section".into()))?;
+            .ok_or_else(|| Error::Invalid(oneshot_core::codes::SRV_BAD_SECTION.tag("This is not a Plex library section.")))?;
         self.send_empty(Method::GET, &format!("library/sections/{section}/refresh"), &[]).await
     }
 
     async fn logs(&self) -> Result<Vec<String>> {
-        Err(Error::Unsupported("log browsing (PMS only offers a zipped diagnostics download)".into()))
+        Err(Error::Unsupported(oneshot_core::codes::SRV_UNSUPPORTED.tag("Plex only offers its logs as a zipped download, so they cannot be browsed here.")))
     }
 }

@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { AutoHeight } from "@/components/animate-ui/primitives/effects/auto-height";
 import { Facts, Pill } from "@/components/tv/Page";
 import { CompactRows, SliderRow, ToggleRow } from "@/components/tv/SettingsList";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import { ServerBadge } from "@/components/tv/ServerBadge";
 import type { LiveStats } from "@/ipc/bindings/LiveStats";
 import type { ServerDescriptor } from "@/ipc/bindings/ServerDescriptor";
@@ -30,6 +30,7 @@ import type { Action } from "@/nav/input";
 import { focusKey } from "@/nav/spatial";
 import { summary } from "./explain";
 import type { PlayerStore } from "./store";
+import { errorText } from "@/lib/errors";
 
 type Page = "root" | "info" | "quality" | "resolution" | TrackType;
 
@@ -238,7 +239,7 @@ function Quality({ onDone }: { onDone: () => void }) {
       await flushSettings();
       await api.playerReload();
     } catch (e) {
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
     }
   };
   return (

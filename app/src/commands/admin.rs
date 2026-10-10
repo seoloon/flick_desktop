@@ -24,7 +24,7 @@ pub struct AdminOverview {
 }
 
 fn not_admin() -> Error {
-    Error::Forbidden("your account cannot administer this server".into())
+    Error::Forbidden(oneshot_core::codes::AUTH_NOT_ADMIN.tag("Your account is not an administrator of this server."))
 }
 
 #[tauri::command]

@@ -7,15 +7,16 @@ import { toast } from "sonner";
 import { Button } from "@/components/tv/Button";
 import { Notice } from "@/components/tv/Feedback";
 import { InfoRow, SettingsGroup } from "@/components/tv/SettingsList";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { DownloadItem } from "@/ipc/app-types";
 import { imageUrl } from "@/ipc/images";
 import { FocusGroup } from "@/nav/Focusable";
 import { playPath } from "../player/route";
 import { bytesText, etaText, percent, sortDownloads, stateText, totalRemainingSecs } from "./format";
 import { useDownloads } from "./store";
+import { errorText } from "@/lib/errors";
 
-const run = (p: Promise<unknown>) => void p.catch((e) => toast.error(asError(e).message));
+const run = (p: Promise<unknown>) => void p.catch((e) => toast.error(errorText(e)));
 
 /** A queued, running, paused or failed download. */
 function QueueRow({ d }: { d: DownloadItem }) {

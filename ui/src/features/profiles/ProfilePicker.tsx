@@ -13,7 +13,7 @@ import { Button } from "@/components/tv/Button";
 import { FlickMark } from "@/components/tv/FlickMark";
 import { type PinResult, PinPad } from "@/components/tv/PinPad";
 import { ProfileAvatar } from "@/components/tv/ProfileAvatar";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ProfileAccount } from "@/ipc/bindings/ProfileAccount";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
 import type { ProfileId } from "@/ipc/bindings/ProfileId";
@@ -30,6 +30,7 @@ import { AccountSignIn } from "./AccountSignIn";
 import { OtherUserDialog } from "./OtherUserDialog";
 import { ProfileEditor } from "./ProfileEditor";
 import { ProfileTile } from "./ProfileTile";
+import { errorText } from "@/lib/errors";
 
 const INTRO_MS = 700;
 
@@ -133,7 +134,7 @@ export function ProfilePicker() {
     } catch (e) {
       const p = pinError(e);
       if (p) return p;
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
       return "wrong";
     }
   };
@@ -169,7 +170,7 @@ export function ProfilePicker() {
           setStep({ ...step, stage: "plex-pin", plexPin: undefined, plexWrong: true });
           return;
         }
-        toast.error(asError(e).message);
+        toast.error(errorText(e));
         setStep(null);
       },
     );

@@ -42,7 +42,29 @@ const UI_OPEN_TIMEOUT: Duration = Duration::from_secs(20);
 fn into_error(e: oneshot_flicksync::Error) -> Error {
     // The user reads a friendly sentence, never the protocol or Rust error.
     tracing::debug!(target: "flicksync", "{e}");
-    Error::Other(e.user_message().text().to_owned())
+    let message = e.user_message();
+    Error::Other(sync_code(message).tag(message.text()))
+}
+
+/// The documented code of a message the watch room can show.
+pub fn sync_code(m: UserMessage) -> oneshot_core::codes::Code {
+    use oneshot_core::codes as c;
+    match m {
+        UserMessage::OnlyHostCanChooseMedia => c::SYNC_ONLY_HOST_MEDIA,
+        UserMessage::ControlDenied => c::SYNC_CONTROL_DENIED,
+        UserMessage::RoomNotFound => c::SYNC_ROOM_NOT_FOUND,
+        UserMessage::RoomFull => c::SYNC_ROOM_FULL,
+        UserMessage::RoomClosed => c::SYNC_ROOM_CLOSED,
+        UserMessage::InvalidMedia => c::SYNC_INVALID_MEDIA,
+        UserMessage::SessionExpired => c::SYNC_SESSION,
+        UserMessage::SlowDown => c::SYNC_SLOW_DOWN,
+        UserMessage::ChatDisabled => c::SYNC_CHAT_OFF,
+        UserMessage::IncompatibleVersion => c::SYNC_VERSION,
+        UserMessage::Unavailable => c::SYNC_UNAVAILABLE,
+        UserMessage::MediaUnavailable => c::SYNC_MEDIA_UNAVAILABLE,
+        UserMessage::NotConfigured => c::SYNC_NOT_CONFIGURED,
+        UserMessage::Generic => c::SYNC_OTHER,
+    }
 }
 
 /// A player screen the UI is about to open for a shared item.
@@ -210,7 +232,7 @@ async fn resolve(st: &AppState, media: &MediaRef) -> Option<ItemRef> {
 
 /// What we announce to the room about a title: its identity, nothing else.
 async fn media_ref_for(st: &AppState, item: &ItemRef) -> Result<MediaRef> {
-    let desc = st.servers.read().iter().find(|s| s.id == item.server).cloned().ok_or_else(|| Error::NotFound("server".into()))?;
+    let desc = st.servers.read().iter().find(|s| s.id == item.server).cloned().ok_or_else(|| Error::NotFound(oneshot_core::codes::DL_SERVER_GONE.tag("The server of this title is no longer in Flick. Add it again in Settings › Servers.")))?;
     let mi = st.catalog.item(item).await?;
     let (media_type, season_id, episode_id, title) = match mi.kind {
         ItemKind::Movie => (MediaType::Movie, None, None, mi.title.clone()),
@@ -222,7 +244,7 @@ async fn media_ref_for(st: &AppState, item: &ItemRef) -> Result<MediaRef> {
             };
             (MediaType::Episode, e.and_then(|e| e.season.as_ref()).map(|s| s.key.clone()), Some(item.key.clone()), title)
         }
-        _ => return Err(Error::Invalid("Only movies and episodes can be watched together.".into())),
+        _ => return Err(Error::Invalid(oneshot_core::codes::SYNC_KIND.tag("Only movies and episodes can be watched together."))),
     };
     let media = MediaRef {
         provider: match desc.kind {
@@ -293,7 +315,7 @@ impl Hub {
 
     /// `(fingerprint, base url, token provider)` from the saved invitation, or why not.
     fn configuration(&self, st: &AppState) -> Result<(String, Url, Arc<dyn TokenProvider>)> {
-        let not_configured = || Error::Other(UserMessage::NotConfigured.text().to_owned());
+        let not_configured = || Error::Other(oneshot_core::codes::SYNC_NOT_CONFIGURED.tag(UserMessage::NotConfigured.text()));
         if !st.settings().flicksync.enabled {
             return Err(not_configured());
         }
@@ -369,7 +391,7 @@ impl Hub {
     }
 
     pub async fn select_media(&self, st: &AppState, item: &ItemRef) -> Result<()> {
-        let client = self.room_client().ok_or_else(|| Error::Invalid("not in a room".into()))?;
+        let client = self.room_client().ok_or_else(|| Error::Invalid(oneshot_core::codes::SYNC_NO_ROOM.tag("You are not in a watch room. Join or create one first.")))?;
         let media = media_ref_for(st, item).await?;
         client.select_media(media).map_err(into_error)
     }
@@ -382,7 +404,7 @@ impl Hub {
             return Ok(PlayRoute::Joiner(pending));
         }
         if !client.state().is_host() {
-            return Err(Error::Other(UserMessage::OnlyHostCanChooseMedia.text().to_owned()));
+            return Err(Error::Other(oneshot_core::codes::SYNC_ONLY_HOST_MEDIA.tag(UserMessage::OnlyHostCanChooseMedia.text())));
         }
         *self.controller.host_started.lock() = Some(item.clone());
         if let Err(e) = self.select_media(st, item).await {

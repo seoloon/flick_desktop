@@ -2,8 +2,9 @@
 // "Later" only closes the prompt; the update stays ready to install from
 // Settings until the next launch offers it again.
 import { create } from "zustand";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { UpdateInfo } from "@/ipc/app-types";
+import { errorText } from "@/lib/errors";
 
 export type UpdatePhase =
   | { phase: "idle" }
@@ -38,7 +39,7 @@ export async function checkForUpdates({ prompt }: { prompt: boolean }): Promise<
     useUpdates.setState({ update, checkedAt: Date.now(), status: { phase: update ? "available" : "upToDate" }, promptOpen: !!update && prompt });
     return update;
   } catch (e) {
-    useUpdates.setState({ checkedAt: Date.now(), status: { phase: "error", during: "check", message: asError(e).message } });
+    useUpdates.setState({ checkedAt: Date.now(), status: { phase: "error", during: "check", message: errorText(e) } });
     return null;
   }
 }
@@ -60,7 +61,7 @@ export async function installUpdate() {
         }));
     });
   } catch (e) {
-    useUpdates.setState({ status: { phase: "error", during: "install", message: asError(e).message } });
+    useUpdates.setState({ status: { phase: "error", during: "install", message: errorText(e) } });
   }
 }
 

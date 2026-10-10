@@ -36,20 +36,20 @@ struct Vault {
 static STATE: LazyLock<Mutex<Vault>> = LazyLock::new(Default::default);
 
 fn entry(key: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, key).map_err(|e| Error::Storage(format!("credential store: {e}")))
+    keyring::Entry::new(SERVICE, key).map_err(|e| Error::Storage(oneshot_core::codes::STO_CREDENTIAL_STORE.tag(format!("The system credential store is not available ({e}). Unlock it or allow Flick to use it, then try again."))))
 }
 
 fn read_vault() -> Result<HashMap<String, String>> {
     match entry(VAULT)?.get_password() {
-        Ok(json) => serde_json::from_str(&json).map_err(|e| Error::Storage(format!("credential vault is unreadable: {e}"))),
+        Ok(json) => serde_json::from_str(&json).map_err(|e| Error::Storage(oneshot_core::codes::STO_VAULT_UNREADABLE.tag(format!("The saved credentials cannot be read back ({e}). Sign in to your servers again.")))),
         Err(keyring::Error::NoEntry) => Ok(HashMap::new()),
-        Err(e) => Err(Error::Storage(format!("cannot read secret: {e}"))),
+        Err(e) => Err(Error::Storage(oneshot_core::codes::STO_CREDENTIAL_STORE.tag(format!("Flick cannot read the system credential store ({e}). Unlock it or allow Flick to use it, then try again.")))),
     }
 }
 
 fn write_vault(secrets: &HashMap<String, String>) -> Result<()> {
-    let json = serde_json::to_string(secrets).map_err(|e| Error::Storage(format!("cannot save secret: {e}")))?;
-    entry(VAULT)?.set_password(&json).map_err(|e| Error::Storage(format!("cannot save secret: {e}")))
+    let json = serde_json::to_string(secrets).map_err(|e| Error::Storage(oneshot_core::codes::STO_SECRET_SAVE.tag(format!("Flick could not save a credential in the system store ({e}). Unlock it and try again."))))?;
+    entry(VAULT)?.set_password(&json).map_err(|e| Error::Storage(oneshot_core::codes::STO_SECRET_SAVE.tag(format!("Flick could not save a credential in the system store ({e}). Unlock it and try again."))))
 }
 
 impl Vault {
@@ -98,7 +98,7 @@ pub fn load_secret(key: &str) -> Result<Option<String>> {
             v.legacy_checked.insert(key.to_owned());
             return Ok(None);
         }
-        Err(e) => return Err(Error::Storage(format!("cannot read secret: {e}"))),
+        Err(e) => return Err(Error::Storage(oneshot_core::codes::STO_CREDENTIAL_STORE.tag(format!("Flick cannot read the system credential store ({e}). Unlock it or allow Flick to use it, then try again.")))),
     };
     let mut next = v.loaded()?.clone();
     next.insert(key.to_owned(), found.clone());

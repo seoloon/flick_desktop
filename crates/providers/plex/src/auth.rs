@@ -223,5 +223,5 @@ pub fn require_reachable(server: &DiscoveredServer) -> Result<Url> {
         .reachable
         .first()
         .cloned()
-        .ok_or_else(|| Error::Network(format!("no connection to {} is reachable from this network", server.name)))
+        .ok_or_else(|| Error::Network(oneshot_core::codes::SRV_PLEX_NO_ROUTE.tag(format!("None of the addresses of {} can be reached from this network. Check that the server is on and remote access is enabled.", server.name))))
 }

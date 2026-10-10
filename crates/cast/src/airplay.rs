@@ -28,7 +28,7 @@ pub(crate) struct AirPlay {
 }
 
 fn net(e: reqwest::Error) -> Error {
-    Error::Network(format!("AirPlay: {e}"))
+    Error::Network(oneshot_core::codes::CAST_AIRPLAY.tag(format!("The AirPlay device could not be reached ({e}). Check it is on the same network.")))
 }
 
 /// The `/play` body.
@@ -37,7 +37,7 @@ fn play_body(url: &str, start_fraction: f64) -> Result<Vec<u8>> {
     d.insert("Content-Location".into(), Value::String(url.into()));
     d.insert("Start-Position".into(), Value::Real(start_fraction.clamp(0.0, 1.0)));
     let mut out = Vec::new();
-    plist::to_writer_binary(&mut out, &Value::Dictionary(d)).map_err(|e| Error::Protocol(e.to_string()))?;
+    plist::to_writer_binary(&mut out, &Value::Dictionary(d)).map_err(|e| Error::Protocol(oneshot_core::codes::CAST_PROTOCOL.tag(format!("Flick could not prepare the stream for AirPlay ({e})."))))?;
     Ok(out)
 }
 
@@ -85,9 +85,9 @@ impl AirPlay {
             s if s.is_success() => {}
             // 470: "connection authorization required".
             s if s == StatusCode::UNAUTHORIZED || s == StatusCode::FORBIDDEN || s.as_u16() == 470 => {
-                return Err(Error::Forbidden("this AirPlay device asks for pairing, which Flick does not support yet. Set it to accept anyone on the same network, or use a Chromecast".into()));
+                return Err(Error::Forbidden(oneshot_core::codes::AUTH_AIRPLAY_PAIRING.tag("This AirPlay device asks for pairing, which Flick does not support yet. Set it to accept anyone on the same network, or use a Chromecast.")));
             }
-            s => return Err(Error::Playback(format!("the AirPlay device refused the stream ({s})"))),
+            s => return Err(Error::Playback(oneshot_core::codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {}).", s.as_u16())))),
         }
         let remote = Remote { state: CastState::Loading, position_ms: media.start_ms, duration_ms: media.duration_ms, ..Default::default() };
         Ok(Self { http, base, session, last: Mutex::new(remote), seen_playing: Mutex::new(false) })
@@ -95,7 +95,7 @@ impl AirPlay {
 
     async fn post(&self, path: &str) -> Result<()> {
         let resp = self.http.post(format!("{}{path}", self.base)).header("X-Apple-Session-ID", &self.session).send().await.map_err(net)?;
-        resp.status().is_success().then_some(()).ok_or_else(|| Error::Playback(format!("the AirPlay device answered {}", resp.status())))
+        resp.status().is_success().then_some(()).ok_or_else(|| Error::Playback(oneshot_core::codes::CAST_AIRPLAY.tag(format!("The AirPlay device answered an error (HTTP {}).", resp.status().as_u16()))))
     }
 }
 

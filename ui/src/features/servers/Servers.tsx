@@ -10,13 +10,14 @@ import { Notice, Spinner } from "@/components/tv/Feedback";
 import { Pill } from "@/components/tv/Page";
 import { TextField } from "@/components/tv/TextField";
 import { TvDialog } from "@/components/tv/TvDialog";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { PlexServerChoice, ProbeResult, ServerEntry } from "@/ipc/app-types";
 import type { ServerStatus } from "@/ipc/bindings/ServerStatus";
 import { enter, focusSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { serversQuery } from "@/shell/navItems";
+import { errorText } from "@/lib/errors";
 
 function StatusPill({ status }: { status: ServerStatus | undefined }) {
   if (!status) return <Pill>Checking…</Pill>;
@@ -45,7 +46,7 @@ function useStep() {
     try {
       await fn();
     } catch (e) {
-      setError(asError(e).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -93,7 +94,7 @@ function AddJellyfin({ onDone }: { onDone: () => void }) {
           }
         } catch (e) {
           poll.stop();
-          step.setError(asError(e).message);
+          step.setError(errorText(e));
         }
       }, 3000);
     });
@@ -196,7 +197,7 @@ function AddPlex({ onDone }: { onDone: () => void }) {
           }
         } catch (e) {
           poll.stop();
-          step.setError(asError(e).message);
+          step.setError(errorText(e));
         }
       }, 2500);
     });
@@ -300,7 +301,7 @@ export function ServerManager() {
   const toggle = (id: string, enabled: boolean) => {
     queryClient.setQueryData<ServerEntry[]>(["servers"], (list) => list?.map((e) => (e.server.id === id ? { ...e, server: { ...e.server, disabled: !enabled } } : e)));
     api.serverSetEnabled(id, enabled).then(refresh, (e) => {
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
       refresh();
     });
   };
@@ -332,7 +333,7 @@ export function ServerManager() {
               entry={s}
               status={statusOf(s.server.id)}
               onToggle={(enabled) => toggle(s.server.id, enabled)}
-              onRemove={() => void api.serverRemove(s.server.id).then(refresh, (e) => toast.error(asError(e).message))}
+              onRemove={() => void api.serverRemove(s.server.id).then(refresh, (e) => toast.error(errorText(e)))}
             />
           ))}
         </FocusGroup>

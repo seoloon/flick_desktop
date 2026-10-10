@@ -94,7 +94,7 @@ impl JellyfinProvider {
         if id.server == self.server() {
             Ok(())
         } else {
-            Err(Error::Invalid(format!("item {id} does not belong to {}", self.descriptor.name)))
+            Err(Error::Invalid(oneshot_core::codes::SRV_FOREIGN_ITEM.tag(format!("This title does not belong to {}. Reopen it from its own library.", self.descriptor.name))))
         }
     }
 

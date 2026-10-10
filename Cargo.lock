@@ -3100,6 +3100,7 @@ dependencies = [
  "bytes",
  "ctr",
  "hkdf",
+ "oneshot-core",
  "oneshot-net",
  "parking_lot",
  "serde",

@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
 import { onAction } from "@/nav/input";
 import { focusKey } from "@/nav/spatial";
+import { errorText } from "@/lib/errors";
 
 const sections = [
   ["general", "General"],
@@ -171,7 +172,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
         queryClient.setQueryData(["capabilities"], c);
         toast.success("Displays and audio checked again");
       },
-      () => toast.error("The check failed"),
+      (e) => toast.error("The check failed", { description: errorText(e) }),
     );
 
   switch (section) {
@@ -446,7 +447,7 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
               onClick={() =>
                 void api.cacheClear().then(
                   () => toast.success("Artwork cache cleared"),
-                  () => toast.error("The cache could not be cleared"),
+                  (e) => toast.error("The cache could not be cleared", { description: errorText(e) }),
                 )
               }
             />

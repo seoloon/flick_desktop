@@ -54,10 +54,10 @@ pub enum InstallProgress {
 fn err(e: tauri_plugin_updater::Error) -> Error {
     use tauri_plugin_updater::Error as E;
     match e {
-        E::Reqwest(e) => Error::Network(e.to_string()),
+        E::Reqwest(e) => Error::Network(oneshot_core::codes::UPD_NETWORK.tag(format!("The update server could not be reached ({e}). Check your connection."))),
         // The endpoint answered with an error: nothing published yet, or GitHub is down.
-        E::ReleaseNotFound => Error::NotFound("no published release to update from".into()),
-        e => Error::Other(e.to_string()),
+        E::ReleaseNotFound => Error::NotFound(oneshot_core::codes::UPD_NO_RELEASE.tag("No published release was found to update from. Try again later.")),
+        e => Error::Other(oneshot_core::codes::UPD_OTHER.tag(format!("The update failed ({e}). Try again, or download the new version by hand."))),
     }
 }
 
@@ -104,9 +104,9 @@ pub async fn update_check(app: AppHandle, updates: State<'_, Updates>) -> Result
 #[tauri::command]
 pub async fn update_install(app: AppHandle, updates: State<'_, Updates>, on_progress: Channel<InstallProgress>) -> Result<()> {
     if cfg!(debug_assertions) {
-        return Err(Error::Unsupported("installing an update in a development build".into()));
+        return Err(Error::Unsupported(oneshot_core::codes::UPD_DEV_BUILD.tag("Updates are not installed in a development build.")));
     }
-    let update = updates.pending.lock().clone().ok_or_else(|| Error::NotFound("no update to install: check again".into()))?;
+    let update = updates.pending.lock().clone().ok_or_else(|| Error::NotFound(oneshot_core::codes::UPD_NO_PENDING.tag("There is no update waiting. Check for updates again.")))?;
     tracing::info!(target: "update", "installing Flick {}", update.version);
     let mut started = false;
     let mut downloaded = 0u64;

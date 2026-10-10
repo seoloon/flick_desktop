@@ -42,7 +42,7 @@ pub struct CastDevice {
 
 impl CastDevice {
     fn addr(&self) -> Result<SocketAddr> {
-        let ip: IpAddr = self.host.parse().map_err(|_| Error::Invalid(format!("bad device address {}", self.host)))?;
+        let ip: IpAddr = self.host.parse().map_err(|_| Error::Invalid(oneshot_core::codes::CAST_ADDRESS.tag(format!("The address of the device is not valid ({}). Refresh the device list.", self.host))))?;
         Ok(SocketAddr::new(ip, self.port))
     }
 }
@@ -166,7 +166,7 @@ impl Caster {
 
     /// Starts casting `media` to `device_id`, replacing what was cast before.
     pub async fn start(&self, device_id: &str, media: CastMedia, http: reqwest::Client) -> Result<()> {
-        let device = self.discovery.find(device_id).ok_or_else(|| Error::NotFound("that device is no longer on the network".into()))?;
+        let device = self.discovery.find(device_id).ok_or_else(|| Error::NotFound(oneshot_core::codes::CAST_DEVICE_GONE.tag("That device is no longer on the network. Check it is on, then pick it again.")))?;
         self.stop().await;
         let addr = device.addr()?;
         let local = local_address_towards(addr)?;
@@ -191,7 +191,7 @@ impl Caster {
 
     pub async fn command(&self, command: CastCommand) -> Result<()> {
         let active = self.active.lock().await;
-        let a = active.as_ref().ok_or_else(|| Error::Invalid("nothing is being cast".into()))?;
+        let a = active.as_ref().ok_or_else(|| Error::Invalid(oneshot_core::codes::CAST_NOTHING.tag("Nothing is being cast.")))?;
         match command {
             CastCommand::Pause => a.receiver.pause().await,
             CastCommand::Resume => a.receiver.resume().await,
@@ -228,7 +228,7 @@ impl Caster {
 
 /// The address of this machine on the network that reaches `device`.
 fn local_address_towards(device: SocketAddr) -> Result<IpAddr> {
-    let socket = UdpSocket::bind(if device.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).map_err(|e| Error::Network(e.to_string()))?;
-    socket.connect(device).map_err(|e| Error::Network(e.to_string()))?;
-    Ok(socket.local_addr().map_err(|e| Error::Network(e.to_string()))?.ip())
+    let socket = UdpSocket::bind(if device.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).map_err(|e| Error::Network(oneshot_core::codes::CAST_OTHER.tag(format!("Flick could not find this computer's address on the local network ({e})."))))?;
+    socket.connect(device).map_err(|e| Error::Network(oneshot_core::codes::CAST_OTHER.tag(format!("Flick could not find this computer's address on the local network ({e})."))))?;
+    Ok(socket.local_addr().map_err(|e| Error::Network(oneshot_core::codes::CAST_OTHER.tag(format!("Flick could not find this computer's address on the local network ({e})."))))?.ip())
 }

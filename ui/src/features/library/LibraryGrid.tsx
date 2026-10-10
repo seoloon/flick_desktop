@@ -10,13 +10,14 @@ import { CenteredSpinner, Notice } from "@/components/tv/Feedback";
 import { PageHeader } from "@/components/tv/Page";
 import { Segmented } from "@/components/tv/Segmented";
 import { BackButton } from "@/components/tv/BackButton";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ItemKind } from "@/ipc/bindings/ItemKind";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import type { SortBy } from "@/ipc/bindings/SortBy";
 import { useMode } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
 import { FocusGroup, Screen } from "@/nav/Focusable";
+import { errorText } from "@/lib/errors";
 
 const PAGE = 120;
 
@@ -98,7 +99,7 @@ export function LibraryGrid() {
         });
       } catch (e) {
         loaded.current.delete(page);
-        setError(asError(e).message);
+        setError(errorText(e));
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

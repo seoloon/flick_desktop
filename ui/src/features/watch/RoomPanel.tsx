@@ -10,6 +10,7 @@ import type { RoomState } from "@/ipc/bindings/RoomState";
 import { panelSpring } from "@/lib/motion";
 import { FocusGroup } from "@/nav/Focusable";
 import { act, ChatView, HostControls, isHost, ParticipantsList } from "./RoomParts";
+import { withCode, UI_CODE } from "@/lib/errors";
 
 export type RoomTab = "management" | "chat";
 
@@ -19,7 +20,7 @@ export function RoomPanel({ room, tab }: { room: RoomState; tab: RoomTab }) {
   const copy = () =>
     navigator.clipboard.writeText(room.shareCode || room.roomId).then(
       () => toast.success("Room code copied"),
-      () => toast.error("Couldn't copy the code"),
+      () => toast.error(withCode("Couldn't copy the code", UI_CODE.clipboard)),
     );
 
   return (

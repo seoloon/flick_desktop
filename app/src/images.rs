@@ -164,13 +164,13 @@ pub fn handle(app: &AppHandle, request: Request<Vec<u8>>, responder: UriSchemeRe
 /// A profile's picture: a public URL (plex.tv, a Jellyfin sign-in screen),
 /// proxied because the WebView loads no remote origin.
 async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
-    let id: ProfileId = rest.split('/').next().unwrap_or_default().parse().map_err(|_| Error::Invalid("avatar path".into()))?;
+    let id: ProfileId = rest.split('/').next().unwrap_or_default().parse().map_err(|_| Error::Invalid(oneshot_core::codes::IMG_AVATAR_PATH.tag("This profile picture address is not valid.")))?;
     let url = state
         .resolved_profiles()
         .iter()
         .find(|r| r.profile.id == id)
         .and_then(oneshot_storage::profiles::avatar_of)
-        .ok_or_else(|| Error::NotFound(format!("avatar of profile {id}")))?;
+        .ok_or_else(|| Error::NotFound(oneshot_core::codes::IMG_AVATAR_GONE.tag("This profile has no picture. Choose one again.")))?;
     let key = oneshot_storage::images::avatar_cache_key(&url);
     cached_or_fetch(state, &key, download(state.http().get(url))).await
 }
@@ -178,7 +178,7 @@ async fn load_avatar(state: &AppState, rest: &str) -> Result<Vec<u8>> {
 /// A TMDB photo or poster (`tmdb/<size>/<file>`), public; only TMDB files,
 /// so the route cannot fetch anything else.
 pub async fn load_tmdb(state: &AppState, rest: &str) -> Result<Vec<u8>> {
-    let url = oneshot_tmdb::image_url(rest).ok_or_else(|| Error::Invalid("tmdb image path".into()))?;
+    let url = oneshot_tmdb::image_url(rest).ok_or_else(|| Error::Invalid(oneshot_core::codes::IMG_TMDB_PATH.tag("This TMDB picture address is not valid.")))?;
     let key = oneshot_storage::images::tmdb_cache_key(&url);
     cached_or_fetch(state, &key, download(state.http().get(url))).await
 }
@@ -196,7 +196,7 @@ pub struct Palette {
 }
 
 pub fn palette(bytes: &[u8]) -> Result<Palette> {
-    let img = image::load_from_memory(bytes).map_err(|e| Error::Other(format!("image decode: {e}")))?;
+    let img = image::load_from_memory(bytes).map_err(|e| Error::Other(oneshot_core::codes::IMG_DECODE.tag(format!("A picture could not be read ({e})."))))?;
     let small = img.thumbnail(48, 48).to_rgb8();
     let pixels: Vec<[f32; 3]> = small.pixels().map(|p| [f32::from(p[0]), f32::from(p[1]), f32::from(p[2])]).collect();
     let clusters = kmeans(&pixels, 5, 8);

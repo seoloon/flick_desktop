@@ -10,11 +10,12 @@ import { CenteredSpinner, EmptyState, Notice } from "@/components/tv/Feedback";
 import { Page, PageHeader, Panel, Pill } from "@/components/tv/Page";
 import { ToggleRow } from "@/components/tv/SettingsList";
 import { TextField } from "@/components/tv/TextField";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { RoomState } from "@/ipc/bindings/RoomState";
 import { FocusGroup, Screen } from "@/nav/Focusable";
 import { act, ChatView, HostControls, isHost, ParticipantsList } from "./RoomParts";
 import { messageText, useWatch } from "./store";
+import { UI_CODE, errorText, withCode } from "@/lib/errors";
 
 function ConnectionPill({ room }: { room: RoomState }) {
   switch (room.connection) {
@@ -42,7 +43,7 @@ function Lobby() {
     try {
       await action();
     } catch (e) {
-      setError(asError(e).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -81,7 +82,7 @@ function RoomView({ room }: { room: RoomState }) {
   const host = isHost(room);
   const unread = useWatch((s) => s.unread);
   const [chat, setChat] = useState(false);
-  const copy = () => navigator.clipboard.writeText(room.shareCode || room.roomId).then(() => toast.success("Room code copied"), () => toast.error("Couldn't copy the code"));
+  const copy = () => navigator.clipboard.writeText(room.shareCode || room.roomId).then(() => toast.success("Room code copied"), () => toast.error(withCode("Couldn't copy the code", UI_CODE.clipboard)));
 
   return (
     <>

@@ -146,7 +146,7 @@ impl Catalog {
             .iter()
             .find(|p| p.descriptor().id == id)
             .cloned()
-            .ok_or_else(|| Error::NotFound(format!("server {id} is not connected")))
+            .ok_or_else(|| Error::NotFound(oneshot_core::codes::SRV_NOT_CONNECTED.tag("This server is not connected right now. Reconnect it in Settings › Servers.")))
     }
 
     fn ttl(&self) -> u32 {
@@ -320,7 +320,7 @@ impl Catalog {
     }
 
     pub async fn items(&self, query: &ItemQuery) -> Result<Page<MediaItem>> {
-        let parent = query.parent.as_ref().ok_or_else(|| Error::Invalid("a library or parent is required".into()))?;
+        let parent = query.parent.as_ref().ok_or_else(|| Error::Invalid(oneshot_core::codes::SRV_NO_PARENT.tag("Choose a library to browse.")))?;
         self.provider(parent.server)?.items(query).await
     }
 

@@ -12,6 +12,7 @@ async-trait.workspace = true
 bytes = "1"
 ctr = "0.9"
 hkdf = "0.12"
+oneshot-core.workspace = true
 oneshot-net.workspace = true
 parking_lot.workspace = true
 serde.workspace = true

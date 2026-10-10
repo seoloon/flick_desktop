@@ -15,7 +15,7 @@ import { BackButton } from "@/components/tv/BackButton";
 import { Facts, Panel, Pill } from "@/components/tv/Page";
 import { Segmented } from "@/components/tv/Segmented";
 import { Shelf } from "@/components/tv/Shelf";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { Credit } from "@/ipc/bindings/Credit";
 import type { ItemRef } from "@/ipc/bindings/ItemRef";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
@@ -32,6 +32,7 @@ import { isPlayable, playPath } from "../player/route";
 import { percent } from "../downloads/format";
 import { downloadOf, useDownloads } from "../downloads/store";
 import { useWatch } from "../watch/store";
+import { errorText } from "@/lib/errors";
 
 export function Detail() {
   const { id: raw = "" } = useParams();
@@ -55,13 +56,13 @@ export function Detail() {
   useEffect(() => ambientFor(item), [item]);
 
   const toggle = (what: "played" | "favorite") => {
-    if (item) void setItemFlag(item, what).catch((e) => toast.error(asError(e).message));
+    if (item) void setItemFlag(item, what).catch((e) => toast.error(errorText(e)));
   };
 
   if (!item) {
     return fresh.error ? (
       <Screen>
-        <EmptyState title="Not available">{asError(fresh.error).message}</EmptyState>
+        <EmptyState title="Not available">{errorText(fresh.error)}</EmptyState>
       </Screen>
     ) : (
       <CenteredSpinner />
@@ -78,7 +79,7 @@ export function Detail() {
     if (download && !download.missing) return navigate("/settings?s=flickserver&tab=downloads");
     api.downloadsEnqueue(item.id).then(
       (queued) => toast.success(queued.length > 1 ? `${queued.length} episodes added to downloads` : "Added to downloads"),
-      (e) => toast.error(asError(e).message),
+      (e) => toast.error(errorText(e)),
     );
   };
   const start = (ms: number) => {
@@ -136,7 +137,7 @@ export function Detail() {
                 </Button>
                 {resuming && <Button size="lg" icon={RotateCcw} label="Start over" onClick={() => start(0)}>Start Over</Button>}
                 {(item.kind === "movie" || item.kind === "episode") && (room ? room.hostId === room.you : watch?.available) && (
-                  <Button size="lg" icon={Users} onClick={() => (room ? void api.flicksyncSelectMedia(item.id).catch((e) => toast.error(asError(e).message)) : navigate("/watch"))}>
+                  <Button size="lg" icon={Users} onClick={() => (room ? void api.flicksyncSelectMedia(item.id).catch((e) => toast.error(errorText(e))) : navigate("/watch"))}>
                     {room ? "Watch in Room" : "Watch Together"}
                   </Button>
                 )}

@@ -142,26 +142,31 @@ struct Wire {
     request_id: u32,
 }
 
+/// Any trouble talking to the Chromecast.
+fn cc(e: impl std::fmt::Display) -> Error {
+    Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag(format!("The Chromecast connection failed ({e}). Check it is on the same network, restart it, and retry.")))
+}
+
 impl Wire {
     async fn connect(addr: SocketAddr) -> Result<Self> {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
-            .map_err(|e| Error::Network(e.to_string()))?
+            .map_err(|e| cc(e))?
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(AnyCertificate))
             .with_no_client_auth();
-        let tcp = tokio::time::timeout(STEP_TIMEOUT, TcpStream::connect(addr)).await.map_err(|_| Error::Network("the Chromecast did not answer".into()))?.map_err(|e| Error::Network(format!("Chromecast: {e}")))?;
-        let name = ServerName::try_from(addr.ip().to_string()).map_err(|e| Error::Network(e.to_string()))?;
-        let tls = tokio_rustls::TlsConnector::from(Arc::new(config)).connect(name, tcp).await.map_err(|e| Error::Network(format!("Chromecast TLS: {e}")))?;
+        let tcp = tokio::time::timeout(STEP_TIMEOUT, TcpStream::connect(addr)).await.map_err(|_| Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag("The Chromecast did not answer. Check it is on the same network, restart it, and retry.")))?.map_err(|e| cc(e))?;
+        let name = ServerName::try_from(addr.ip().to_string()).map_err(|e| cc(e))?;
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(config)).connect(name, tcp).await.map_err(|e| cc(e))?;
         let (reader, writer) = tokio::io::split(tls);
         Ok(Self { reader, writer, request_id: 0 })
     }
 
     async fn send(&mut self, destination: &str, namespace: &str, payload: &Value) -> Result<()> {
         let m = Message { source: SENDER.into(), destination: destination.into(), namespace: namespace.into(), payload: payload.to_string() };
-        self.writer.write_all(&encode(&m)).await.map_err(|e| Error::Network(format!("Chromecast: {e}")))?;
-        self.writer.flush().await.map_err(|e| Error::Network(e.to_string()))
+        self.writer.write_all(&encode(&m)).await.map_err(|e| cc(e))?;
+        self.writer.flush().await.map_err(|e| cc(e))
     }
 
     /// Sends a request carrying a fresh `requestId`.
@@ -175,13 +180,13 @@ impl Wire {
     async fn next(&mut self) -> Result<(Message, Value)> {
         loop {
             let mut len = [0u8; 4];
-            self.reader.read_exact(&mut len).await.map_err(|e| Error::Network(format!("the Chromecast closed the connection ({e})")))?;
+            self.reader.read_exact(&mut len).await.map_err(|e| cc(e))?;
             let len = u32::from_be_bytes(len) as usize;
             if len > 1 << 20 {
-                return Err(Error::Protocol("oversized Cast message".into()));
+                return Err(Error::Protocol(oneshot_core::codes::CAST_PROTOCOL.tag("The Chromecast sent something Flick cannot read. Restart the Chromecast.")));
             }
             let mut body = vec![0u8; len];
-            self.reader.read_exact(&mut body).await.map_err(|e| Error::Network(e.to_string()))?;
+            self.reader.read_exact(&mut body).await.map_err(|e| cc(e))?;
             let Some(m) = decode(&body) else { continue };
             let json: Value = serde_json::from_str(&m.payload).unwrap_or(Value::Null);
             if m.namespace == NS_HEARTBEAT && json["type"] == "PING" {
@@ -189,7 +194,7 @@ impl Wire {
                 continue;
             }
             if m.namespace == NS_CONNECTION && json["type"] == "CLOSE" {
-                return Err(Error::Network("the Chromecast closed the session".into()));
+                return Err(Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag("The Chromecast closed the session.")));
             }
             return Ok((m, json));
         }
@@ -205,7 +210,7 @@ impl Wire {
                 }
             }
         };
-        tokio::time::timeout(STEP_TIMEOUT, waiting).await.map_err(|_| Error::Network(format!("the Chromecast did not {what}")))?
+        tokio::time::timeout(STEP_TIMEOUT, waiting).await.map_err(|_| Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag(format!("The Chromecast did not {what} in time. Restart it and retry."))))?
     }
 }
 
@@ -264,7 +269,7 @@ impl Chromecast {
                     return None;
                 }
                 if json["type"] == "LAUNCH_ERROR" {
-                    return Some(Err(Error::Playback(format!("the Chromecast refused to start its player ({})", json["reason"].as_str().unwrap_or("unknown")))));
+                    return Some(Err(Error::Playback(oneshot_core::codes::CAST_LOAD.tag(format!("The Chromecast refused to start its player ({}). Restart it and retry.", json["reason"].as_str().unwrap_or("unknown"))))));
                 }
                 let app = json["status"]["applications"].as_array()?.iter().find(|a| a["appId"] == DEFAULT_MEDIA_RECEIVER)?;
                 Some(Ok((app["transportId"].as_str()?.to_owned(), app["sessionId"].as_str()?.to_owned())))
@@ -290,7 +295,7 @@ impl Chromecast {
                     return None;
                 }
                 match json["type"].as_str()? {
-                    "LOAD_FAILED" | "INVALID_REQUEST" => Some(Err(Error::Playback("the Chromecast could not load this stream".into()))),
+                    "LOAD_FAILED" | "INVALID_REQUEST" => Some(Err(Error::Playback(oneshot_core::codes::CAST_LOAD.tag("The Chromecast could not load this stream. Try another version of the title.")))),
                     "MEDIA_STATUS" => {
                         let s = json["status"].as_array()?.first()?;
                         Some(Ok((s["mediaSessionId"].as_i64()?, s.clone())))
@@ -309,9 +314,9 @@ impl Chromecast {
     }
 
     fn media_command(&self, mut payload: Value) -> Result<()> {
-        let id = (*self.media_session.lock()).ok_or_else(|| Error::Playback("nothing is loaded on the Chromecast".into()))?;
+        let id = (*self.media_session.lock()).ok_or_else(|| Error::Playback(oneshot_core::codes::CAST_NOTHING.tag("Nothing is loaded on the Chromecast.")))?;
         payload["mediaSessionId"] = json!(id);
-        self.commands.send(Cmd::Send { destination: self.transport.clone(), namespace: NS_MEDIA, payload }).map_err(|_| Error::Network("the Chromecast connection is closed".into()))
+        self.commands.send(Cmd::Send { destination: self.transport.clone(), namespace: NS_MEDIA, payload }).map_err(|_| Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag("The Chromecast connection is closed. Pick the device again.")))
     }
 }
 
@@ -379,7 +384,7 @@ impl Receiver for Chromecast {
         self.remote.lock().volume = Some(volume);
         self.commands
             .send(Cmd::Send { destination: PLATFORM.into(), namespace: NS_RECEIVER, payload: json!({"type": "SET_VOLUME", "volume": {"level": volume}}) })
-            .map_err(|_| Error::Network("the Chromecast connection is closed".into()))
+            .map_err(|_| Error::Network(oneshot_core::codes::CAST_CHROMECAST.tag("The Chromecast connection is closed. Pick the device again.")))
     }
 
     async fn status(&self) -> Remote {

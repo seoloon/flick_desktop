@@ -9,13 +9,14 @@ import { Spinner } from "@/components/tv/Feedback";
 import { type PinResult, PinPad } from "@/components/tv/PinPad";
 import { LinkRow, SelectRow, SettingsGroup, ToggleRow } from "@/components/tv/SettingsList";
 import { TvDialog } from "@/components/tv/TvDialog";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
 import type { ProfileMode } from "@/ipc/bindings/ProfileMode";
 import { pinError, profilesQuery } from "@/lib/profiles";
 import { queryClient } from "@/lib/queryClient";
 import { loadSettings } from "@/lib/settings";
 import { ProfileEditor } from "./ProfileEditor";
+import { errorText } from "@/lib/errors";
 
 const MODES: { value: ProfileMode; label: string }[] = [
   { value: "serverUsers", label: "Server users" },
@@ -54,7 +55,7 @@ export function ProfilesSettings() {
         return "ok";
       }
       if (p) return p;
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
       return "ok";
     }
   };

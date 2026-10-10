@@ -111,9 +111,10 @@ pub(crate) async fn start(
     if let Err(e) = &result {
         let mut i = inner.lock();
         i.snapshot.phase = Phase::Error;
-        i.snapshot.error = Some(e.to_string());
+        let shown = format!("{e} ({})", e.code());
+        i.snapshot.error = Some(shown.clone());
         drop(i);
-        sink(PlayerEvent::Error { message: e.to_string() });
+        sink(PlayerEvent::Error { message: shown });
     }
     result
 }
@@ -150,7 +151,7 @@ async fn negotiate_and_load(
         Some(id) => info.offers.iter().find(|o| &o.source.id == id),
         None => info.offers.first(),
     }
-    .ok_or_else(|| Error::Playback("the server returned no playable version".into()))?;
+    .ok_or_else(|| Error::Playback(oneshot_core::codes::PLAY_NO_VERSION.tag("The server returned no playable version of this title.")))?;
 
     let original_language = original_language(&*provider, &item).await;
     let decision = decide(&DecisionInput {
@@ -162,7 +163,7 @@ async fn negotiate_and_load(
         subtitle: request.subtitle,
         original_language: original_language.as_deref(),
     })
-    .map_err(|u| Error::Playback(u.to_string()))?;
+    .map_err(|u| Error::Playback(oneshot_core::codes::PLAY_BLOCKED.tag(u.to_string())))?;
     tracing::info!(target: "playback", item = %item, label = ?decision.label, video = ?decision.video, audio = ?decision.audio,
         reasons = ?decision.reasons.iter().map(|r| r.code.as_str()).collect::<Vec<_>>(), "decision");
 
@@ -208,7 +209,7 @@ async fn negotiate_and_load(
     let applied: Vec<(String, String)>;
     {
         let mut i = inner.lock();
-        let engine = i.engine.as_ref().ok_or_else(|| Error::Playback("engine not running".into()))?;
+        let engine = i.engine.as_ref().ok_or_else(|| Error::Playback(oneshot_core::codes::PLR_NOT_RUNNING.tag("The video engine is not running. Restart Flick.")))?;
         for (name, value) in &props {
             if let Err(e) = engine.mpv.set_property(name, value.clone()) {
                 tracing::warn!(target: "player", "option {name}: {e}");
@@ -227,7 +228,7 @@ async fn negotiate_and_load(
         engine
             .mpv
             .command(&["loadfile", target.url.as_str(), "replace", "-1", &file_opts])
-            .map_err(|e| Error::Playback(e.to_string()))?;
+            .map_err(|e| Error::Playback(oneshot_core::codes::PLR_COMMAND.tag(format!("The video engine could not open this title ({e})."))))?;
         engine.presenter.set_visible(true);
 
         applied = props
@@ -533,7 +534,10 @@ fn handle(inner: &Arc<Mutex<Inner>>, sink: &EventSink, rt: &tokio::runtime::Hand
         EngineEvent::AudioReconfig => {}
         EngineEvent::EndFile { reason, error } => {
             if reason == EndReason::Error {
-                let message = error.unwrap_or_else(|| "playback failed".into());
+                let message = oneshot_core::codes::PLR_MEDIA.suffix(match error {
+                    Some(why) => format!("Flick's video engine could not play this file ({why}). Try another version of the title, or allow server transcoding in Settings › Playback."),
+                    None => "Flick's video engine could not play this file. Try another version of the title.".into(),
+                });
                 i.snapshot.phase = Phase::Error;
                 i.snapshot.error = Some(message.clone());
                 sink(PlayerEvent::Error { message });

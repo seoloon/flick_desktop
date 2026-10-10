@@ -46,8 +46,8 @@ impl Proxy {
     /// earlier relay stops.
     pub async fn serve(&self, upstream: &Url, headers: Vec<(String, String)>, local: IpAddr, http: Client) -> Result<Url> {
         self.stop();
-        let listener = TcpListener::bind(SocketAddr::new(local, 0)).await.map_err(|e| Error::Network(format!("cannot open the relay: {e}")))?;
-        let addr = listener.local_addr().map_err(|e| Error::Network(e.to_string()))?;
+        let listener = TcpListener::bind(SocketAddr::new(local, 0)).await.map_err(|e| Error::Network(oneshot_core::codes::CAST_RELAY.tag(format!("Flick could not open the local relay the device pulls the video from ({e}). Check no firewall blocks Flick on the local network."))))?;
+        let addr = listener.local_addr().map_err(|e| Error::Network(oneshot_core::codes::CAST_RELAY.tag(format!("Flick could not open the local relay ({e})."))))?;
         let token = uuid::Uuid::new_v4().simple().to_string();
         let mut dir = upstream.clone();
         dir.set_query(None);
@@ -57,7 +57,7 @@ impl Proxy {
             segments.pop();
             segments.push("");
         }
-        let relayed = Url::parse(&format!("http://{addr}/c/{token}/{file}")).map_err(|e| Error::Invalid(e.to_string()))?;
+        let relayed = Url::parse(&format!("http://{addr}/c/{token}/{file}")).map_err(|e| Error::Invalid(oneshot_core::codes::CAST_RELAY.tag(format!("The relay address could not be built ({e})."))))?;
         let query = upstream.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
         let route = std::sync::Arc::new(Route { token, dir, query, headers, http });
         let task = tokio::spawn(async move {

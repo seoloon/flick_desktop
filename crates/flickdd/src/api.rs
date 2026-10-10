@@ -31,6 +31,9 @@ pub enum Failure {
     /// The partial file cannot be written.
     #[error("{0}")]
     Disk(String),
+    /// The key that protects the files cannot be read.
+    #[error("{0}")]
+    Key(String),
 }
 
 impl Failure {
@@ -110,13 +113,13 @@ impl Link {
         if !path.starts_with("/api/v1/downloads/") || path.contains("//") || path.contains("..") || path.contains('?') || path.contains('#') {
             return Err(Failure::Network("unexpected download path".into()));
         }
-        self.base.join(path.trim_start_matches('/')).map_err(|_| Failure::NotConfigured("The server address is not valid.".into()))
+        self.base.join(path.trim_start_matches('/')).map_err(|_| Failure::NotConfigured("The Flick Server address is not valid: add the invitation link again in Settings › Flick Server.".into()))
     }
 }
 
 /// `POST /api/v1/downloads`.
 pub async fn create(link: &Link, jwt: &str, backend: Backend, item_id: &str, title: &str, kind: Option<Kind>) -> Result<Grant, Failure> {
-    let url = link.base.join("api/v1/downloads").map_err(|_| Failure::NotConfigured("The server address is not valid.".into()))?;
+    let url = link.base.join("api/v1/downloads").map_err(|_| Failure::NotConfigured("The Flick Server address is not valid: add the invitation link again in Settings › Flick Server.".into()))?;
     let title: String = title.chars().take(200).collect();
     let body = serde_json::json!({ "backend": backend.as_str(), "item_id": item_id, "title": title, "kind": kind.map(Kind::as_str) });
     let resp = link.http.post(url).bearer_auth(jwt).timeout(Duration::from_secs(30)).json(&body).send().await.map_err(net)?;

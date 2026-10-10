@@ -10,7 +10,7 @@ import type { AvatarStyle } from "./bindings/AvatarStyle";
 import type { ServerId } from "./bindings/ServerId";
 import type { UserMessage } from "./bindings/UserMessage";
 
-export type AppError = { kind: string; message: string };
+export type AppError = { kind: string; /** `FLK-AREA-NNN`, see ERROR_IDENTIFIER.md. */ code: string; message: string };
 /** serde's default encoding of `Result<T, E>`. */
 export type RustResult<T, E = AppError> = { Ok: T } | { Err: E };
 

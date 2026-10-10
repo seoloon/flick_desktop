@@ -59,7 +59,7 @@ pub async fn capabilities(state: St<'_>, refresh: bool) -> Result<Arc<Capability
     // Probing activates audio endpoints and D3D devices: keep it off the UI thread.
     tokio::task::spawn_blocking(move || if refresh { state.caps.refresh() } else { state.caps.report() })
         .await
-        .map_err(|e| Error::Other(e.to_string()))
+        .map_err(|e| Error::Other(oneshot_core::codes::SYS_TASK.tag(format!("A background task stopped unexpectedly ({e}). Try again."))))
 }
 
 #[derive(Debug, Serialize)]
@@ -93,7 +93,7 @@ pub fn diagnostics(state: St<'_>, since: u64, target: Option<String>) -> Vec<Log
 
 #[tauri::command]
 pub fn set_fullscreen(window: WebviewWindow, fullscreen: bool) -> Result<()> {
-    window.set_fullscreen(fullscreen).map_err(|e| Error::Other(e.to_string()))
+    window.set_fullscreen(fullscreen).map_err(|e| Error::Other(oneshot_core::codes::SYS_WINDOW.tag(format!("The window could not change its full screen state ({e})."))))
 }
 
 /// Picture-in-picture: the main window shrinks to a small always-on-top
@@ -101,7 +101,7 @@ pub fn set_fullscreen(window: WebviewWindow, fullscreen: bool) -> Result<()> {
 /// on exit. The video layer follows the window, so nothing is re-created.
 #[tauri::command]
 pub fn window_pip(window: WebviewWindow, state: St<'_>, enter: bool) -> Result<()> {
-    let err = |e: tauri::Error| Error::Other(e.to_string());
+    let err = |e: tauri::Error| Error::Other(oneshot_core::codes::SYS_WINDOW.tag(format!("The window could not change its size or place ({e}).")));
     let mut saved = state.pip_restore.lock();
     // Subtitles follow the window size: bigger in the small window, back to normal after.
     state.player.set_pip(enter, &state.settings());
@@ -167,7 +167,7 @@ const PIP_MARGIN: f64 = 24.0;
 pub async fn palette(state: St<'_>, item: ItemRef, kind: ImageKind, tag: String) -> Result<Palette> {
     let image = ImageRef { item, kind, tag, blurhash: None };
     let bytes = images::load(&state, &image, ImageSize::Tiny).await?;
-    tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(e.to_string()))?
+    tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(oneshot_core::codes::SYS_TASK.tag(format!("A background task stopped unexpectedly ({e}). Try again."))))?
 }
 
 /// Palette of a TMDB photo (`/abc.jpg`): a person page lights the
@@ -175,12 +175,12 @@ pub async fn palette(state: St<'_>, item: ItemRef, kind: ImageKind, tag: String)
 #[tauri::command]
 pub async fn tmdb_palette(state: St<'_>, path: String) -> Result<Palette> {
     let bytes = images::load_tmdb(&state, &format!("w185{path}")).await?;
-    tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(e.to_string()))?
+    tokio::task::spawn_blocking(move || images::palette(&bytes)).await.map_err(|e| Error::Other(oneshot_core::codes::SYS_TASK.tag(format!("A background task stopped unexpectedly ({e}). Try again."))))?
 }
 
 /// Deleting a large image cache takes seconds: done on a blocking thread.
 #[tauri::command]
 pub async fn cache_clear(state: St<'_>) -> Result<()> {
     let images = state.images.clone();
-    tokio::task::spawn_blocking(move || images.clear()).await.map_err(|e| Error::Other(e.to_string()))?
+    tokio::task::spawn_blocking(move || images.clear()).await.map_err(|e| Error::Other(oneshot_core::codes::SYS_TASK.tag(format!("A background task stopped unexpectedly ({e}). Try again."))))?
 }

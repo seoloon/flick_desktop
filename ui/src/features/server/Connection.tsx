@@ -9,11 +9,12 @@ import { Button } from "@/components/tv/Button";
 import { Notice } from "@/components/tv/Feedback";
 import { InfoRow, SettingsGroup } from "@/components/tv/SettingsList";
 import { TextField } from "@/components/tv/TextField";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { DiagnosisCheck, FlickSyncDiagnosis } from "@/ipc/app-types";
 import { flushSettings } from "@/lib/settings";
 import { FocusGroup } from "@/nav/Focusable";
 import { refreshStatus } from "@/features/watch/store";
+import { UI_CODE, errorText, withCode } from "@/lib/errors";
 
 const STEP_LABELS: Record<DiagnosisCheck["step"], string> = {
   config: "Settings",
@@ -37,7 +38,7 @@ export function ConnectionTest() {
       await flushSettings();
       setReport(await api.flickserverDiagnose());
     } catch (e) {
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
     } finally {
       setRunning(false);
     }
@@ -105,7 +106,7 @@ export function Invitation({ onSaved }: { onSaved: () => void }) {
       const added = await api.flickserverAddInvitation(link);
       setReport(added.report);
       if (!added.saved) {
-        setError("Nothing was saved: the server didn't answer or isn't ready yet. Check the link, then try again.");
+        setError(withCode("Nothing was saved: the server didn't answer or isn't ready yet. Check the link, then try again.", UI_CODE.linkNotSaved));
         return;
       }
       setLink("");
@@ -114,14 +115,14 @@ export function Invitation({ onSaved }: { onSaved: () => void }) {
       changed();
     } catch (e) {
       // A link that doesn't parse: the message is already a sentence for the user.
-      setError(asError(e).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async () => {
-    await api.flickserverClearInvitation().catch((e) => toast.error(asError(e).message));
+    await api.flickserverClearInvitation().catch((e) => toast.error(errorText(e)));
     setReport(null);
     changed();
   };

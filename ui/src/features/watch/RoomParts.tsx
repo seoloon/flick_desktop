@@ -8,12 +8,13 @@ import { Button } from "@/components/tv/Button";
 import { Pill } from "@/components/tv/Page";
 import { ToggleRow } from "@/components/tv/SettingsList";
 import { TextField } from "@/components/tv/TextField";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { Participant } from "@/ipc/bindings/Participant";
 import type { RoomState } from "@/ipc/bindings/RoomState";
 import { cn } from "@/lib/utils";
 import { FocusGroup } from "@/nav/Focusable";
 import { useWatch } from "./store";
+import { errorText } from "@/lib/errors";
 
 export const initials = (name: string) =>
   name
@@ -33,7 +34,7 @@ export function participantState(p: Participant, room: RoomState): string {
 export const isHost = (room: RoomState) => room.hostId === room.you;
 
 /** Shows a failed action as a toast instead of an unhandled rejection. */
-export const act = (p: Promise<unknown>) => p.catch((e) => toast.error(asError(e).message));
+export const act = (p: Promise<unknown>) => p.catch((e) => toast.error(errorText(e)));
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 

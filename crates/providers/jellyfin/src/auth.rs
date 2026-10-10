@@ -78,7 +78,7 @@ impl Connector {
         } else {
             vec![format!("https://{input}"), format!("http://{input}")]
         };
-        let mut last = Error::Invalid(format!("not a server address: {input}"));
+        let mut last = Error::Invalid(oneshot_core::codes::NET_ADDRESS.tag(format!("\"{input}\" is not a server address. Use something like https://my-server:8920.")));
         for c in candidates {
             let Ok(url) = Url::parse(&c) else { continue };
             match self.public_info(&url).await {
@@ -98,7 +98,7 @@ impl Connector {
             .map_err(oneshot_net::map_err)?;
         let info: PublicSystemInfo = oneshot_net::json(resp).await?;
         if info.product_name.as_deref().is_some_and(|p| !p.contains("Jellyfin")) {
-            return Err(Error::Protocol(format!("{base} is not a Jellyfin server")));
+            return Err(Error::Protocol(oneshot_core::codes::SRV_NOT_JELLYFIN.tag(format!("{base} answered, but it is not a Jellyfin server."))));
         }
         Ok(info)
     }
@@ -150,7 +150,7 @@ impl Connector {
             .await
             .map_err(oneshot_net::map_err)?;
         match oneshot_net::json(resp).await {
-            Err(Error::Unauthorized | Error::Forbidden(_)) => Err(Error::Unsupported("Quick Connect (disabled on server)".into())),
+            Err(Error::Unauthorized | Error::Forbidden(_)) => Err(Error::Unsupported(oneshot_core::codes::AUTH_QUICK_CONNECT.tag("Quick Connect is turned off on this Jellyfin server. Sign in with a user name and password."))),
             other => other,
         }
     }

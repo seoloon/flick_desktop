@@ -7,9 +7,10 @@ import { Button } from "@/components/tv/Button";
 import { MediaCard } from "@/components/tv/Card";
 import { CenteredSpinner, Notice } from "@/components/tv/Feedback";
 import { PageHeader } from "@/components/tv/Page";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ItemKind } from "@/ipc/bindings/ItemKind";
 import { FocusGroup, Screen } from "@/nav/Focusable";
+import { errorText } from "@/lib/errors";
 
 /** Per server: with several servers a page holds up to this many from each. */
 const PAGE = 60;
@@ -36,7 +37,7 @@ export function GenreGrid() {
       </div>
       <div className="flex flex-col gap-8 px-[var(--gutter)] pt-[var(--page-top)] pb-24">
         <PageHeader title={genre} lead={titles.data ? `${items.length}${titles.hasNextPage ? "+" : ""} ${noun}` : undefined} />
-        {titles.error && <Notice tone="error">{asError(titles.error).message}</Notice>}
+        {titles.error && <Notice tone="error">{errorText(titles.error)}</Notice>}
         {issues.length > 0 && <Notice tone="warn">Some servers did not answer: {issues.map((i) => i.name).join(", ")}</Notice>}
         {titles.isPending ? (
           <CenteredSpinner />

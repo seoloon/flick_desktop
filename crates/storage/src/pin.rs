@@ -11,11 +11,11 @@ use oneshot_core::{Error, Result};
 
 pub fn hash_pin(pin: &str) -> Result<String> {
     if pin.len() != 4 || !pin.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::Invalid("a PIN is 4 digits".into()));
+        return Err(Error::Invalid(oneshot_core::codes::PROF_PIN_FORMAT.tag("A PIN is exactly 4 digits.")));
     }
     // uuid v4 is 16 random bytes: a fine salt, and no extra RNG dependency.
-    let salt = SaltString::encode_b64(uuid::Uuid::new_v4().as_bytes()).map_err(|e| Error::Other(e.to_string()))?;
-    Argon2::default().hash_password(pin.as_bytes(), &salt).map(|h| h.to_string()).map_err(|e| Error::Other(e.to_string()))
+    let salt = SaltString::encode_b64(uuid::Uuid::new_v4().as_bytes()).map_err(|e| Error::Other(oneshot_core::codes::PROF_PIN_HASH.tag(format!("Flick could not protect the PIN ({e}). Try again."))))?;
+    Argon2::default().hash_password(pin.as_bytes(), &salt).map(|h| h.to_string()).map_err(|e| Error::Other(oneshot_core::codes::PROF_PIN_HASH.tag(format!("Flick could not protect the PIN ({e}). Try again."))))
 }
 
 pub fn verify_pin(hash: &str, pin: &str) -> bool {

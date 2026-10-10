@@ -12,7 +12,7 @@ import { EmptyState, Notice } from "@/components/tv/Feedback";
 import { FlickMark } from "@/components/tv/FlickMark";
 import { HeroBackdrop, MetaLine, TitleArt } from "@/components/tv/Hero";
 import { Shelf } from "@/components/tv/Shelf";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { HomeRow } from "@/ipc/bindings/HomeRow";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { ambientFor } from "@/lib/ambient";
@@ -23,6 +23,7 @@ import { FocusGroup, Screen } from "@/nav/Focusable";
 import { onAction, useModality } from "@/nav/input";
 import { serversQuery } from "@/shell/navItems";
 import { isPlayable, playPath } from "../player/route";
+import { errorText } from "@/lib/errors";
 
 const SLIDE_MS = 9000;
 const MAX_SLIDES = 6;
@@ -255,7 +256,7 @@ export function Home() {
             </Button>
           }
         >
-          {asError(home.error).message}
+          {errorText(home.error)}
         </EmptyState>
       </Screen>
     );

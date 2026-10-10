@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/tv/Button";
 import { Spinner } from "@/components/tv/Feedback";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { CastDevice } from "@/ipc/bindings/CastDevice";
 import type { CastStatus } from "@/ipc/bindings/CastStatus";
 import type { ItemRef } from "@/ipc/bindings/ItemRef";
@@ -18,6 +18,7 @@ import { clock } from "@/lib/format";
 import { focusSpring, panelSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
+import { errorText } from "@/lib/errors";
 
 /** The cast in progress, polled from Rust while there is one. */
 export function useCastSession(resume: boolean) {
@@ -43,7 +44,7 @@ export function useCastSession(resume: boolean) {
       setStatus(s.device ? s : null);
       return true;
     } catch (e) {
-      toast(asError(e).message);
+      toast(errorText(e));
       return false;
     } finally {
       setStarting(false);
@@ -55,7 +56,7 @@ export function useCastSession(resume: boolean) {
     setStatus(null);
     return position;
   }, []);
-  const command = useCallback((c: Parameters<typeof api.castCommand>[0]) => void api.castCommand(c).catch((e) => toast(asError(e).message)), []);
+  const command = useCallback((c: Parameters<typeof api.castCommand>[0]) => void api.castCommand(c).catch((e) => toast(errorText(e))), []);
 
   return { status, active, starting, start, stop, command };
 }

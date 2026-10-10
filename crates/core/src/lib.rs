@@ -4,6 +4,7 @@
 //! into these types; the UI and the playback pipeline only ever consume them.
 
 pub mod capabilities;
+pub mod codes;
 pub mod error;
 pub mod ids;
 pub mod media;
@@ -17,5 +18,5 @@ pub mod settings;
 pub mod stream;
 pub mod text;
 
-pub use error::{Error, Result};
+pub use error::{Error, Result, WithCode};
 pub use ids::{ItemRef, ServerId};

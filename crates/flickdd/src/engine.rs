@@ -128,14 +128,17 @@ pub fn backoff(n: u32) -> Duration {
 
 /// A sentence for the user about why a download keeps failing.
 fn describe(f: &Failure) -> String {
+    use oneshot_core::codes::{DL_DEVICE, DL_DISK, DL_KEY, DL_MEDIA_SERVER, DL_NOT_CONFIGURED, DL_REFUSED, DL_SERVER, DL_SLOW, DL_UNSTABLE};
     match f {
-        Failure::Http { status: 401, .. } => "The server did not accept this device.".into(),
-        Failure::Http { status: 429, code, .. } if code == "RATE_LIMITED" => "The server asked to slow down.".into(),
-        Failure::Http { status: 502, .. } => "The media server did not answer the Flick server.".into(),
-        Failure::Http { status, .. } if *status >= 500 => "The server had a problem.".into(),
-        Failure::Http { .. } => "The server refused the download.".into(),
-        Failure::Network(_) | Failure::Stalled | Failure::CutShort => "The connection to the server is unstable.".into(),
-        Failure::NotConfigured(m) | Failure::Disk(m) => m.clone(),
+        Failure::Http { status: 401, .. } => DL_DEVICE.suffix("The server did not accept this device."),
+        Failure::Http { status: 429, code, .. } if code == "RATE_LIMITED" => DL_SLOW.suffix("The server asked to slow down."),
+        Failure::Http { status: 502, .. } => DL_MEDIA_SERVER.suffix("The media server did not answer the Flick server."),
+        Failure::Http { status, .. } if *status >= 500 => DL_SERVER.suffix("The server had a problem."),
+        Failure::Http { .. } => DL_REFUSED.suffix("The server refused the download."),
+        Failure::Network(_) | Failure::Stalled | Failure::CutShort => DL_UNSTABLE.suffix("The connection to the server is unstable."),
+        Failure::NotConfigured(m) => DL_NOT_CONFIGURED.suffix(m),
+        Failure::Disk(m) => DL_DISK.suffix(m),
+        Failure::Key(m) => DL_KEY.suffix(m),
     }
 }
 
@@ -493,7 +496,7 @@ impl Manager {
             return Ok(());
         };
         let seal = if sealed {
-            let key = self.source.seal_key().ok_or_else(|| Failure::Disk("Flick cannot read the key that protects its downloads.".into()))?;
+            let key = self.source.seal_key().ok_or_else(|| Failure::Key("Flick cannot read the key that protects its downloads. Unlock the keychain and resume.".into()))?;
             Some(Seal::derive(&key, id))
         } else {
             None
@@ -604,12 +607,12 @@ impl Manager {
         tracing::warn!(target: "flickdd", "a download step failed: {f}");
         let (status, code) = (f.status(), f.code().to_owned());
         match &f {
-            Failure::NotConfigured(m) => {
-                self.pause_with(id, m.clone());
+            Failure::NotConfigured(_) | Failure::Key(_) => {
+                self.pause_with(id, describe(&f));
                 return Flow::Stop;
             }
             Failure::Disk(m) => {
-                self.pause_with(id, format!("Flick cannot write the file: {m}"));
+                self.pause_with(id, oneshot_core::codes::DL_DISK.suffix(format!("Flick cannot write the file: {m}. Free some space or check the folder, then resume.")));
                 return Flow::Stop;
             }
             _ => {}
@@ -623,19 +626,19 @@ impl Manager {
         let Some((had_grant, offset, size)) = self.read(id, |s| (s.grant.is_some(), s.item.offset, s.item.size)) else { return Flow::Stop };
         match (status, code.as_str()) {
             (403, _) => {
-                self.fail(id, "This account is not allowed to download.");
+                self.fail(id, &oneshot_core::codes::DL_REFUSED.suffix("This account is not allowed to download."));
                 return Flow::Stop;
             }
             (400, _) => {
-                self.fail(id, "The server cannot download this title (it may be empty).");
+                self.fail(id, &oneshot_core::codes::DL_REFUSED.suffix("The server cannot download this title (it may be empty)."));
                 return Flow::Stop;
             }
             (503, _) => {
-                self.fail(id, "The server is not connected to this kind of media server.");
+                self.fail(id, &oneshot_core::codes::DL_MEDIA_SERVER.suffix("The Flick Server is not connected to this kind of media server."));
                 return Flow::Stop;
             }
             (404, _) if !had_grant => {
-                self.fail(id, "Downloads are not available on this server, or the title is gone.");
+                self.fail(id, &oneshot_core::codes::DL_REFUSED.suffix("Downloads are not available on this server, or the title is gone."));
                 return Flow::Stop;
             }
             (409, _) => {
@@ -655,7 +658,7 @@ impl Manager {
                     })
                     .unwrap_or(MAX_CHANGES);
                 if changes >= MAX_CHANGES {
-                    self.fail(id, "The file keeps changing on the server.");
+                    self.fail(id, &oneshot_core::codes::DL_CHANGED.suffix("The file keeps changing on the server."));
                     return Flow::Stop;
                 }
             }
@@ -685,7 +688,7 @@ impl Manager {
             Failure::Http { retry_after: Some(s), .. } => Duration::from_secs(*s),
             _ => Duration::ZERO,
         };
-        self.wait(id, backoff(fails).max(retry_after), &format!("Connection problem ({f}), retrying")).await;
+        self.wait(id, backoff(fails).max(retry_after), "Connection problem, retrying").await;
         Flow::Continue
     }
 

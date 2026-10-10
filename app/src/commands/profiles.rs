@@ -197,13 +197,13 @@ pub struct SwitchOutcome {
 
 #[tauri::command]
 pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId, pin: Option<String>, plex_pin: Option<String>) -> Result<SwitchOutcome> {
-    let _busy = state.switching.try_lock().map_err(|_| Error::Invalid("a profile switch is already in progress".into()))?;
+    let _busy = state.switching.try_lock().map_err(|_| Error::Invalid(oneshot_core::codes::PROF_BUSY.tag("A profile switch is already in progress.")))?;
     state.check_pin(id, pin.as_deref())?;
     let resolved = state
         .resolved_profiles()
         .into_iter()
         .find(|r| r.profile.id == id)
-        .ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        .ok_or_else(|| Error::NotFound(oneshot_core::codes::PROF_NOT_FOUND.tag("This profile no longer exists.")))?;
     let configured_plex: HashSet<String> =
         state.servers.read().iter().filter(|s| s.kind == ProviderKind::Plex).map(|s| s.remote_id.clone()).collect();
     let mut failed = Vec::new();
@@ -296,7 +296,7 @@ pub async fn profile_switch(app: tauri::AppHandle, state: St<'_>, id: ProfileId,
 pub fn profile_create(state: St<'_>, name: String, color: String) -> Result<ProfileId> {
     let name = name.trim().to_owned();
     if name.is_empty() {
-        return Err(Error::Invalid("a profile needs a name".into()));
+        return Err(Error::Invalid(oneshot_core::codes::PROF_NAME.tag("A profile needs a name.")));
     }
     let p = Profile::new(name, color, Origin::Manual, PersonalSettings::from_settings(&state.store.settings()));
     let id = p.id;
@@ -371,7 +371,7 @@ pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: O
         .find(|r| r.profile.id == id)
         .is_some_and(|r| r.accounts.iter().any(|a| a.connection.as_ref().is_some_and(|d| d.id == connection)));
     if !owns {
-        return Err(Error::Invalid("that account is not part of this profile".into()));
+        return Err(Error::Invalid(oneshot_core::codes::PROF_ACCOUNT.tag("That account is not part of this profile.")));
     }
     state.update_profile(id, |p| {
         if !p.detached.contains(&connection) {
@@ -390,7 +390,7 @@ pub fn profile_detach(state: St<'_>, id: ProfileId, connection: ServerId, pin: O
 #[tauri::command(async)]
 pub fn profile_merge(state: St<'_>, from: ProfileId, into: ProfileId, pin: Option<String>, into_pin: Option<String>) -> Result<()> {
     if from == into {
-        return Err(Error::Invalid("a profile cannot be merged with itself".into()));
+        return Err(Error::Invalid(oneshot_core::codes::PROF_MERGE_SELF.tag("A profile cannot be merged with itself.")));
     }
     state.check_pin(from, pin.as_deref())?;
     state.check_pin(into, into_pin.as_deref())?;
@@ -403,7 +403,7 @@ pub fn profile_merge(state: St<'_>, from: ProfileId, into: ProfileId, pin: Optio
             })
         };
         let (Some(from_key), Some(_)) = (key_of(&cfg, from), key_of(&cfg, into)) else {
-            return Err(Error::Invalid("only profiles made from server users can be merged".into()));
+            return Err(Error::Invalid(oneshot_core::codes::PROF_MERGE_KIND.tag("Only profiles made from server users can be merged.")));
         };
         // Everything folded into `from` moves along, so merging stays transitive.
         let mut folded = cfg.profiles.iter_mut().find(|p| p.id == from).map(|p| std::mem::take(&mut p.merged)).unwrap_or_default();
@@ -445,9 +445,9 @@ pub fn profile_delete(state: St<'_>, id: ProfileId, pin: Option<String>) -> Resu
     state.check_pin(id, pin.as_deref())?;
     let (removed, used) = {
         let mut cfg = state.profiles.write();
-        let idx = cfg.profiles.iter().position(|p| p.id == id).ok_or_else(|| Error::NotFound(format!("profile {id}")))?;
+        let idx = cfg.profiles.iter().position(|p| p.id == id).ok_or_else(|| Error::NotFound(oneshot_core::codes::PROF_NOT_FOUND.tag("This profile no longer exists.")))?;
         if cfg.profiles[idx].origin != Origin::Manual {
-            return Err(Error::Invalid("profiles made from server users are hidden, not deleted".into()));
+            return Err(Error::Invalid(oneshot_core::codes::PROF_HIDE_ONLY.tag("Profiles made from server users are hidden, not deleted. Hide it instead.")));
         }
         let removed = cfg.profiles.remove(idx);
         if cfg.last_profile == Some(id) {

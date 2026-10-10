@@ -127,7 +127,7 @@ impl PlexProvider {
         if id.server == self.server() {
             Ok(())
         } else {
-            Err(Error::Invalid(format!("item {id} does not belong to {}", self.descriptor.name)))
+            Err(Error::Invalid(oneshot_core::codes::SRV_FOREIGN_ITEM.tag(format!("This title does not belong to {}. Reopen it from its own library.", self.descriptor.name))))
         }
     }
 
@@ -137,7 +137,7 @@ impl PlexProvider {
             .metadata
             .into_iter()
             .next()
-            .ok_or_else(|| Error::NotFound(format!("plex item {key}")))
+            .ok_or_else(|| Error::NotFound(oneshot_core::codes::SRV_PLEX_ITEM.tag("The Plex server no longer has this title. Refresh the library.")))
     }
 }
 
@@ -239,7 +239,7 @@ impl MediaProvider for PlexProvider {
             q.push(("actor", p.key.clone()));
         }
         if f.favorites_only {
-            return Err(Error::Unsupported("favourites filter (Plex has no favourites)".into()));
+            return Err(Error::Unsupported(oneshot_core::codes::SRV_UNSUPPORTED.tag("Plex has no favourites: use the watchlist.")));
         }
         let path = match &query.parent {
             Some(parent) => {
@@ -346,8 +346,8 @@ impl MediaProvider for PlexProvider {
 
     async fn set_favorite(&self, id: &ItemRef, favorite: bool) -> Result<()> {
         self.check(id)?;
-        let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported("favourites (sign in to plex.tv for this account)".into()))?;
-        let guid = self.metadata(&id.key).await?.guid.ok_or_else(|| Error::Unsupported("favourites (this title is not in the Plex catalogue)".into()))?;
+        let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported(oneshot_core::codes::AUTH_PLEX_ACCOUNT.tag("Favourites need a plex.tv sign-in for this account: sign in from Settings › Servers.")))?;
+        let guid = self.metadata(&id.key).await?.guid.ok_or_else(|| Error::Unsupported(oneshot_core::codes::SRV_PLEX_CATALOGUE.tag("This title is not in the Plex catalogue, so it cannot be favourited.")))?;
         w.set(&guid, favorite).await
     }
 
@@ -429,7 +429,7 @@ impl MediaProvider for PlexProvider {
     /// Watchlist titles this server has, in Watchlist order (titles it
     /// does not have are left out).
     async fn favorites(&self, limit: u32) -> Result<Vec<MediaItem>> {
-        let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported("favourites (no plex.tv sign-in for this account)".into()))?;
+        let w = self.watchlist.as_ref().ok_or_else(|| Error::Unsupported(oneshot_core::codes::AUTH_PLEX_ACCOUNT.tag("Favourites need a plex.tv sign-in for this account: sign in from Settings › Servers.")))?;
         let entries = w.entries().await?;
         let guids: Vec<String> = entries.into_iter().take(limit as usize).map(|e| e.guid).collect();
         let found: Vec<Result<Option<Metadata>>> =

@@ -56,27 +56,27 @@ pub async fn flicksync_select_media(state: St<'_>, item: ItemRef) -> Result<()> 
 
 #[tauri::command(async)]
 pub fn flicksync_chat(state: St<'_>, text: String) -> Result<()> {
-    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid("not in a room".into()))?;
+    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid(oneshot_core::codes::SYNC_NO_ROOM.tag("You are not in a watch room. Join or create one first.")))?;
     client.send_chat(&text).map_err(into_core_error)
 }
 
 #[tauri::command(async)]
 pub fn flicksync_update_room(state: St<'_>, host_only: Option<bool>, chat_enabled: Option<bool>) -> Result<()> {
-    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid("not in a room".into()))?;
+    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid(oneshot_core::codes::SYNC_NO_ROOM.tag("You are not in a watch room. Join or create one first.")))?;
     let mode = host_only.map(|h| if h { ControlMode::HostOnly } else { ControlMode::Everyone });
     client.update_room(mode, chat_enabled).map_err(into_core_error)
 }
 
 #[tauri::command(async)]
 pub fn flicksync_close_room(state: St<'_>) -> Result<()> {
-    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid("not in a room".into()))?;
+    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid(oneshot_core::codes::SYNC_NO_ROOM.tag("You are not in a watch room. Join or create one first.")))?;
     client.close_room().map_err(into_core_error)
 }
 
 /// The player was closed: open the room's title again and catch up.
 #[tauri::command(async)]
 pub fn flicksync_resync_media(state: St<'_>) -> Result<()> {
-    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid("not in a room".into()))?;
+    let client = state.flicksync.room_client().ok_or_else(|| Error::Invalid(oneshot_core::codes::SYNC_NO_ROOM.tag("You are not in a watch room. Join or create one first.")))?;
     client.resync_media().map_err(into_core_error)
 }
 

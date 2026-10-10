@@ -41,19 +41,24 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
     match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map(Some)
-            .map_err(|e| Error::Storage(format!("{}: {e}", path.display()))),
+            .map_err(|e| Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick cannot read {} ({e}). If the file is damaged, delete it to start from the defaults.", path.display())))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::Storage(format!("{}: {e}", path.display()))),
+        Err(e) => Err(Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick cannot read {} ({e}). Check the folder's permissions.", path.display())))),
     }
 }
 
+/// A file Flick could not save.
+fn file_err(what: &str, e: impl std::fmt::Display) -> Error {
+    Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick could not {what} its data file ({e}). Check the disk space and the folder's permissions.")))
+}
+
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    let dir = path.parent().ok_or_else(|| Error::Storage("invalid path".into()))?;
-    std::fs::create_dir_all(dir).map_err(|e| Error::Storage(e.to_string()))?;
+    let dir = path.parent().ok_or_else(|| Error::Storage(oneshot_core::codes::STO_FILE.tag("Flick cannot save a file: its folder is not valid.")))?;
+    std::fs::create_dir_all(dir).map_err(|e| file_err("create the folder", e))?;
     let tmp = path.with_extension("json.tmp");
-    let bytes = serde_json::to_vec_pretty(value).map_err(|e| Error::Storage(e.to_string()))?;
-    std::fs::write(&tmp, bytes).map_err(|e| Error::Storage(e.to_string()))?;
-    std::fs::rename(&tmp, path).map_err(|e| Error::Storage(e.to_string()))
+    let bytes = serde_json::to_vec_pretty(value).map_err(|e| file_err("encode the data", e))?;
+    std::fs::write(&tmp, bytes).map_err(|e| file_err("write", e))?;
+    std::fs::rename(&tmp, path).map_err(|e| file_err("write", e))
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +69,7 @@ pub struct Store {
 impl Store {
     pub fn open(paths: Paths) -> Result<Self> {
         for dir in [&paths.config, &paths.cache] {
-            std::fs::create_dir_all(dir).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
+            std::fs::create_dir_all(dir).map_err(|e| Error::Storage(oneshot_core::codes::STO_FILE.tag(format!("Flick cannot create its folder {} ({e}).", dir.display()))))?;
         }
         Ok(Self { paths })
     }

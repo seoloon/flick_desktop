@@ -17,7 +17,7 @@ import { Segmented } from "@/components/tv/Segmented";
 import { Switch } from "@/components/tv/Switch";
 import { TextField } from "@/components/tv/TextField";
 import { TvDialog } from "@/components/tv/TvDialog";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ProfileEdit } from "@/ipc/app-types";
 import type { AvatarStyle } from "@/ipc/bindings/AvatarStyle";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
@@ -28,6 +28,7 @@ import { allServersQuery, PROFILE_COLORS, pinError, profilesQuery } from "@/lib/
 import { queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
+import { errorText } from "@/lib/errors";
 
 type Target = ProfileCard | "new" | null;
 type PinStep = null | { stage: "new" } | { stage: "confirm"; first: string };
@@ -84,7 +85,7 @@ export function ProfileEditor({ target, onClose }: { target: Target; onClose: ()
   const locked = !!card?.locked && unlock === null;
   const isActive = card?.id === state.active;
 
-  const fail = (e: unknown) => toast.error(asError(e).message);
+  const fail = (e: unknown) => toast.error(errorText(e));
 
   const leaveTo = (path: string) => {
     onClose();

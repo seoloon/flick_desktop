@@ -85,7 +85,7 @@ fn parse_key(key: &str) -> Result<Key> {
     } else if key.split('.').count() == 3 && key.len() > 40 && !key.contains(char::is_whitespace) {
         Ok(Key::V4(key.to_owned()))
     } else {
-        Err(Error::Invalid("not a TMDB API key (v3 key or v4 read access token)".into()))
+        Err(Error::Invalid(oneshot_core::codes::SRV_TMDB_KEY.tag("This is not a TMDB key. Use the v3 API key or the v4 read access token from your TMDB account.")))
     }
 }
 

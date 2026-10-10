@@ -48,12 +48,12 @@ pub async fn play(window: WebviewWindow, state: St<'_>, mut request: PlayRequest
 /// (quality change from the player menu), keeping version and tracks.
 #[tauri::command]
 pub async fn player_reload(window: WebviewWindow, state: St<'_>) -> Result<PlaybackDecision> {
-    let request = state.player.resume_request().ok_or_else(|| oneshot_core::Error::Invalid("nothing is playing".into()))?;
+    let request = state.player.resume_request().ok_or_else(|| oneshot_core::Error::Invalid(oneshot_core::codes::PLAY_NOTHING.tag("Nothing is playing.")))?;
     start(&window, &state, request).await
 }
 
 async fn start(window: &WebviewWindow, state: &AppState, request: PlayRequest) -> Result<PlaybackDecision> {
-    let item = request.item.clone().ok_or_else(|| oneshot_core::Error::Invalid("no item".into()))?;
+    let item = request.item.clone().ok_or_else(|| oneshot_core::Error::Invalid(oneshot_core::codes::PLAY_NOTHING.tag("There is nothing to play.")))?;
     let provider = state.catalog.provider(item.server)?;
     let caps = state.caps.report();
     let display = current_display(window);

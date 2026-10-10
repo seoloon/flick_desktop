@@ -166,7 +166,7 @@ fn find_media<'a>(m: &'a Metadata, source_id: &str) -> Result<(usize, &'a Media)
         .iter()
         .enumerate()
         .find(|(_, media)| media.id.to_string() == source_id)
-        .ok_or_else(|| Error::NotFound(format!("media version {source_id}")))
+        .ok_or_else(|| Error::NotFound(oneshot_core::codes::PLAY_VERSION_GONE.tag("This version of the title is no longer on the server. Reopen the title and choose a version again.")))
 }
 
 /// Plex selects streams by its own stream *id*; we address them by index.
@@ -178,7 +178,7 @@ fn stream_id(media: &Media, index: Option<u32>, stream_type: u8) -> Option<i64> 
 pub async fn stream(p: &PlexProvider, req: &StreamRequest) -> Result<StreamTarget> {
     let m = p.metadata(&req.item.key).await?;
     let (media_index, media) = find_media(&m, &req.source_id)?;
-    let part = media.parts.first().ok_or_else(|| Error::Playback("media has no playable part".into()))?;
+    let part = media.parts.first().ok_or_else(|| Error::Playback(oneshot_core::codes::PLAY_NO_PART.tag("The Plex server lists no playable file for this title. Rescan the library on the server.")))?;
     let headers = p.identity.headers(&p.token);
     match &req.delivery {
         DeliveryRequest::Direct => {

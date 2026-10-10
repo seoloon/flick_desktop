@@ -9,6 +9,7 @@ import { onFlickSyncEvent } from "@/ipc/events";
 import { flushSettings, useSettings } from "@/lib/settings";
 import { playPath } from "@/features/player/route";
 import { leftText, messageText, refreshStatus, useWatch } from "./store";
+import { withCode } from "@/lib/errors";
 
 export function WatchEvents() {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ export function WatchEvents() {
           toast(messageText(e.message));
           break;
         case "mediaUnavailable":
-          toast.error(e.title ? `“${e.title}” isn't available on your connected server.` : messageText("media_unavailable"), {
+          toast.error(e.title ? withCode(`“${e.title}” isn't available on your connected server.`, "FLK-SYNC-012") : messageText("media_unavailable"), {
             description: "You're still in the room.",
           });
           break;

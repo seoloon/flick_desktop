@@ -39,7 +39,7 @@ pub struct DecisionInput<'a> {
 
 /// The source cannot be played with the current settings/server policy.
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("this media cannot be played: {}", .reasons.iter().filter(|r| r.severity == ReasonSeverity::Blocking).map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "))]
+#[error("This title cannot be played with the current settings: {}.", .reasons.iter().filter(|r| r.severity == ReasonSeverity::Blocking).map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "))]
 pub struct Unplayable {
     pub reasons: Vec<DecisionReason>,
 }

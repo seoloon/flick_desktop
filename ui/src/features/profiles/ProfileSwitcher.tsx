@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { AccountPills } from "@/components/tv/AccountPills";
 import { type PinResult, PinPad } from "@/components/tv/PinPad";
 import { ProfileAvatar } from "@/components/tv/ProfileAvatar";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ProfileCard } from "@/ipc/bindings/ProfileCard";
 import type { ProfilesState } from "@/ipc/bindings/ProfilesState";
 import { focusSpring, panelSpring } from "@/lib/motion";
@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
 import { onAction } from "@/nav/input";
 import { focusKey } from "@/nav/spatial";
+import { errorText } from "@/lib/errors";
 
 function useActive() {
   const data = useQuery(profilesQuery).data;
@@ -140,7 +141,7 @@ function ProfilePopover({
       navigate("/");
       if (outcome.failed.length) toast(`${outcome.failed.join(", ")} did not answer`);
     } catch (e) {
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
     }
   };
 

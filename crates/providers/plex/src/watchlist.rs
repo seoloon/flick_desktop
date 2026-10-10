@@ -112,7 +112,7 @@ impl Watchlist {
                 ok
             }
         };
-        if ok { Ok(()) } else { Err(Error::Unsupported("Watchlist (the stored plex.tv sign-in is another account's)".into())) }
+        if ok { Ok(()) } else { Err(Error::Unsupported(oneshot_core::codes::SRV_WATCHLIST_ACCOUNT.tag("The saved plex.tv sign-in belongs to another account than this server's. Sign in again with the right one."))) }
     }
 
     fn cached(&self) -> Option<Vec<WatchlistEntry>> {
@@ -162,7 +162,7 @@ impl Watchlist {
 
     /// Adds `guid` to the Watchlist (`on`) or removes it.
     pub async fn set(&self, guid: &str, on: bool) -> Result<()> {
-        let key = discover_key(guid).ok_or_else(|| Error::Unsupported("Watchlist (not a Plex catalogue title)".into()))?;
+        let key = discover_key(guid).ok_or_else(|| Error::Unsupported(oneshot_core::codes::SRV_PLEX_CATALOGUE.tag("This title is not in the Plex catalogue, so it cannot be added to the watchlist.")))?;
         self.check_owner().await?;
         let action = if on { "actions/addToWatchlist" } else { "actions/removeFromWatchlist" };
         let mut url = oneshot_net::join(&self.discover, action)?;

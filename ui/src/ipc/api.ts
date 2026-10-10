@@ -59,10 +59,10 @@ import type {
 /** Normalises a command rejection into `AppError`. */
 export function asError(e: unknown): AppError {
   if (e && typeof e === "object" && "message" in e) {
-    const o = e as { kind?: unknown; message: unknown };
-    return { kind: typeof o.kind === "string" ? o.kind : "other", message: String(o.message) };
+    const o = e as { kind?: unknown; code?: unknown; message: unknown };
+    return { kind: typeof o.kind === "string" ? o.kind : "other", code: typeof o.code === "string" ? o.code : "FLK-GEN-000", message: String(o.message) };
   }
-  return { kind: "other", message: String(e) };
+  return { kind: "other", code: "FLK-GEN-000", message: String(e) };
 }
 
 export function unwrap<T, E>(r: RustResult<T, E>): { ok: true; value: T } | { ok: false; error: E } {

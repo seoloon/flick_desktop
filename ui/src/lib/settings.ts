@@ -1,8 +1,9 @@
 // Settings store: loaded once, edited in place, persisted (debounced) to Rust
 // which applies runtime-changeable options to the player immediately.
 import { create } from "zustand";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { Settings } from "@/ipc/bindings/Settings";
+import { errorText } from "@/lib/errors";
 
 type SettingsState = { settings: Settings | null; saveError: string | null };
 
@@ -46,7 +47,7 @@ export function updateSettings(fn: (s: Settings) => void) {
     api.settingsSet(next).then(
       () => useSettingsStore.setState({ saveError: null }),
       (e) => {
-        useSettingsStore.setState({ saveError: asError(e).message });
+        useSettingsStore.setState({ saveError: errorText(e) });
         console.error("settings save failed", e);
       },
     );

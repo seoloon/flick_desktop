@@ -6,10 +6,11 @@ import { Button } from "@/components/tv/Button";
 import { Notice } from "@/components/tv/Feedback";
 import { ProviderLogo } from "@/components/tv/ServerBadge";
 import { TextField } from "@/components/tv/TextField";
-import { api, asError } from "@/ipc/api";
+import { api } from "@/ipc/api";
 import type { ProfileAccount } from "@/ipc/bindings/ProfileAccount";
 import { panelSpring } from "@/lib/motion";
 import { FocusGroup } from "@/nav/Focusable";
+import { errorText } from "@/lib/errors";
 
 export function AccountSignIn({ account, onDone }: { account: ProfileAccount; onDone: () => void }) {
   const [password, setPassword] = useState("");
@@ -30,7 +31,7 @@ export function AccountSignIn({ account, onDone }: { account: ProfileAccount; on
       onDone();
     } catch (e) {
       if (!alive.current) return;
-      setError(asError(e).message);
+      setError(errorText(e));
       setBusy(false);
     }
   };
@@ -43,7 +44,7 @@ export function AccountSignIn({ account, onDone }: { account: ProfileAccount; on
       setQuick(q);
     } catch (e) {
       if (!alive.current) return;
-      setError(asError(e).message);
+      setError(errorText(e));
     }
   };
 
@@ -57,7 +58,7 @@ export function AccountSignIn({ account, onDone }: { account: ProfileAccount; on
         },
         (e) => {
           if (!alive.current) return;
-          setError(asError(e).message);
+          setError(errorText(e));
         },
       );
     }, 2000);

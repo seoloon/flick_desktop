@@ -8,10 +8,11 @@ import { Button } from "@/components/tv/Button";
 import { CenteredSpinner, Notice } from "@/components/tv/Feedback";
 import { Facts, Page, PageHeader, Panel, Pill } from "@/components/tv/Page";
 import { Segmented } from "@/components/tv/Segmented";
-import { api, asError, unwrap } from "@/ipc/api";
+import { api, unwrap } from "@/ipc/api";
 import type { RustResult } from "@/ipc/app-types";
 import { FocusGroup, Screen } from "@/nav/Focusable";
 import { librariesQuery, serversQuery } from "@/shell/navItems";
+import { errorText } from "@/lib/errors";
 
 function Section<T>({ title, result, children, className }: { title: string; result: RustResult<T>; children: (v: T) => ReactNode; className?: string }) {
   const r = unwrap(result);
@@ -39,7 +40,7 @@ export function Admin() {
       toast.success(`${label}: started`);
       setTimeout(() => void overview.refetch(), 1500);
     } catch (e) {
-      toast.error(`${label}: ${asError(e).message}`);
+      toast.error(`${label}: ${errorText(e)}`);
     }
   };
 
@@ -61,7 +62,7 @@ export function Admin() {
         ) : servers.data.length === 0 ? (
           <p className="text-lg text-muted-foreground">None of your accounts administers a connected server.</p>
         ) : overview.error ? (
-          <Notice tone="error">{asError(overview.error).message}</Notice>
+          <Notice tone="error">{errorText(overview.error)}</Notice>
         ) : !o ? (
           <CenteredSpinner />
         ) : (

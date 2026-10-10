@@ -16,7 +16,7 @@ fn now() -> i64 {
 }
 
 fn db_err(e: rusqlite::Error) -> Error {
-    Error::Storage(e.to_string())
+    Error::Storage(oneshot_core::codes::STO_CACHE.tag(format!("The metadata cache failed ({e}). Clear it in Settings › Network & Cache.")))
 }
 
 #[derive(Debug)]
@@ -76,7 +76,7 @@ impl MetadataCache {
     }
 
     pub fn put<T: Serialize>(&self, server: &str, key: &str, value: &T, ttl_secs: u32) -> Result<()> {
-        let bytes = serde_json::to_vec(value).map_err(|e| Error::Storage(e.to_string()))?;
+        let bytes = serde_json::to_vec(value).map_err(|e| Error::Storage(oneshot_core::codes::STO_CACHE.tag(format!("The metadata cache could not store a result ({e})."))))?;
         self.db
             .lock()
             .execute(

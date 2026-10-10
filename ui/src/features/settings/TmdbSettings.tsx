@@ -11,6 +11,7 @@ import { TextField } from "@/components/tv/TextField";
 import { TmdbLogo } from "@/components/tv/TmdbLogo";
 import { api, asError } from "@/ipc/api";
 import { FocusGroup } from "@/nav/Focusable";
+import { errorText, withCode } from "@/lib/errors";
 
 /** TMDB's attribution, required by its terms. */
 function Attribution() {
@@ -44,7 +45,7 @@ export function TmdbSettings() {
       refresh();
     } catch (e) {
       const err = asError(e);
-      setError(err.kind === "unauthorized" ? "The key was refused by TMDB." : err.message);
+      setError(err.kind === "unauthorized" ? withCode("The key was refused by TMDB.", err.code) : errorText(e));
     } finally {
       setBusy(false);
     }
@@ -55,7 +56,7 @@ export function TmdbSettings() {
       await api.tmdbRemoveKey();
       refresh();
     } catch (e) {
-      toast.error(asError(e).message);
+      toast.error(errorText(e));
     }
   };
 

@@ -29,8 +29,8 @@ async fn negotiate(
     if let Some(code) = &info.error_code {
         // e.g. NotAllowed (parental control), NoCompatibleStream, RateLimitExceeded
         return Err(match code.as_str() {
-            "NotAllowed" => Error::Forbidden("playback not allowed for this user".into()),
-            other => Error::Playback(format!("server refused playback: {other}")),
+            "NotAllowed" => Error::Forbidden(oneshot_core::codes::AUTH_PLAYBACK_DENIED.tag("The server does not allow this account to play media.")),
+            other => Error::Playback(oneshot_core::codes::PLAY_REFUSED.tag(format!("The server refused to start the playback ({other})."))),
         });
     }
     Ok(info)
@@ -138,11 +138,11 @@ pub async fn stream(p: &JellyfinProvider, req: &StreamRequest) -> Result<StreamT
                 .iter()
                 .find(|s| s.id == req.source_id)
                 .or(info.media_sources.first())
-                .ok_or_else(|| Error::Playback("server returned no media source".into()))?;
+                .ok_or_else(|| Error::Playback(oneshot_core::codes::PLAY_NO_VERSION.tag("The server returned no playable version of this title.")))?;
             let path = src
                 .transcoding_url
                 .as_deref()
-                .ok_or_else(|| Error::Playback(format!("server offered no stream URL ({:?})", src.transcode_reasons)))?;
+                .ok_or_else(|| Error::Playback(oneshot_core::codes::PLAY_NO_STREAM.tag(format!("The server offered no way to stream this title ({:?}). Allow transcoding in Settings › Playback.", src.transcode_reasons))))?;
             tracing::info!(target: "playback", reasons = ?src.transcode_reasons, "jellyfin transcode/remux url obtained");
             Ok(StreamTarget { url: p.url(path)?, headers, external_subtitles: Vec::new() })
         }
