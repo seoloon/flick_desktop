@@ -164,10 +164,18 @@ async fn send_play(link: &mut Link, session: &str, url: &url::Url, fraction: f64
         let said: String = String::from_utf8_lossy(&resp.body).chars().filter(|c| !c.is_control() || *c == ' ').take(300).collect();
         tracing::warn!(target: "cast", status = resp.status, "AirPlay /play refused: {said}");
     }
-    match resp.status {
+    play_outcome(resp.status)
+}
+
+/// What the device's answer to `/play` means.
+fn play_outcome(status: u16) -> Result<()> {
+    match status {
         s if (200..300).contains(&s) => Ok(()),
         // 470: "connection authorization required".
         401 | 403 | 470 => Err(pin_wanted()),
+        // The route does not exist: a TV that only plays what Apple's own senders give it (no "video" feature
+        // bit, an HLS web player inside) answers 404 even over a verified, encrypted link.
+        404 => Err(Error::Playback(codes::CAST_NO_VIDEO.tag("This AirPlay device does not take videos sent by apps: it plays them only from Apple devices. Cast to a Chromecast, or watch the title in Flick."))),
         s => Err(Error::Playback(codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {s}).")))),
     }
 }
@@ -264,6 +272,14 @@ mod tests {
         let mut out = Vec::new();
         plist::to_writer_xml(&mut out, &Value::Dictionary(d)).unwrap();
         out
+    }
+
+    #[test]
+    fn a_404_on_play_says_the_device_takes_no_video_from_apps_and_a_pin_is_still_asked_for() {
+        assert!(play_outcome(200).is_ok());
+        assert_eq!(play_outcome(404).unwrap_err().code(), codes::CAST_NO_VIDEO.id);
+        assert_eq!(play_outcome(470).unwrap_err().code(), pin_wanted().code());
+        assert_eq!(play_outcome(500).unwrap_err().code(), codes::CAST_AIRPLAY.id);
     }
 
     #[test]

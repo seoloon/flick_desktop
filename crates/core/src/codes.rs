@@ -191,6 +191,7 @@ codes! {
     CAST_FFMPEG_MISSING = "FLK-CAST-015", "CAST", "ffmpeg, which converts videos for AirPlay, was not found.", "Reinstall Flick; when building it yourself, run `node tools/ensure-libmpv.mjs`.";
     CAST_CONVERT_FAILED = "FLK-CAST-016", "CAST", "The conversion of the video for AirPlay stopped unexpectedly.", "Retry; if it persists, try another version of the title (the log has ffmpeg's reason).";
     CAST_CONVERT_SLOW = "FLK-CAST-017", "CAST", "The conversion of the video for AirPlay did not start in time.", "Try again, or watch it in Flick. A very large or damaged file can take too long to open.";
+    CAST_NO_VIDEO = "FLK-CAST-018", "CAST", "This AirPlay device does not take videos sent by apps (it plays them only from Apple devices).", "Cast to a Chromecast, or play the title in Flick. Many TVs from Samsung or LG behave this way.";
     CAST_OTHER ="FLK-CAST-009", "CAST", "A casting problem with no more specific cause.", "Restart the device and retry.";
 
     // ---- Profiles ----------------------------------------------------------
