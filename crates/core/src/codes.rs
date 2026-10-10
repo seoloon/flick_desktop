@@ -186,6 +186,8 @@ codes! {
     CAST_PAIR_WAIT = "FLK-CAST-010", "CAST", "The AirPlay device is busy or asks to wait before another PIN attempt.", "Wait a minute and retry.";
     CAST_PAIR_FAILED = "FLK-CAST-011", "CAST", "The pairing with the AirPlay device failed or could not be verified.", "Retry; if it persists, remove the device's pairing in its settings (Remotes and Devices) and pair again.";
     CAST_FORMAT = "FLK-CAST-012", "CAST", "AirPlay cannot play this file as it is (container or codec) and Flick does not convert it yet.", "Cast a title in MP4/H.264/HEVC with AAC or AC-3 audio, or watch it in Flick.";
+    CAST_AIRPLAY_LOST = "FLK-CAST-013", "CAST", "The AirPlay device could not be reached, or stopped answering.", "Check it is on (wake it up) and on the same network as this computer, not a guest Wi-Fi, then retry.";
+    CAST_AIRPLAY_CHANNEL = "FLK-CAST-014", "CAST", "The encrypted connection with the AirPlay device broke or could not be checked.", "Retry. If it keeps happening, remove Flick from the device's paired remotes and pair again.";
     CAST_OTHER = "FLK-CAST-009", "CAST", "A casting problem with no more specific cause.", "Restart the device and retry.";
 
     // ---- Profiles ----------------------------------------------------------

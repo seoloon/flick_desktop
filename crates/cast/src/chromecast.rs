@@ -227,7 +227,7 @@ fn media_remote(status: &Value, previous: &Remote) -> Remote {
         "IDLE" => match status["idleReason"].as_str() {
             Some("FINISHED") => CastState::Ended,
             Some("ERROR") => {
-                r.error = Some("the Chromecast could not play this stream".into());
+                r.error = Some(format!("The Chromecast could not play this stream ({})", oneshot_core::codes::CAST_LOAD.id));
                 CastState::Error
             }
             // Idle before it has loaded anything, or after being told to stop.
@@ -355,7 +355,7 @@ async fn run(mut wire: Wire, mut commands: mpsc::UnboundedReceiver<Cmd>, transpo
                 Err(e) => {
                     let mut r = remote.lock();
                     r.state = CastState::Error;
-                    r.error = Some(e.to_string());
+                    r.error = Some(format!("{e} ({})", e.code()));
                     return;
                 }
             },

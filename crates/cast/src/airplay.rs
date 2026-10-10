@@ -32,12 +32,18 @@ pub(crate) struct AirPlay {
     seen_playing: Mutex<bool>,
 }
 
-fn net(e: impl std::fmt::Display) -> Error {
-    Error::Network(codes::CAST_AIRPLAY.tag(format!("The AirPlay device could not be reached ({e}). Check it is on the same network.")))
+/// The receiver cannot be reached, or stopped answering.
+fn lost(why: impl std::fmt::Display) -> Error {
+    tracing::debug!(target: "cast", "AirPlay link: {why}");
+    Error::Network(codes::CAST_AIRPLAY_LOST.tag("The AirPlay device could not be reached or stopped answering. Check it is on and on the same network as this computer."))
 }
 
 fn link_err(e: LinkError) -> Error {
-    net(e)
+    match e {
+        LinkError::Io(_) | LinkError::Timeout => lost(e),
+        LinkError::Malformed => Error::Protocol(codes::CAST_PROTOCOL.tag("The AirPlay device answered with something Flick does not understand. Restart the device and retry.")),
+        LinkError::Crypto => Error::Protocol(codes::CAST_AIRPLAY_CHANNEL.tag("The encrypted connection with the AirPlay device broke. Retry; if it persists, pair the device again.")),
+    }
 }
 
 fn pin_wanted() -> Error {
@@ -49,8 +55,14 @@ fn pair_error(e: PairError) -> Error {
         PairError::WrongPin => Error::Forbidden(codes::AUTH_AIRPLAY_WRONG_PIN.tag("That PIN is not the one shown on the TV. Try again.")),
         PairError::Backoff => Error::Forbidden(codes::CAST_PAIR_WAIT.tag("The AirPlay device asks you to wait before trying another PIN. Try again in a minute.")),
         PairError::Busy => Error::Forbidden(codes::CAST_PAIR_WAIT.tag("The AirPlay device is busy with another pairing. Try again in a moment.")),
-        PairError::Unexpected(why) => Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The AirPlay device answered the pairing in a way Flick does not understand ({why})."))),
-        PairError::Proof(why) => Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The pairing with the AirPlay device could not be verified ({why})."))),
+        PairError::Unexpected(why) => {
+            tracing::debug!(target: "cast", "AirPlay pairing: unexpected answer ({why})");
+            Error::Protocol(codes::CAST_PAIR_FAILED.tag("The AirPlay device answered the pairing in a way Flick does not understand. Retry; if it persists, remove Flick from the device's paired remotes."))
+        }
+        PairError::Proof(why) => {
+            tracing::debug!(target: "cast", "AirPlay pairing: proof failed ({why})");
+            Error::Protocol(codes::CAST_PAIR_FAILED.tag("The pairing with the AirPlay device could not be verified. Retry; if it persists, remove Flick from the device's paired remotes and pair again."))
+        }
         PairError::Device(code) => Error::Protocol(codes::CAST_PAIR_FAILED.tag(format!("The AirPlay device refused the pairing (error {code})."))),
     }
 }
@@ -79,12 +91,14 @@ pub(crate) async fn begin_pairing(addr: SocketAddr) -> Result<Link> {
 
 /// Checks the PIN the person read on the screen; the credentials to keep.
 pub(crate) async fn finish_pairing(mut link: Link, pin: &str) -> Result<Credentials> {
+    // Mid-pairing, a refusal is not a request for the PIN: the person just typed it.
+    let refused = |e: Error| if e.code() == codes::AUTH_AIRPLAY_PAIRING.id { Error::Protocol(codes::CAST_PAIR_FAILED.tag("The AirPlay device refused the pairing. Ask it for a new code and retry.")) } else { e };
     let mut setup = PairSetup::new(pin);
-    let m2 = tlv_step(&mut link, "/pair-setup", &setup.m1(false)).await?;
+    let m2 = tlv_step(&mut link, "/pair-setup", &setup.m1(false)).await.map_err(refused)?;
     let m3 = setup.m3(&m2).map_err(pair_error)?;
-    let m4 = tlv_step(&mut link, "/pair-setup", &m3).await?;
+    let m4 = tlv_step(&mut link, "/pair-setup", &m3).await.map_err(refused)?;
     let m5 = setup.m5(&m4, false).map_err(pair_error)?.ok_or_else(|| pair_error(PairError::Unexpected("a transient pairing")))?;
-    let m6 = tlv_step(&mut link, "/pair-setup", &m5).await?;
+    let m6 = tlv_step(&mut link, "/pair-setup", &m5).await.map_err(refused)?;
     setup.finish(&m6).map_err(pair_error)
 }
 
@@ -201,7 +215,7 @@ impl Receiver for AirPlay {
             // Gone after having played: the receiver let go of the session.
             Ok(r) if r.status == 404 && *self.seen_playing.lock() => Remote { state: CastState::Ended, ..previous },
             Ok(_) => previous,
-            Err(e) => Remote { state: CastState::Error, error: Some(e.to_string()), ..previous },
+            Err(e) => Remote { state: CastState::Error, error: Some(format!("{e} ({})", e.code())), ..previous },
         };
         if next.state == CastState::Playing {
             *self.seen_playing.lock() = true;
