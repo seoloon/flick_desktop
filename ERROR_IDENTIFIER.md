@@ -157,7 +157,7 @@ what it means, and what can be done about it. The first part of the code is the 
 | `FLK-CAST-015` | ffmpeg, which converts videos for AirPlay, was not found. | Reinstall Flick; when building it yourself, run `node tools/ensure-libmpv.mjs`. |
 | `FLK-CAST-016` | The conversion of the video for AirPlay stopped unexpectedly. | Retry; if it persists, try another version of the title (the log has ffmpeg's reason). |
 | `FLK-CAST-017` | The conversion of the video for AirPlay did not start in time. | Try again, or watch it in Flick. A very large or damaged file can take too long to open. |
-| `FLK-CAST-018` | This AirPlay device does not take videos sent by apps (it plays them only from Apple devices). | Cast to a Chromecast, or play the title in Flick. Many TVs from Samsung or LG behave this way. |
+| `FLK-CAST-018` | This AirPlay device does not accept the way Flick sends it a video (it answers that the request does not exist). | Cast to a Chromecast, or play the title in Flick. Some TVs only take videos from their own apps or from Apple's players. |
 | `FLK-CAST-009` | A casting problem with no more specific cause. | Restart the device and retry. |
 
 ## Profiles and PINs (`FLK-PROF-…`)

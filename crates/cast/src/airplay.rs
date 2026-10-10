@@ -173,9 +173,9 @@ fn play_outcome(status: u16) -> Result<()> {
         s if (200..300).contains(&s) => Ok(()),
         // 470: "connection authorization required".
         401 | 403 | 470 => Err(pin_wanted()),
-        // The route does not exist: a TV that only plays what Apple's own senders give it (no "video" feature
-        // bit, an HLS web player inside) answers 404 even over a verified, encrypted link.
-        404 => Err(Error::Playback(codes::CAST_NO_VIDEO.tag("This AirPlay device does not take videos sent by apps: it plays them only from Apple devices. Cast to a Chromecast, or watch the title in Flick."))),
+        // The route does not exist for this device: a TV with no "video" feature bit (Samsung, LG) answers 404
+        // even over a verified, encrypted link. Why it takes video from some senders only is not known.
+        404 => Err(Error::Playback(codes::CAST_NO_VIDEO.tag("This AirPlay device does not accept the way Flick sends it a video: it answers that the request does not exist. Cast to a Chromecast, or watch the title in Flick."))),
         s => Err(Error::Playback(codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {s}).")))),
     }
 }
