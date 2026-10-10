@@ -23,3 +23,31 @@ export function qualityTier(bitrate: number | null): QualityTier {
 }
 
 export const qualityText = (t: QualityTier) => (t.bitrate === null ? t.label : `${t.label} (${t.detail})`);
+
+// Display limit: client-side only. The file is downloaded as before; the
+// picture is scaled down before it is drawn, to spare the GPU. Not a network
+// cap (above). 2160 is the top setting and means no limit.
+export const DISPLAY_TOP = 2160;
+export const DISPLAY_TIERS = [
+  { height: 360, label: "360p" },
+  { height: 480, label: "480p" },
+  { height: 720, label: "720p" },
+  { height: 1080, label: "1080p" },
+  { height: 1440, label: "1440p" },
+  { height: DISPLAY_TOP, label: "4K" },
+];
+
+/** Tiers worth offering for a picture `sourceHeight` lines tall (all when unknown):
+ *  never one the file cannot reach. The top entry stands for "as the file is". */
+export function displayTiers(sourceHeight?: number | null): { height: number; label: string; detail?: string }[] {
+  if (!sourceHeight) return DISPLAY_TIERS;
+  const below = DISPLAY_TIERS.filter((t) => t.height < DISPLAY_TOP && t.height < sourceHeight);
+  return [...below, { height: DISPLAY_TOP, label: "Maximum", detail: `As the file is · ${sourceHeight}p` }];
+}
+
+/** The tier a stored limit falls on for this picture (anything at or above it is "Maximum"). */
+export function displaySelected(limit: number, sourceHeight?: number | null): number {
+  return limit >= (sourceHeight ?? DISPLAY_TOP) ? DISPLAY_TOP : limit;
+}
+
+export const DISPLAY_NOTE = "Only changes how the picture is drawn on this computer, to ease the graphics card; the processor works more. It does not change what is downloaded: for that, use the network limit.";

@@ -13,4 +13,10 @@ hdrPeakDetection: boolean, deinterlace: Deinterlace, frameSync: FrameSync,
 /**
  * Motion interpolation (requires display-resample).
  */
-interpolation: boolean, };
+interpolation: boolean, 
+/**
+ * Tallest picture the player draws, in lines (360..=2160). Client-side
+ * only: the download is untouched, the picture is scaled down before
+ * display to spare the GPU. 2160 = no limit.
+ */
+maxResolution: number, };

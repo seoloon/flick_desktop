@@ -22,7 +22,7 @@ import type { Track } from "@/ipc/bindings/Track";
 import type { TrackType } from "@/ipc/bindings/TrackType";
 import { bitrate, channelsLabel } from "@/lib/format";
 import { focusSpring, panelSpring } from "@/lib/motion";
-import { QUALITY_TIERS, qualityText, qualityTier } from "@/lib/quality";
+import { DISPLAY_NOTE, DISPLAY_TOP, QUALITY_TIERS, displaySelected, displayTiers, qualityText, qualityTier } from "@/lib/quality";
 import { flushSettings, updateSettings, useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { FocusGroup, useTv } from "@/nav/Focusable";
@@ -31,7 +31,7 @@ import { focusKey } from "@/nav/spatial";
 import { summary } from "./explain";
 import type { PlayerStore } from "./store";
 
-type Page = "root" | "info" | "quality" | TrackType;
+type Page = "root" | "info" | "quality" | "resolution" | TrackType;
 
 /** Lets the player route Back/Left to the menu before closing it. */
 export type MenuActions = MutableRefObject<((a: Action) => boolean) | null>;
@@ -58,7 +58,7 @@ function trackLabel(t: Track): { title: string; detail: string } {
   return { title: [lang, t.title].filter(Boolean).join(" — ") || `Track ${t.mpvId}`, detail };
 }
 
-const titles: Record<Page, string> = { root: "", info: "Playback Info", quality: "Quality", audio: "Audio", sub: "Subtitles", video: "Video" };
+const titles: Record<Page, string> = { root: "", info: "Playback Info", quality: "Network limit", resolution: "Display resolution", audio: "Audio", sub: "Subtitles", video: "Video" };
 
 /** A row in any page: white on focus, lifts a touch. */
 function Row({ focusKey: key, autoFocus, onSelect, children, role, checked }: { focusKey?: string; autoFocus?: boolean; onSelect: () => void; children: ReactNode; role?: string; checked?: boolean }) {
@@ -246,7 +246,36 @@ function Quality({ onDone }: { onDone: () => void }) {
       {QUALITY_TIERS.map((t) => (
         <Choice key={t.label} title={t.label} detail={t.detail} selected={t.bitrate === current} onSelect={() => void choose(t.bitrate)} />
       ))}
+      <p className="px-3 pt-2 text-[0.6875rem] leading-snug text-white/45">Limits what the server sends, so it uses less bandwidth. To only ease the graphics card, use Display resolution.</p>
     </FocusGroup>
+  );
+}
+
+/**
+ * Client-side display limit: applied live, nothing is reloaded or re-requested.
+ * Only sizes the picture can reach are offered.
+ */
+function Resolution({ sourceHeight, onDone }: { sourceHeight: number | null; onDone: () => void }) {
+  const settings = useSettings();
+  const current = displaySelected(settings?.video.maxResolution ?? DISPLAY_TOP, sourceHeight);
+  return (
+    <>
+      <FocusGroup fade="y" className="[--fade-size:1.25rem] no-scrollbar -m-1 flex max-h-[40vh] flex-col gap-0.5 overflow-y-auto p-1">
+        {displayTiers(sourceHeight).map((t) => (
+          <Choice
+            key={t.height}
+            title={t.label}
+            detail={t.detail}
+            selected={t.height === current}
+            onSelect={() => {
+              onDone();
+              updateSettings((x) => (x.video.maxResolution = t.height));
+            }}
+          />
+        ))}
+      </FocusGroup>
+      <p className="px-3 pt-2 text-[0.6875rem] leading-snug text-white/45">{DISPLAY_NOTE}</p>
+    </>
   );
 }
 
@@ -287,6 +316,8 @@ export function PlayerMenu({ store, actions, source }: { store: PlayerStore; act
 
   const settings = useSettings();
   const selected = (kind: TrackType) => tracks.find((t) => t.kind === kind && t.selected);
+  const videos = tracks.filter((t) => t.kind === "video");
+  const sourceHeight = (selected("video") ?? videos[0])?.height ?? null;
   const audio = selected("audio");
   const sub = selected("sub");
   const bitstream = decision?.audio.mode === "bitstream" && !decision.audio.reencoded;
@@ -295,7 +326,8 @@ export function PlayerMenu({ store, actions, source }: { store: PlayerStore; act
     { page: "audio", label: "Audio", value: (audio ? trackLabel(audio).title : "—") + boost },
     { page: "sub", label: "Subtitles", value: sub ? trackLabel(sub).title : "Off" },
     ...(tracks.filter((t) => t.kind === "video").length > 1 ? [{ page: "video" as const, label: "Video", value: trackLabel(selected("video") ?? tracks.find((t) => t.kind === "video")!).detail }] : []),
-    { page: "quality", label: "Quality", value: qualityText(qualityTier(settings?.playback.maxBitrate ?? null)) },
+    { page: "resolution", label: "Display resolution", value: displayTiers(sourceHeight).find((t) => t.height === displaySelected(settings?.video.maxResolution ?? DISPLAY_TOP, sourceHeight))?.label ?? "" },
+    { page: "quality", label: "Network limit", value: qualityText(qualityTier(settings?.playback.maxBitrate ?? null)) },
     { page: "info", label: "Playback Info", value: decision ? summary(decision).strategy.title : "" },
   ];
 
@@ -331,6 +363,8 @@ export function PlayerMenu({ store, actions, source }: { store: PlayerStore; act
                     <div className="mx-3 my-1 h-px bg-white/10" />
                     {page === "info" ? (
                       <Info store={store} source={source} />
+                    ) : page === "resolution" ? (
+                      <Resolution sourceHeight={sourceHeight} onDone={() => open("root")} />
                     ) : page === "quality" ? (
                       <Quality onDone={() => open("root")} />
                     ) : (

@@ -22,7 +22,7 @@ import type { HdrState } from "@/ipc/bindings/HdrState";
 import type { Settings as SettingsModel } from "@/ipc/bindings/Settings";
 import { defaultSubtitleFont, installedSubtitleFonts } from "@/lib/fonts";
 import { enter, focusSpring, pillSpring } from "@/lib/motion";
-import { QUALITY_TIERS, qualityText } from "@/lib/quality";
+import { DISPLAY_NOTE, DISPLAY_TIERS, QUALITY_TIERS, qualityText } from "@/lib/quality";
 import { updateSettings, useSettings, useSettingsStore } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { FocusGroup, Screen, useTv } from "@/nav/Focusable";
@@ -81,6 +81,7 @@ function hdrText(h: HdrState): string {
   }
 }
 
+const displayLimits: Choice<string>[] = DISPLAY_TIERS.map((t) => ({ value: String(t.height), label: t.label === "4K" ? "4K (no limit)" : t.label }));
 const bitrates: Choice<string>[] = QUALITY_TIERS.map((t) => ({ value: String(t.bitrate ?? 0), label: qualityText(t) }));
 
 const pct = (v: number) => `${Math.round(v * 100)} %`;
@@ -210,8 +211,8 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
           <LanguageDefaults s={s} />
           <SettingsGroup title="Quality">
             <SelectRow
-              label="Streaming quality"
-              hint="Heavier files are converted by the server to this bitrate, at the resolution shown. Original keeps Direct Play. Also in the player's menu."
+              label="Network limit"
+              hint="Network: heavier files are converted by the server to this bitrate, at the resolution shown. Original keeps Direct Play. Also in the player's menu."
               value={String(s.playback.maxBitrate ?? 0)}
               options={bitrates}
               onChange={(v) => set((x) => (x.playback.maxBitrate = Number(v) || null))}
@@ -303,6 +304,13 @@ function SectionBody({ section, s }: { section: Section; s: SettingsModel }): Re
                 { value: "off", label: "Never" },
               ]}
               onChange={(v) => set((x) => (x.video.deinterlace = v))}
+            />
+            <SelectRow
+              label="Display resolution"
+              hint={`${DISPLAY_NOTE} The player's menu only offers sizes the title can reach.`}
+              value={String(s.video.maxResolution)}
+              options={displayLimits}
+              onChange={(v) => set((x) => (x.video.maxResolution = Number(v)))}
             />
             <SelectRow
               label="Frame synchronisation"

@@ -25,7 +25,7 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
     let v = &settings.video;
     let sub = &settings.subtitles;
     let mut p: PropertyList = vec![
-        ("hwdec", s(if v.hardware_decoding == HardwareDecoding::Auto { "auto-safe" } else { "no" })),
+        ("hwdec", s(hwdec(v.hardware_decoding, v.max_resolution))),
         ("tone-mapping", s(v.tone_mapping.mpv_name())),
         ("hdr-compute-peak", s(if v.hdr_peak_detection { "auto" } else { "no" })),
         (
@@ -38,6 +38,7 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
         ),
         ("video-sync", s(if v.frame_sync == FrameSync::DisplayResample { "display-resample" } else { "audio" })),
         ("interpolation", Node::Flag(v.interpolation && v.frame_sync == FrameSync::DisplayResample)),
+        ("vf", s(display_filter(v.max_resolution))),
         ("demuxer-max-bytes", s(format!("{}MiB", settings.network.buffer_mib))),
         ("demuxer-max-back-bytes", s(format!("{}MiB", (settings.network.buffer_mib / 3).max(16)))),
         ("volume", Node::Double(f64::from(settings.audio.volume))),
@@ -67,6 +68,27 @@ pub fn base_properties(settings: &Settings) -> PropertyList {
     }
     p.push(("af", s(audio_filters(settings, false))));
     p
+}
+
+/// mpv's `hwdec` for the settings. A display limit needs the frames in system
+/// memory: a filter cannot take a hardware surface (mpv then drops the filter
+/// without any error and the picture stays full size), so decoding copies
+/// the frames back while a limit is on.
+fn hwdec(decoding: HardwareDecoding, max_height: u32) -> &'static str {
+    match (decoding, max_height >= 2160) {
+        (HardwareDecoding::Off, _) => "no",
+        (HardwareDecoding::Auto, true) => "auto-safe",
+        (HardwareDecoding::Auto, false) => "auto-copy-safe",
+    }
+}
+
+/// Client-side display limit: a picture taller than `max_height` is scaled
+/// down before it reaches the GPU. Empty (no filter) at the top setting.
+fn display_filter(max_height: u32) -> String {
+    if max_height >= 2160 {
+        return String::new();
+    }
+    format!("lavfi=[scale=w=-2:h='min(ih,{max_height})']")
 }
 
 /// The platform's closest match to streaming services' subtitle fonts, for
@@ -316,6 +338,16 @@ mod tests {
         s.subtitles.background = "#101010".into();
         let p = base_properties(&s);
         assert_eq!(get(&p, "sub-back-color"), Some(&Node::from("#80101010")));
+    }
+
+    #[test]
+    fn display_limit_scales_down_only_below_the_top_setting() {
+        let mut s = Settings::default();
+        assert_eq!(get(&base_properties(&s), "vf"), Some(&Node::from("")));
+        assert_eq!(get(&base_properties(&s), "hwdec"), Some(&Node::from("auto-safe")));
+        s.video.max_resolution = 720;
+        assert_eq!(get(&base_properties(&s), "hwdec"), Some(&Node::from("auto-copy-safe")));
+        assert_eq!(get(&base_properties(&s), "vf"), Some(&Node::from("lavfi=[scale=w=-2:h='min(ih,720)']")));
     }
 
     #[test]

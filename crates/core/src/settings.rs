@@ -306,6 +306,10 @@ pub struct VideoSettings {
     pub frame_sync: FrameSync,
     /// Motion interpolation (requires display-resample).
     pub interpolation: bool,
+    /// Tallest picture the player draws, in lines (360..=2160). Client-side
+    /// only: the download is untouched, the picture is scaled down before
+    /// display to spare the GPU. 2160 = no limit.
+    pub max_resolution: u32,
 }
 
 impl Default for VideoSettings {
@@ -318,9 +322,13 @@ impl Default for VideoSettings {
             deinterlace: Deinterlace::Auto,
             frame_sync: FrameSync::Audio,
             interpolation: false,
+            max_resolution: MAX_RESOLUTIONS[MAX_RESOLUTIONS.len() - 1],
         }
     }
 }
+
+/// Display limits offered, in lines. The last one means "no limit".
+pub const MAX_RESOLUTIONS: [u32; 6] = [360, 480, 720, 1080, 1440, 2160];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
