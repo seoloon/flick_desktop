@@ -160,7 +160,7 @@ export function CastMenu({ busy, onPick }: { busy: boolean; onPick: (d: CastDevi
             <Spinner className="size-4" /> Looking for Chromecast and AirPlay devices…
           </p>
         )}
-        {busy && <p className="px-3 pb-2 text-white/60">Connecting…</p>}
+        {busy && <p className="px-3 pb-2 text-white/60">Connecting… (converting if needed)</p>}
       </FocusGroup>
     </motion.aside>
   );
