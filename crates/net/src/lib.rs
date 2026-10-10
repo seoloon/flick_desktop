@@ -14,12 +14,23 @@ pub use reqwest;
 pub const USER_AGENT: &str = concat!("Flick/", env!("CARGO_PKG_VERSION"));
 
 pub fn client(settings: &NetworkSettings) -> Result<reqwest::Client, Error> {
+    build(settings, true)
+}
+
+/// Same policy, for a body that is read for a long time (a film relayed to a cast receiver): the timeout
+/// is on each wait for data, not on the whole request, which would cut the stream after `timeout_secs`.
+pub fn streaming_client(settings: &NetworkSettings) -> Result<reqwest::Client, Error> {
+    build(settings, false)
+}
+
+fn build(settings: &NetworkSettings, whole_request_timeout: bool) -> Result<reqwest::Client, Error> {
+    let timeout = Duration::from_secs(u64::from(settings.timeout_secs));
     let mut b = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .connect_timeout(Duration::from_secs(u64::from(settings.timeout_secs.min(10))))
-        .timeout(Duration::from_secs(u64::from(settings.timeout_secs)))
         .pool_idle_timeout(Duration::from_secs(90))
         .pool_max_idle_per_host(usize::from(settings.concurrent_requests));
+    b = if whole_request_timeout { b.timeout(timeout) } else { b.read_timeout(timeout) };
     if let Some(proxy) = &settings.proxy {
         b = b.proxy(reqwest::Proxy::all(proxy).map_err(|e| Error::Invalid(codes::NET_PROXY.tag(format!("The proxy address in the settings is not valid ({e})."))))?);
     }
@@ -127,6 +138,39 @@ mod tests {
     fn redacts_pins() {
         assert_eq!(redact("https://plex.tv/api/v2/home/users/u/switch?pin=1234"), "https://plex.tv/api/v2/home/users/u/switch?pin=***");
         assert_eq!(redact("x?a=1&pin=0000&b=2"), "x?a=1&pin=***&b=2");
+    }
+
+    /// A server that answers at once, then gives its 3-chunk body over about 1.8 s.
+    async fn slow_body() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut s, _)) = listener.accept().await else { return };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let _ = s.read(&mut buf).await;
+                    let _ = s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 6\r\nconnection: close\r\n\r\n").await;
+                    for part in [b"ab", b"cd", b"ef"] {
+                        tokio::time::sleep(Duration::from_millis(600)).await;
+                        let _ = s.write_all(part).await;
+                    }
+                });
+            }
+        });
+        format!("http://{addr}/")
+    }
+
+    #[tokio::test]
+    async fn a_streaming_client_is_not_cut_by_the_total_timeout_but_the_normal_one_is() {
+        let url = slow_body().await;
+        let settings = NetworkSettings { timeout_secs: 1, ..Default::default() };
+        // Every read arrives within the second: only the total time (1.8 s) is over it.
+        let normal = client(&settings).unwrap().get(&url).send().await.unwrap();
+        assert!(normal.bytes().await.is_err(), "the whole-request timeout cuts the body");
+        let streaming = streaming_client(&settings).unwrap().get(&url).send().await.unwrap();
+        assert_eq!(streaming.bytes().await.unwrap().as_ref(), b"abcdef");
     }
 
     #[test]

@@ -206,10 +206,15 @@ async fn handle(mut socket: TcpStream, route: &Route) -> std::io::Result<()> {
             Err(last.expect("at least one attempt"))
         }
     };
+    let asked = tokio::time::Instant::now();
     let mut resp = match send(head.range.clone()).await {
         Ok(r) => r,
-        Err(_) => return respond(&mut socket, "502 Bad Gateway", "").await,
+        Err(e) => {
+            tracing::warn!(target: "cast", range = head.range.as_deref().unwrap_or("-"), waited_ms = asked.elapsed().as_millis() as u64, "relay: the server did not answer: {e}");
+            return respond(&mut socket, "502 Bad Gateway", "").await;
+        }
     };
+    tracing::info!(target: "cast", method = %head.method, range = head.range.as_deref().unwrap_or("-"), status = resp.status().as_u16(), first_byte_ms = asked.elapsed().as_millis() as u64, "relay: server answered");
     let status = resp.status();
     let mut out = format!("HTTP/1.1 {} {}\r\n{CORS}Connection: close\r\n", status.as_u16(), status.canonical_reason().unwrap_or(""));
     for name in ["content-type", "content-length", "content-range", "accept-ranges"] {

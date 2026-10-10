@@ -122,9 +122,11 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
     let content_type = if target.url.path().ends_with(".m3u8") { "application/x-mpegURL" } else { "video/mp4" };
     let media = CastMedia { url: target.url, headers: target.headers, content_type: content_type.into(), title, start_ms, duration_ms: source.duration_ms, convert };
 
+    // The relay streams the whole title: a per-request total timeout would cut it after `timeout_secs`.
+    let relay_http = oneshot_net::streaming_client(&settings.network)?;
     // The receiver takes over: nothing plays here any more.
     let _ = state.player.command(PlayerCommand::Stop);
-    state.cast.start(&device, media, state.http()).await?;
+    state.cast.start(&device, media, relay_http).await?;
     let generation = CAST_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
     if settings.privacy.report_progress {

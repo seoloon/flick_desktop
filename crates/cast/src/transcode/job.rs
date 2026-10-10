@@ -73,6 +73,7 @@ impl Job {
                 return Err(Error::Playback(codes::CAST_CONVERT_FAILED.tag(format!("The conversion of the video for AirPlay stopped before it began. Try another version of the title.{why}"))));
             }
             if started.elapsed() > FIRST_SEGMENT {
+                tracing::warn!(target: "cast", "ffmpeg wrote no segment in {}s; it said: {}", FIRST_SEGMENT.as_secs(), tail.lock());
                 return Err(Error::Playback(codes::CAST_CONVERT_SLOW.tag("The conversion of the video for AirPlay did not start in time. Try again, or watch it in Flick.")));
             }
             tokio::time::sleep(Duration::from_millis(150)).await;

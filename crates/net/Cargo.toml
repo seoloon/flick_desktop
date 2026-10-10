@@ -16,3 +16,6 @@ url.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "io-util", "time", "macros", "rt"] }
