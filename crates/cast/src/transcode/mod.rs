@@ -11,7 +11,7 @@ pub(crate) use receiver::Converting;
 pub(crate) use session::Session;
 pub use args::{PLAYLIST, SEGMENT_SECS, args};
 pub use job::Job;
-pub use locate::locate;
+pub use locate::{burnable, has_filter, locate};
 pub use plan::{AudioPlan, Burn, Convert, NoVideo, Plan, VideoPlan, plan};
 
 /// ffmpeg is not installed with Flick: raised before the local player is stopped.

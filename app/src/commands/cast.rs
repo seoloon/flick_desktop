@@ -80,7 +80,10 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
     let mut convert = None;
     let delivery = if airplay {
         // The original file in every case: when the receiver cannot play it, ffmpeg converts it here.
-        match oneshot_cast::transcode::plan(source, audio, subtitle).map_err(|_| Error::Playback(oneshot_core::codes::CAST_FORMAT.tag("AirPlay cannot play this title: it has no video Flick can convert. Watch it in Flick, or cast it to a Chromecast.")))? {
+        // A text subtitle needs ffmpeg's libass; without it the title is cast with no subtitle rather than not at all.
+        let text_ok = state.cast.can_burn_text_subtitles();
+        let burnt = subtitle.filter(|s| oneshot_cast::transcode::burnable(s, text_ok));
+        match oneshot_cast::transcode::plan(source, audio, burnt).map_err(|_| Error::Playback(oneshot_core::codes::CAST_FORMAT.tag("AirPlay cannot play this title: it has no video Flick can convert. Watch it in Flick, or cast it to a Chromecast.")))? {
             oneshot_cast::transcode::Plan::Direct => {}
             oneshot_cast::transcode::Plan::Convert(c) => {
                 // Before the local player stops: no ffmpeg, nothing changes on screen.

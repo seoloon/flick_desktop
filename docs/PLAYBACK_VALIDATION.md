@@ -240,10 +240,13 @@ HLS fMP4 par un ffmpeg embarqué. Voir `TECHNICAL.md`, « AirPlay conversion ».
 - Aucun processus `ffmpeg` ni dossier `flick-airplay-*` restant après les tests.
 
 **Limite connue** : le ffmpeg de Homebrew est compilé sans libass, donc sans le
-filtre `subtitles`. Un sous-titre *texte* (SRT/ASS) à incruster fait échouer la
-conversion (`FLK-CAST-016`) ; les sous-titres bitmap (PGS, VobSub) passent par
-`overlay` et ne sont pas concernés. Le script d'embarquement le signale. Il faut
-un ffmpeg avec libass (par ex. le tap `homebrew-ffmpeg/ffmpeg`) pour lever la limite.
+filtre `subtitles`. Constaté sur une TV Samsung : un sous-titre *texte* (SRT/ASS)
+choisi automatiquement faisait échouer la conversion (`FLK-CAST-016`, « No such
+filter: 'subtitles' »). Depuis, Flick détecte le filtre (`ffmpeg -filters`) et,
+sans lui, caste le titre **sans** sous-titre texte au lieu d'échouer ; les
+sous-titres bitmap (PGS, VobSub) passent par `overlay` et ne sont pas concernés.
+Le script d'embarquement le signale. Il faut un ffmpeg avec libass (par ex. le tap
+`homebrew-ffmpeg/ffmpeg`) pour avoir les sous-titres texte.
 
 **Non vérifié (matériel requis)** :
 

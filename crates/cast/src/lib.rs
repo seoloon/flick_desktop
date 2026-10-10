@@ -178,6 +178,11 @@ impl Caster {
         self
     }
 
+    /// Whether the ffmpeg found can draw a text subtitle into the picture (it needs libass).
+    pub fn can_burn_text_subtitles(&self) -> bool {
+        transcode::locate(&self.ffmpeg_dirs).is_some_and(|f| transcode::has_filter(&f, "subtitles"))
+    }
+
     /// Whether ffmpeg is there to convert a title.
     pub fn can_convert(&self) -> bool {
         transcode::locate(&self.ffmpeg_dirs).is_some()
