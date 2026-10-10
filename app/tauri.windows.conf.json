@@ -1,7 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "../third_party/mpv/windows-x64/libmpv-2.dll": "libmpv/libmpv-2.dll"
+      "../third_party/mpv/windows-x64/libmpv-2.dll": "libmpv/libmpv-2.dll",
+      "../third_party/ffmpeg/windows-x64/ffmpeg.exe": "libmpv/ffmpeg.exe"
     }
   }
 }

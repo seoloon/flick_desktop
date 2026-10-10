@@ -9,6 +9,18 @@ build never links against it. Place the platform library here for development:
 | macOS (Apple silicon) | `macos-arm64/libmpv.2.dylib` + dependencies | `tools/bundle-libmpv-macos.mjs` (from Homebrew `mpv`) |
 | Linux | system `libmpv.so.2` | distro package (`libmpv2` / `mpv-libs`) |
 
+**ffmpeg** (converts titles for AirPlay receivers that cannot play them as they are):
+
+| Platform | Expected file | Source |
+|---|---|---|
+| Windows x64 | `../ffmpeg/windows-x64/ffmpeg.exe` (shipped next to the DLL) | `tools/fetch-ffmpeg.ps1` (GPL build from BtbN/FFmpeg-Builds) |
+| macOS (Apple silicon) | `macos-arm64/ffmpeg`, next to libmpv and sharing its `libav*` | `tools/bundle-libmpv-macos.mjs` (from Homebrew `ffmpeg`) |
+| Linux | `ffmpeg` on the `PATH` | distro package |
+
+The search order is: `ONESHOT_FFMPEG` env var → the same folders as libmpv
+(executable's folder, resource `libmpv/`, and in debug builds the folders here)
+→ the `PATH`.
+
 **Licensing:** Flick is GPL-3.0, so a GPL build of libmpv (with GPL-only
 FFmpeg components) can be shipped as well as an LGPL one.
 

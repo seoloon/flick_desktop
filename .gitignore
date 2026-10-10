@@ -3,6 +3,7 @@ node_modules/
 /ui/dist
 /third_party/mpv/*/
 !/third_party/mpv/README.md
+/third_party/ffmpeg/
 /test-media/
 /test-media-real/
 *.log
