@@ -157,7 +157,8 @@ async fn send_play(link: &mut Link, session: &str, url: &url::Url, fraction: f64
         .request("POST", "/play", &[("Content-Type", "application/x-apple-binary-plist"), ("X-Apple-Session-ID", session), ("User-Agent", USER_AGENT)], &play_body(url.as_str(), fraction)?)
         .await
         .map_err(link_err)?;
-    tracing::info!(target: "cast", status = resp.status, encrypted, location = %url, "AirPlay /play answered");
+    // Never the whole URL: its path carries the relay's secret.
+    tracing::info!(target: "cast", status = resp.status, encrypted, host = url.host_str().unwrap_or("?"), file = url.path_segments().and_then(|mut s| s.next_back()).unwrap_or("?"), "AirPlay /play answered");
     if !(200..300).contains(&resp.status) {
         // What the device says explains a refusal (an error plist, or text).
         let said: String = String::from_utf8_lossy(&resp.body).chars().filter(|c| !c.is_control() || *c == ' ').take(300).collect();
