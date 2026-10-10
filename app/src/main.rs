@@ -185,7 +185,12 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
             let st = Arc::clone(&st);
             std::thread::spawn(move || st.caps.refresh());
         }
-        tauri::WindowEvent::Destroyed => st.player.shutdown(),
+        tauri::WindowEvent::Destroyed => {
+            st.player.shutdown();
+            // A cast that converts the title would leave ffmpeg and its temporary folder behind: the
+            // process exits without dropping the session. Bounded, so an unreachable receiver cannot stall quitting.
+            let _ = tauri::async_runtime::block_on(tokio::time::timeout(std::time::Duration::from_secs(3), st.cast.stop()));
+        }
         _ => {}
     });
     Ok(())
