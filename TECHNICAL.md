@@ -27,8 +27,9 @@ The design documents are written in French.
   - **Linux**: the system libmpv (`libmpv2`…);
   - **anywhere**: `ONESHOT_LIBMPV=/path/to/libmpv` overrides the search.
 - **ffmpeg** (GPL build), only to convert titles for AirPlay: bundled like
-  libmpv on **macOS** (`brew install ffmpeg` on the build machine; the binary
-  sits next to libmpv and shares its `libav*`), downloaded into
+  libmpv on **macOS** (`brew install ffmpeg-full` on the build machine, the one
+  Homebrew build with libass, which burns text subtitles in; it goes into
+  `third_party/ffmpeg/macos-arm64` with its own libraries, ~90 MB), downloaded into
   `third_party/ffmpeg/windows-x64` on **Windows**, the system's on **Linux**;
   `ONESHOT_FFMPEG=/path/to/ffmpeg` overrides the search.
 - macOS builds: `rustup target add aarch64-apple-darwin`. Apple silicon only

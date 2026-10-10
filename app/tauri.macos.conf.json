@@ -23,7 +23,8 @@
       "entitlements": "entitlements.macos.plist"
     },
     "resources": {
-      "../third_party/mpv/macos-arm64/": "libmpv/"
+      "../third_party/mpv/macos-arm64/": "libmpv/",
+      "../third_party/ffmpeg/macos-arm64/": "ffmpeg/"
     }
   }
 }

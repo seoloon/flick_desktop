@@ -51,6 +51,21 @@ fn init_tracing(diag: &Diagnostics) -> state::LogReload {
     })
 }
 
+/// Where ffmpeg (AirPlay conversions) is looked for: where libmpv is, then its own folders (macOS ships
+/// it with its own libraries in `ffmpeg/`; the dev folders are the ones the tools in `tools/` fill).
+fn ffmpeg_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut dirs = libmpv_dirs(app);
+    if let Ok(res) = app.path().resource_dir() {
+        dirs.push(res.join("ffmpeg"));
+    }
+    if cfg!(debug_assertions) {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        dirs.push(root.join("third_party/ffmpeg/macos-arm64"));
+        dirs.push(root.join("third_party/ffmpeg/windows-x64"));
+    }
+    dirs
+}
+
 /// Where libmpv is looked for: next to the executable (packaged app), the
 /// bundle resources, then the dev folder.
 fn libmpv_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
@@ -67,8 +82,6 @@ fn libmpv_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         dirs.push(root.join("third_party/mpv/windows-x64"));
         dirs.push(root.join("third_party/mpv/macos-arm64"));
-        // ffmpeg (for AirPlay conversions) is fetched here on Windows.
-        dirs.push(root.join("third_party/ffmpeg/windows-x64"));
         if cfg!(target_os = "macos") {
             // `brew install mpv` (arm64: Homebrew's default prefix; Intel: /usr/local).
             dirs.push(PathBuf::from("/opt/homebrew/lib"));
@@ -149,7 +162,7 @@ fn setup(app: &mut tauri::App, diag: Diagnostics, log_reload: state::LogReload) 
         settings_io: Mutex::new(()),
         flicksync: flicksync::Hub::new(handle.clone()),
         downloads: downloads::Downloads::new(handle.clone(), paths.config.clone()),
-        cast: oneshot_cast::Caster::with_store(Arc::new(crate::pairings::VaultPairings)).with_ffmpeg_dirs(libmpv_dirs(&handle)),
+        cast: oneshot_cast::Caster::with_store(Arc::new(crate::pairings::VaultPairings)).with_ffmpeg_dirs(ffmpeg_dirs(&handle)),
     });
     // Multi-user: resume the last profile, or wait for the picker (nothing
     // is loaded until someone is chosen). Off: every connection, as before.

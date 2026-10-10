@@ -14,7 +14,7 @@ build never links against it. Place the platform library here for development:
 | Platform | Expected file | Source |
 |---|---|---|
 | Windows x64 | `../ffmpeg/windows-x64/ffmpeg.exe` (shipped next to the DLL) | `tools/fetch-ffmpeg.ps1` (GPL build from BtbN/FFmpeg-Builds) |
-| macOS (Apple silicon) | `macos-arm64/ffmpeg`, next to libmpv and sharing its `libav*` | `tools/bundle-libmpv-macos.mjs` (from Homebrew `ffmpeg`) |
+| macOS (Apple silicon) | `../ffmpeg/macos-arm64/ffmpeg` with its own dylibs (shipped in the resource folder `ffmpeg/`) | `tools/bundle-libmpv-macos.mjs` (from Homebrew `ffmpeg-full`, which has libass) |
 | Linux | `ffmpeg` on the `PATH` | distro package |
 
 The search order is: `ONESHOT_FFMPEG` env var → the same folders as libmpv

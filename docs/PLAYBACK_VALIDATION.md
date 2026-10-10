@@ -245,8 +245,12 @@ choisi automatiquement faisait échouer la conversion (`FLK-CAST-016`, « No suc
 filter: 'subtitles' »). Depuis, Flick détecte le filtre (`ffmpeg -filters`) et,
 sans lui, caste le titre **sans** sous-titre texte au lieu d'échouer ; les
 sous-titres bitmap (PGS, VobSub) passent par `overlay` et ne sont pas concernés.
-Le script d'embarquement le signale. Il faut un ffmpeg avec libass (par ex. le tap
-`homebrew-ffmpeg/ffmpeg`) pour avoir les sous-titres texte.
+**Levée sur macOS** : le ffmpeg embarqué vient maintenant de Homebrew
+`ffmpeg-full` (9.0.2, avec libass), dans `third_party/ffmpeg/macos-arm64` (~90 Mo,
+ses propres dylibs, livré dans `ffmpeg/`). Mesuré : le filtre `subtitles`,
+`h264_videotoolbox`, `libx264` et `aac` sont présents, et un SRT est bien incrusté
+dans une image d'un MKV converti en HLS fMP4. Le repli sans sous-titre texte reste
+actif si le ffmpeg trouvé n'a pas libass (Linux système, build maison).
 
 **Non vérifié (matériel requis)** :
 
