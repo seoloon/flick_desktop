@@ -26,8 +26,26 @@ The design documents are written in French.
     install nothing;
   - **Linux**: the system libmpv (`libmpv2`…);
   - **anywhere**: `ONESHOT_LIBMPV=/path/to/libmpv` overrides the search.
+- **ffmpeg** (GPL build), only to convert titles for AirPlay: bundled like
+  libmpv on **macOS** (`brew install ffmpeg` on the build machine; the binary
+  sits next to libmpv and shares its `libav*`), downloaded into
+  `third_party/ffmpeg/windows-x64` on **Windows**, the system's on **Linux**;
+  `ONESHOT_FFMPEG=/path/to/ffmpeg` overrides the search.
 - macOS builds: `rustup target add aarch64-apple-darwin`. Apple silicon only
   for now, there is no Intel build.
+
+## AirPlay conversion
+
+An AirPlay receiver plays an MP4/MOV with H.264 or HEVC and common audio as
+it is: Flick sends the original file through its local relay. For anything
+else (an MKV, DTS audio, AV1, interlaced or 10-bit H.264, a burnt-in
+subtitle) `crates/cast/src/transcode` plans what to convert, and ffmpeg
+copies what the receiver can play and converts the rest into HLS with fMP4
+segments in a temporary folder. ffmpeg reads the title from a loopback relay,
+so the server's credentials never appear on a command line, and the receiver
+pulls the playlist from a second relay on the LAN. A seek outside the part
+already produced restarts ffmpeg there and reloads the stream. Stopping the
+cast, or quitting, kills ffmpeg and deletes the folder.
 
 ## Commands
 

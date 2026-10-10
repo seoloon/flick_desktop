@@ -219,3 +219,40 @@ la libmpv est identique). Options d'audio comme le moteur du lecteur : `audio-ch
 3. **PCM 5.1/7.1** : régler l'ampli/écran en multicanal (Configuration Audio
    MIDI) ; le fichier 03 a un ton par canal.
 4. **Mac Intel / universel** : libmpv x86_64, HEVC Main10 non déclaré par la sonde.
+
+## AirPlay : conversion locale (ffmpeg)
+
+Un titre que le récepteur ne lit pas tel quel (MKV, audio DTS, AV1, H.264
+entrelacé ou 10 bits, sous-titre incrusté) est converti sur l'ordinateur en
+HLS fMP4 par un ffmpeg embarqué. Voir `TECHNICAL.md`, « AirPlay conversion ».
+
+**Mesuré** (macOS Apple silicon, ffmpeg 9.0.2 embarqué dans
+`third_party/mpv/macos-arm64`) :
+
+- `cargo test -p oneshot-core -p oneshot-cast` : 48 + 29 tests verts, dont le
+  planificateur (10), la ligne de commande ffmpeg (8), la recherche de ffmpeg,
+  le relais de dossier (plages d'octets, `..`, `%2f`, `\`), la règle de seek.
+- `a_real_clip_gets_a_playlist_and_the_process_dies_with_the_job` et
+  `a_bad_input_fails_with_the_conversion_code_and_no_hang` passent avec
+  `ONESHOT_FFMPEG` pointant sur le binaire embarqué : les dylibs relocalisées
+  se chargent, `h264_videotoolbox`, `libx264` et `aac` sont présents.
+- `cargo check -p Flick` et `tsc --noEmit` : propres.
+- Aucun processus `ffmpeg` ni dossier `flick-airplay-*` restant après les tests.
+
+**Limite connue** : le ffmpeg de Homebrew est compilé sans libass, donc sans le
+filtre `subtitles`. Un sous-titre *texte* (SRT/ASS) à incruster fait échouer la
+conversion (`FLK-CAST-016`) ; les sous-titres bitmap (PGS, VobSub) passent par
+`overlay` et ne sont pas concernés. Le script d'embarquement le signale. Il faut
+un ffmpeg avec libass (par ex. le tap `homebrew-ffmpeg/ffmpeg`) pour lever la limite.
+
+**Non vérifié (matériel requis)** :
+
+1. Lecture réelle sur un récepteur AirPlay (Apple TV, TV) d'un MKV : démarrage,
+   pause/reprise, scrub dans la partie produite (instantané), scrub loin devant
+   (redémarrage, quelques secondes de « Buffering… »).
+2. Arrêt du cast ou fermeture de l'app : plus de `ffmpeg` dans `pgrep -fl ffmpeg`
+   ni de dossier `flick-airplay-*` dans le dossier temporaire (garanti par
+   `kill_on_drop` et `TempDir`, mais pas observé sur une vraie session).
+3. Build Windows : `tools/fetch-ffmpeg.ps1`, la ressource `libmpv/ffmpeg.exe` et
+   `CREATE_NO_WINDOW` n'ont pas été exécutés (pas de machine Windows).
+4. Linux : ffmpeg système, non essayé.

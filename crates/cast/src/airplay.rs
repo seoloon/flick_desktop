@@ -151,6 +151,21 @@ fn parse_info(body: &[u8], previous: &Remote, seen_playing: bool) -> Remote {
     r
 }
 
+/// `POST /play` on an open link; the receiver then fetches `url`.
+async fn send_play(link: &mut Link, session: &str, url: &url::Url, fraction: f64, encrypted: bool) -> Result<()> {
+    let resp = link
+        .request("POST", "/play", &[("Content-Type", "application/x-apple-binary-plist"), ("X-Apple-Session-ID", session), ("User-Agent", USER_AGENT)], &play_body(url.as_str(), fraction)?)
+        .await
+        .map_err(link_err)?;
+    tracing::debug!(target: "cast", status = resp.status, encrypted, "AirPlay /play answered");
+    match resp.status {
+        s if (200..300).contains(&s) => Ok(()),
+        // 470: "connection authorization required".
+        401 | 403 | 470 => Err(pin_wanted()),
+        s => Err(Error::Playback(codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {s}).")))),
+    }
+}
+
 impl AirPlay {
     /// Connects (verified, when `creds` are known) and starts the stream.
     pub async fn start(addr: SocketAddr, url: &url::Url, media: &CastMedia, creds: Option<&Credentials>) -> Result<Self> {
@@ -163,19 +178,21 @@ impl AirPlay {
             Some(d) if d > 0 => media.start_ms as f64 / d as f64,
             _ => 0.0,
         };
-        let resp = link
-            .request("POST", "/play", &[("Content-Type", "application/x-apple-binary-plist"), ("X-Apple-Session-ID", &session), ("User-Agent", USER_AGENT)], &play_body(url.as_str(), fraction)?)
-            .await
-            .map_err(link_err)?;
-        tracing::debug!(target: "cast", status = resp.status, encrypted = creds.is_some(), "AirPlay /play answered");
-        match resp.status {
-            s if (200..300).contains(&s) => {}
-            // 470: "connection authorization required".
-            401 | 403 | 470 => return Err(pin_wanted()),
-            s => return Err(Error::Playback(codes::CAST_AIRPLAY.tag(format!("The AirPlay device refused the stream (HTTP {s}).")))),
-        }
+        send_play(&mut link, &session, url, fraction, creds.is_some()).await?;
         let remote = Remote { state: CastState::Loading, position_ms: media.start_ms, duration_ms: media.duration_ms, ..Default::default() };
         Ok(Self { link: tokio::sync::Mutex::new(link), session, last: Mutex::new(remote), seen_playing: Mutex::new(false) })
+    }
+
+    /// Plays another stream on the same connection (the conversion restarted somewhere else).
+    pub async fn load(&self, url: &url::Url, start_ms: u64, duration_ms: Option<u64>) -> Result<()> {
+        let fraction = match duration_ms {
+            Some(d) if d > 0 => start_ms as f64 / d as f64,
+            _ => 0.0,
+        };
+        send_play(&mut *self.link.lock().await, &self.session, url, fraction, true).await?;
+        *self.seen_playing.lock() = false;
+        *self.last.lock() = Remote { state: CastState::Loading, position_ms: start_ms, duration_ms, ..Default::default() };
+        Ok(())
     }
 
     async fn call(&self, method: &str, path: &str) -> Result<Response> {

@@ -15,7 +15,7 @@ if (process.platform !== "darwin" || process.arch !== "arm64") {
   console.error("bundle-libmpv-macos: run this on an Apple silicon Mac.");
   process.exit(1);
 }
-if (existsSync(entry) && !process.argv.includes("--force")) process.exit(0);
+if (existsSync(entry) && existsSync(join(dest, "ffmpeg")) && !process.argv.includes("--force")) process.exit(0);
 
 const run = (cmd, args) => execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 const isSystem = (p) => p.startsWith("/usr/lib/") || p.startsWith("/System/");
@@ -28,6 +28,16 @@ try {
   process.exit(1);
 }
 const source = realpathSync(join(prefix, "lib", "libmpv.2.dylib"));
+// ffmpeg converts titles for AirPlay. Seeding the same copy as libmpv means the shared libav* are
+// relocated, re-signed and checked once, together.
+const ffmpegSource = (() => {
+  try {
+    return realpathSync(join(run("brew", ["--prefix", "ffmpeg"]).trim(), "bin", "ffmpeg"));
+  } catch {
+    console.error("ffmpeg not found. Install it with `brew install ffmpeg`.");
+    process.exit(1);
+  }
+})();
 
 /** Install names a binary depends on, minus its own id. */
 function deps(file) {
@@ -51,8 +61,8 @@ mkdirSync(dest, { recursive: true });
 
 // Breadth-first copy: original path -> file name in `dest`.
 const copied = new Map();
-const queue = [source];
-const names = new Map([[source, "libmpv.2.dylib"]]);
+const queue = [source, ffmpegSource];
+const names = new Map([[source, "libmpv.2.dylib"], [ffmpegSource, "ffmpeg"]]);
 while (queue.length) {
   const file = queue.shift();
   if (copied.has(file)) continue;
@@ -65,6 +75,8 @@ while (queue.length) {
     if (!copied.has(real)) queue.push(real);
   }
 }
+
+chmodSync(join(dest, "ffmpeg"), 0o755);
 
 // Rewrite every reference, then re-sign (editing invalidates the signature,
 // and arm64 refuses to load unsigned code).
@@ -87,4 +99,9 @@ for (const f of readdirSync(dest)) {
     process.exit(1);
   }
 }
-console.log(`libmpv bundled: ${copied.size} libraries in third_party/mpv/macos-arm64`);
+// Burning a text subtitle into an AirPlay conversion needs the `subtitles` filter (libass); Homebrew's
+// ffmpeg is built without it. Bitmap subtitles (overlay) and everything else work.
+if (!run(join(dest, "ffmpeg"), ["-hide_banner", "-filters"]).includes(" subtitles ")) {
+  console.warn("warning: this ffmpeg has no `subtitles` filter (no libass): casting a title with a text subtitle to AirPlay will fail to convert.");
+}
+console.log(`libmpv and ffmpeg bundled: ${copied.size} files in third_party/mpv/macos-arm64`);

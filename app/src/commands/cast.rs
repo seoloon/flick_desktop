@@ -8,7 +8,7 @@ use std::time::Duration;
 use oneshot_cast::{CastCommand, CastDevice, CastKind, CastMedia, CastState, CastStatus};
 use oneshot_core::ids::ItemRef;
 use oneshot_core::playback::{ClientProfile, DeliveryKind, DeliveryRequest, PlaybackReport, PlaybackState, ReportKind, StreamRequest};
-use oneshot_core::stream::{AudioCodec, MediaSource, SubtitleFormat, VideoCodec};
+use oneshot_core::stream::{AudioCodec, SubtitleFormat, VideoCodec};
 use oneshot_core::{Error, Result};
 use oneshot_player::PlayerCommand;
 use oneshot_playback::{TrackRequest, tracks};
@@ -50,25 +50,6 @@ fn airplay_profile() -> ClientProfile {
     }
 }
 
-/// Whether `source` can go to an AirPlay receiver untouched; if not, why not.
-fn airplay_direct(source: &MediaSource) -> std::result::Result<(), String> {
-    let container = source.container.as_deref().unwrap_or_default().to_ascii_lowercase();
-    if !container.split(',').any(|c| matches!(c.trim(), "mp4" | "m4v" | "mov")) {
-        return Err(format!("its container ({})", if container.is_empty() { "unknown" } else { &container }));
-    }
-    let Some(video) = source.primary_video() else { return Err("it has no video".into()) };
-    if !matches!(video.codec, VideoCodec::H264 | VideoCodec::Hevc) || video.interlaced {
-        return Err(format!("its video ({:?}{})", video.codec, if video.interlaced { ", interlaced" } else { "" }));
-    }
-    // AirPlay plays the file's default audio: there is no choosing a track.
-    if let Some(audio) = source.default_audio()
-        && !matches!(audio.codec, AudioCodec::Aac | AudioCodec::Ac3 | AudioCodec::Eac3 | AudioCodec::Alac | AudioCodec::Mp3)
-    {
-        return Err(format!("its audio ({:?})", audio.codec));
-    }
-    Ok(())
-}
-
 /// Which cast is the current one: a reporter whose number is old stops.
 static CAST_GENERATION: AtomicU64 = AtomicU64::new(0);
 
@@ -96,11 +77,18 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
     let original = oneshot_player::original_language(&*provider, &item).await;
     let audio = tracks::select_audio(source, TrackRequest::Auto, &settings.playback.preferred_audio_languages, original.as_deref());
     let subtitle = tracks::select_subtitle(source, TrackRequest::Auto, &settings.subtitles, audio);
+    let mut convert = None;
     let delivery = if airplay {
-        // The original file, with no conversion on the server. What AirPlay cannot play
-        // as it is, is refused for now rather than sent to the server to convert.
-        if let Err(why) = airplay_direct(source) {
-            return Err(Error::Playback(oneshot_core::codes::CAST_FORMAT.tag(format!("AirPlay cannot play this file as it is: {why} is not supported, and Flick does not convert it yet. Watch it in Flick, or cast it to a Chromecast."))));
+        // The original file in every case: when the receiver cannot play it, ffmpeg converts it here.
+        match oneshot_cast::transcode::plan(source, audio, subtitle).map_err(|_| Error::Playback(oneshot_core::codes::CAST_FORMAT.tag("AirPlay cannot play this title: it has no video Flick can convert. Watch it in Flick, or cast it to a Chromecast.")))? {
+            oneshot_cast::transcode::Plan::Direct => {}
+            oneshot_cast::transcode::Plan::Convert(c) => {
+                // Before the local player stops: no ffmpeg, nothing changes on screen.
+                if !state.cast.can_convert() {
+                    return Err(oneshot_cast::transcode::missing_error());
+                }
+                convert = Some(c);
+            }
         }
         DeliveryRequest::Direct
     } else {
@@ -129,7 +117,7 @@ pub async fn cast_start(state: St<'_>, device: String, item: ItemRef, start_ms: 
 
     let title = state.catalog.item(&item).await.map(|i| i.episode.as_ref().and_then(|e| e.series_title.clone()).map_or(i.title.clone(), |s| format!("{s} · {}", i.title))).unwrap_or_default();
     let content_type = if target.url.path().ends_with(".m3u8") { "application/x-mpegURL" } else { "video/mp4" };
-    let media = CastMedia { url: target.url, headers: target.headers, content_type: content_type.into(), title, start_ms, duration_ms: source.duration_ms };
+    let media = CastMedia { url: target.url, headers: target.headers, content_type: content_type.into(), title, start_ms, duration_ms: source.duration_ms, convert };
 
     // The receiver takes over: nothing plays here any more.
     let _ = state.player.command(PlayerCommand::Stop);
@@ -232,39 +220,5 @@ impl Reporter {
             self.send(ReportKind::Progress, &now).await;
             last = now;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use oneshot_core::stream::{AudioStream, DynamicRange, VideoStream};
-
-    use super::*;
-
-    fn source(container: &str, video: VideoCodec, audio: AudioCodec) -> MediaSource {
-        MediaSource {
-            id: "s".into(),
-            name: None,
-            container: Some(container.into()),
-            size_bytes: None,
-            bitrate: None,
-            duration_ms: None,
-            video: vec![VideoStream { index: 0, codec: video, profile: None, level: None, width: 1920, height: 1080, bit_depth: Some(8), frame_rate: None, bitrate: None, range: DynamicRange::Sdr, interlaced: false, title: None, is_default: true }],
-            audio: vec![AudioStream { index: 1, codec: audio, profile: None, channels: 6, channel_layout: None, sample_rate: None, bitrate: None, spatial: None, language: None, title: None, is_default: true, is_commentary: false }],
-            subtitles: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn airplay_takes_mp4_with_h264_or_hevc_and_common_audio() {
-        assert!(airplay_direct(&source("mov,mp4,m4a,3gp,3g2,mj2", VideoCodec::H264, AudioCodec::Aac)).is_ok());
-        assert!(airplay_direct(&source("mp4", VideoCodec::Hevc, AudioCodec::Eac3)).is_ok());
-    }
-
-    #[test]
-    fn airplay_refuses_what_it_cannot_play_and_says_why() {
-        assert!(airplay_direct(&source("matroska,webm", VideoCodec::H264, AudioCodec::Aac)).unwrap_err().contains("container"));
-        assert!(airplay_direct(&source("mp4", VideoCodec::Av1, AudioCodec::Aac)).unwrap_err().contains("video"));
-        assert!(airplay_direct(&source("mp4", VideoCodec::H264, AudioCodec::TrueHd)).unwrap_err().contains("audio"));
     }
 }
