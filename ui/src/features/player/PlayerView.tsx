@@ -70,6 +70,7 @@ import { errorText } from "@/lib/errors";
 const HIDE_AFTER = 3500;
 const NEXT_UP_WINDOW = 30_000;
 const SEEK_STEP = 10_000;
+const SKIP_SHOWN = 12_000;
 const TIMELINE_KEY = "player-timeline";
 const EPISODES_BUTTON = "player-episodes-button";
 
@@ -94,6 +95,14 @@ function Clock({ value, remainingOf, className }: { value: MotionValue<number>; 
       {clock(shown)}
     </span>
   );
+}
+
+const endFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+/** Wall-clock time the title ends at, if it keeps playing from here. shortcut: ignores playback speed. */
+function EndsAt({ value, duration, className }: { value: MotionValue<number>; duration: number; className?: string }) {
+  const ms = useSecond(value);
+  return <span className={cn("tabular-nums", className)}>Ends at {endFormat.format(Date.now() + Math.max(0, duration - ms))}</span>;
 }
 
 function Timeline({
@@ -461,7 +470,8 @@ export function PlayerView({
   /** Switch to another item without giving the window back in between. */
   const switchTo = useCallback(
     (id: string, startMs = 0, extra: Record<string, string> = { pre: "0" }) => {
-      handoff.pending = true;
+      // Handed over now, not when this player unmounts: the next one reads it while rendering, before that cleanup runs.
+      Object.assign(handoff, { pending: true, active: true, fullscreen: fullscreenRef.current, pip: pipRef.current, frameBeforePip: frameBeforePip.current });
       navigate(playPath(id, startMs, extra), { replace: true });
     },
     [navigate],
@@ -558,7 +568,7 @@ export function PlayerView({
     () => () => {
       if (handoff.pending) {
         // Another playback takes over right away: it inherits the window as is.
-        Object.assign(handoff, { pending: false, active: true, fullscreen: fullscreenRef.current, pip: pipRef.current, frameBeforePip: frameBeforePip.current });
+        handoff.pending = false;
         return;
       }
       handoff.active = false;
@@ -670,6 +680,15 @@ export function PlayerView({
   const skipMode = activeMarker ? (activeMarker.kind === "credits" ? settings?.playback.skipCredits : settings?.playback.skipIntro) : "off";
   const autoSkip = skipMode === "auto";
   const showSkip = !!activeMarker && skipMode === "button";
+  // Skip buttons stay up SKIP_SHOWN ms, then go until the controls come back.
+  const [skipExpired, setSkipExpired] = useState(false);
+  const skipKey = preroll ? "preroll" : showSkip ? `${activeMarker!.kind}:${activeMarker!.startMs}` : null;
+  useEffect(() => {
+    setSkipExpired(false);
+    if (!skipKey) return;
+    const t = window.setTimeout(() => setSkipExpired(true), SKIP_SHOWN);
+    return () => window.clearTimeout(t);
+  }, [skipKey]);
   useEffect(() => {
     if (activeMarker && autoSkip) seekTo(activeMarker.endMs);
   }, [activeMarker, autoSkip, seekTo]);
@@ -921,7 +940,7 @@ export function PlayerView({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showSkip && activeMarker && !pip && (
+        {showSkip && activeMarker && !pip && (!skipExpired || visible) && (
           <motion.div
             key="skip"
             initial={{ opacity: 0, y: 12 }}
@@ -936,7 +955,7 @@ export function PlayerView({
             </FocusGroup>
           </motion.div>
         )}
-        {preroll && !pip && !error && (
+        {preroll && !pip && !error && (!skipExpired || visible) && (
           <motion.div
             key="skip-preroll"
             initial={{ opacity: 0, y: 12 }}
@@ -1007,6 +1026,7 @@ export function PlayerView({
             <span className="truncate text-[0.9375rem] font-semibold">{title}</span>
             {subtitle && <span className="truncate text-[0.8125rem] text-white/60">{subtitle}</span>}
             {local ? <LocalBadge quiet className="ml-1 text-[0.8125rem]" /> : source && <ServerBadge server={source} quiet className="ml-1 text-[0.8125rem]" />}
+            {duration > 0 && <EndsAt value={store.position} duration={duration} className="ml-auto shrink-0 text-[0.8125rem] text-white/60" />}
           </div>
 
           <FocusGroup focusKey="player-timeline-row" className="flex items-center gap-3 text-xs font-medium text-white/70">
