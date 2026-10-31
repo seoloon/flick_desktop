@@ -20,6 +20,13 @@ export function clock(ms: number): string {
   return `${h ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
 }
 
+const endFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+/** Wall-clock time at which `leftMs` of playback started now would end. */
+export function endsAt(leftMs: number): string {
+  return endFormat.format(Date.now() + Math.max(0, leftMs));
+}
+
 export function remaining(item: MediaItem): string {
   const rt = item.runtimeMs ?? 0;
   const left = rt - item.user.positionMs;

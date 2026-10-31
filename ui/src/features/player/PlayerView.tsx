@@ -44,7 +44,7 @@ import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import type { PlayerCommand } from "@/ipc/bindings/PlayerCommand";
 import { onPlayerEvent } from "@/ipc/events";
 import { imageUrl } from "@/ipc/images";
-import { clock, episodeLabel } from "@/lib/format";
+import { clock, endsAt, episodeLabel } from "@/lib/format";
 import { focusSpring } from "@/lib/motion";
 import { setFrame, useMode } from "@/lib/mode";
 import { useSettings } from "@/lib/settings";
@@ -97,12 +97,10 @@ function Clock({ value, remainingOf, className }: { value: MotionValue<number>; 
   );
 }
 
-const endFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
-
 /** Wall-clock time the title ends at, if it keeps playing from here. shortcut: ignores playback speed. */
 function EndsAt({ value, duration, className }: { value: MotionValue<number>; duration: number; className?: string }) {
   const ms = useSecond(value);
-  return <span className={cn("tabular-nums", className)}>Ends at {endFormat.format(Date.now() + Math.max(0, duration - ms))}</span>;
+  return <span className={cn("tabular-nums", className)}>Ends at {endsAt(duration - ms)}</span>;
 }
 
 function Timeline({

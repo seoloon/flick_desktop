@@ -6,7 +6,7 @@ import ProgressiveBlur from "@/components/smoothui/progressive-blur";
 import type { ImageRef } from "@/ipc/bindings/ImageRef";
 import type { MediaItem } from "@/ipc/bindings/MediaItem";
 import { imageUrl } from "@/ipc/images";
-import { duration, episodeLabel } from "@/lib/format";
+import { duration, endsAt, episodeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Pill } from "./Page";
 
@@ -77,6 +77,8 @@ export function MetaLine({ item, extra }: { item: MediaItem; extra?: ReactNode }
   if (item.genres.length) parts.push(item.genres.slice(0, 2).join(", "));
   if (item.year) parts.push(item.year);
   if (item.runtimeMs) parts.push(duration(item.runtimeMs));
+  // Resuming ends sooner than starting over: the Play button resumes.
+  if (item.runtimeMs && (item.kind === "movie" || item.kind === "episode")) parts.push(`Ends at ${endsAt(item.runtimeMs - item.user.positionMs)}`);
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[0.9375rem] font-medium text-white/80">
       {parts.map((p, i) => (
